@@ -3,7 +3,7 @@ import { join, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // Drives the print builder (fotomalovanky-service). The U5 spike found the builder is a
-// CLIENT-SIDE app (no HTTP API): a webkitdirectory folder input pairs "<base>.jpg/.jpeg"
+// CLIENT-SIDE app (no HTTP API): a webkitdirectory folder input pairs "<base>.jpg/.jpeg/.png"
 // with "<base>.svg" (it ignores "_bw.png"), lays them out under an "@media print / @page A4"
 // stylesheet, and exports by calling window.print(). So the driver loads the folder with
 // Playwright and renders the PDF via headless Chromium's print pipeline (page.pdf(), which
@@ -26,7 +26,13 @@ export class BuilderError extends Error {
   }
 }
 
-const PHOTO = /\.(jpe?g)$/i;
+// An original may be .jpg/.jpeg or .png: customer uploads are usually JPEG, but the
+// generator echoes back whatever was uploaded, and the reference orders in the operator's
+// fixture pack are PNG throughout. The live builder pairs those PNGs happily.
+const PHOTO = /\.(jpe?g|png)$/i;
+// "<base>_bw.png" is the generator's raster line-art, NOT an input photo. It must be
+// skipped before PHOTO is applied, or it registers as a photo with base "<base>_bw".
+const COLORING_PNG = /_bw\.png$/i;
 const SVG = /\.svg$/i;
 const svgBase = (n) => n.replace(/_bw\.svg$/i, '').replace(/\.svg$/i, '');
 
@@ -36,6 +42,7 @@ export function collectPairs(orderDir) {
   const photos = new Map(); // base -> filename
   const svgs = new Map();
   for (const n of names) {
+    if (COLORING_PNG.test(n)) continue;
     if (PHOTO.test(n)) photos.set(n.replace(PHOTO, ''), n);
     else if (SVG.test(n)) svgs.set(svgBase(n), n);
   }
@@ -54,7 +61,7 @@ export class BuilderDriver {
   }
 
   /**
-   * @param {string} orderDir  folder of <base>.jpg + <base>.svg pairs (the "_bw.png" is ignored by the builder)
+   * @param {string} orderDir  folder of <base>.{jpg,jpeg,png} + <base>.svg pairs (the "_bw.png" is ignored by the builder)
    * @param {object} options   { title|dedication, outPdfPath, mode:'gallery'|'fullpage',
    *                             addAllCovers, rotationMin, rotationMax }
    * @returns {Promise<{ pdfPath: string, pairs: number }>}
@@ -64,7 +71,7 @@ export class BuilderDriver {
     const pairs = collectPairs(orderDir);
     if (pairs.length === 0) {
       throw new BuilderError(
-        `No "<base>.jpg + <base>.svg" pairs found in ${orderDir} — the builder needs each photo paired with its SVG coloring page.`,
+        `No "<base>.jpg|.jpeg|.png + <base>.svg" pairs found in ${orderDir} — the builder needs each photo paired with its SVG coloring page.`,
         { step: 'load' },
       );
     }
@@ -90,7 +97,7 @@ export class BuilderDriver {
 
       // 1. Load the order folder into the webkitdirectory input. A webkitdirectory input
       //    requires a directory PATH (Playwright uploads its contents with webkitRelativePath);
-      //    the app filters to jpg/jpeg + svg and skips _bw.png itself.
+      //    the app filters to jpg/jpeg/png + svg and skips _bw.png itself.
       await page.setInputFiles('#folderInput', resolve(orderDir));
 
       // 2. Pairing is done when the Print button enables (it does so only when pairs > 0).
