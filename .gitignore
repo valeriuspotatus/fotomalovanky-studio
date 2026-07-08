@@ -14,6 +14,19 @@ trace.zip
 test-results/
 playwright-report/
 
+# Reverse-engineering captures & generator bundles — HARs contain the token-scoped
+# URL; coloring-book-*.zip and order folders contain customer photos + PII. Local only.
+*.har
+HAR.txt
+*.zip
+coloring-book-*.zip
+# Real/sample order folders dropped into the repo during dev (customer photos + names)
+Fotomalovanky.cz*/
+Objedn*/
+# Operator's fixture pack. The SOP inside embeds the live token-scoped generator URL and
+# the screen recording shows it on camera; plus ~211MB of images. Local only.
+Fotomalovanky Automation/
+
 # Node
 node_modules/
 npm-debug.log*
