@@ -1,0 +1,18 @@
+{
+  "name": "fotomalovanky-automation",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Local tool that batch-generates coloring-book versions of order photos and drives the print-ready A4 PDF for fotomalovanky.cz.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "skeleton": "node src/skeleton.js"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0",
+    "sharp": "^0.33.5"
+  }
+}

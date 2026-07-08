@@ -1,0 +1,19 @@
+{
+  "generator": {
+    "baseUrl": "https://fotomalovanky-app.onrender.com/REPLACE_WITH_YOUR_TOKEN/",
+    "mode": null,
+    "variant": "REPLACE_WITH_DEFAULT_VARIANT",
+    "diffusionSteps": 4,
+    "positivePrompt": "REPLACE_WITH_YOUR_DEFAULT_POSITIVE_PROMPT",
+    "negativePrompt": "REPLACE_WITH_YOUR_DEFAULT_NEGATIVE_PROMPT"
+  },
+  "builder": {
+    "baseUrl": "https://fotomalovanky-service.onrender.com/"
+  },
+  "paths": {
+    "inbox": "./inbox",
+    "outbox": "./outbox"
+  },
+  "retentionDays": 30,
+  "manualTouchThreshold": null
+}

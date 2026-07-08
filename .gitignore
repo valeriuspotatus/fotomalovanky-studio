@@ -1,0 +1,19 @@
+# Secrets & live config — contains the token-scoped generator URL. NEVER commit.
+config.json
+.env
+.env.*
+
+# Runtime data: customer photos, generated outputs, per-order state.json, PDFs
+/inbox/
+/outbox/
+**/state.json
+
+# Playwright debug artifacts — may embed the token URL and customer photos. Keep local.
+/.traces/
+trace.zip
+test-results/
+playwright-report/
+
+# Node
+node_modules/
+npm-debug.log*
