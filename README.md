@@ -7,11 +7,14 @@ builder, automating the tedious per-photo generation loop.
 
 Plan: `docs/plans/2026-07-08-001-feat-fotomalovanky-order-automation-plan.md`.
 
-> **Status: Phase 0 (walking skeleton).** The offline core is built and tested.
-> The two live seams — the generator and the builder — are stubbed until the HAR
-> capture (see *Proving the seam*). Running the skeleton today stops with a clear
-> message at whichever live seam it reaches first; that is expected and proves the
-> wiring is correct ahead of the seam work.
+> **Status: Phase 0 (walking skeleton).** The offline core is built and tested, and
+> **both live seams are implemented**:
+> - **Generator (U2):** scripted HTTP API — resolved *and live-validated*
+>   (`generator.mode = "api"`; `docs/spikes/2026-07-09-u2-generator-api.md`).
+> - **Builder (U5):** Playwright + headless-Chromium print pipeline — resolved and
+>   coded, *pending a live validation run* (`docs/spikes/2026-07-09-u5-builder.md`).
+>   Requires `npx playwright install chromium` once (the browser binary is skipped by
+>   a plain `npm install`).
 
 ## Requirements
 
@@ -24,8 +27,9 @@ Plan: `docs/plans/2026-07-08-001-feat-fotomalovanky-order-automation-plan.md`.
    token-scoped generator URL and never enters source control).
 2. Fill in `config.json`:
    - `generator.baseUrl` — your token-scoped URL, e.g. `https://fotomalovanky-app.onrender.com/<your-token>/`
-   - `generator.variant`, `diffusionSteps`, `positivePrompt`, `negativePrompt` — your usual defaults
-   - `generator.mode` — leave `null` for now; the HAR spike sets it to `"api"` or `"browser"`
+   - `generator.mode` — `"api"` (resolved by the U2 spike; the example config ships this).
+   - `generator.variant`, `diffusionSteps`, `positivePrompt`, `negativePrompt` — the example
+     ships your captured defaults; adjust `variant` (a `"<model>_<megapixels>"` key like `2509_1.5`) if you prefer another.
    - `builder.baseUrl` — the print builder URL
    - `retentionDays` — customer-photo retention window (default 30)
 
@@ -45,41 +49,43 @@ installed dependencies required.
 npm run skeleton -- <path-to-one-photo> [orderDir]
 ```
 
-Wires one photo → generator → `<base>.jpg` + `<base>_bw.svg` pair → builder → PDF.
-Until the live drivers are filled in it stops at the generator seam with a
-plain-language message.
+Wires one photo → generator → the builder triple (`<base>.jpg` + `<base>_bw.png` +
+`<base>.svg`) → builder → PDF. Both seams are implemented; a full run needs
+`npx playwright install chromium` first (for the builder).
 
-## Proving the seam (what's needed from the operator)
+You can also exercise either seam directly:
 
-Phase 0 exists to observe and prove the two live seams. To finish it, provide:
+```bash
+node src/generator/apiDriver.js <path-to-one-photo> [outDir]   # generator only
+node src/builder/builderDriver.js <order-folder> [outPdfPath]  # builder only (needs chromium)
+```
 
-1. **The token-scoped generator config** — pasted into `config.json` (see Setup).
-2. **1–2 real sample photos.**
-3. **A HAR capture** of one manual generation in the app: open the generator in the
-   browser, DevTools → **Network**, do one full conversion, then right-click the
-   request list → **Save all as HAR**. This reveals the upload/job/poll/download
-   calls so we can decide `generator.mode = "api"` (script the calls) vs
-   `"browser"` (drive the UI) — instead of guessing.
-4. **OK to run Playwright against the live apps** from this machine.
+## Finishing Phase 0 (what's left)
 
-With those, the generator + builder driver bodies get filled in and one photo is
-proven end-to-end to a print-ready PDF (the Phase-0 stop-condition check).
+Both seams are resolved (U2 live-validated; U5 coded). To close Phase 0:
+
+1. `npx playwright install chromium` — one-time, for the builder's headless print path.
+2. **A live builder validation run** — build a real order folder to a PDF and eyeball it
+   against the current manual output (`… Final.pdf`).
+3. Confirm the operator's standard **title/cover routine** so the builder defaults match.
+
+That completes the walking skeleton: one order proven end-to-end to a print-ready A4 PDF.
 
 ## Layout
 
 ```
 src/
   config.js              # load/validate config; redact secrets for logs
-  organize.js            # builder-compatible output naming (<base>.jpg + <base>_bw.svg)
+  organize.js            # builder-compatible output naming (<base>.jpg + <base>_bw.png + <base>.svg)
   manifest.js            # state.json read/write + state machine + builder gate
   qc.js                  # pure QC heuristics (near-blank / near-solid / empty-SVG)
   generator/
     driver.js            # GeneratorDriver interface
-    apiDriver.js         # scripted HTTP driver (stub, pending HAR)
-    browserDriver.js     # Playwright UI driver (stub, pending observation)
+    apiDriver.js         # scripted HTTP driver (implemented — the active generator seam)
+    browserDriver.js     # Playwright UI driver (kept as documented fallback)
     factory.js           # picks api vs browser from config.generator.mode
   builder/
-    builderDriver.js     # print-builder driver (stub, pending observation)
+    builderDriver.js     # Playwright + headless-print driver (implemented; needs chromium)
   skeleton.js            # Phase-0 walking-skeleton runner
 test/                    # offline unit tests (node --test)
 ```

@@ -13,15 +13,17 @@ export function photoBase(photoPath) {
 }
 
 /** Builder-compatible output names for one input photo.
- *  The builder pairs "<base>.jpg" with "<base>_bw.svg"; the "_bw.png" is kept alongside.
+ *  Mirrors the generator's own download bundle (confirmed from coloring-book-<job>.zip):
+ *  each photo yields "<base>.jpg" (original), "<base>_bw.png" (raster line-art), and
+ *  "<base>.svg" (vector line-art). Note the "_bw" suffix is on the PNG, not the SVG.
  *  The original is normalized to ".jpg" so the pairing base is stable even for ".jpeg" inputs. */
 export function outputNames(photoPath) {
   const base = photoBase(photoPath);
   return {
     base,
     original: `${base}.jpg`,
-    coloringSvg: `${base}_bw.svg`,
     coloringPng: `${base}_bw.png`,
+    coloringSvg: `${base}.svg`,
   };
 }
 

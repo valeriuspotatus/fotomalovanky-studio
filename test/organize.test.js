@@ -13,23 +13,25 @@ test('photoBase strips directory and extension', () => {
   assert.equal(photoBase('orders/123/abc.jpg'), 'abc');
 });
 
-test('outputNames produces builder-compatible pair naming', () => {
+test('outputNames produces the builder triple (jpg + _bw.png + svg)', () => {
   assert.deepEqual(outputNames('abc.jpg'), {
     base: 'abc',
     original: 'abc.jpg',
-    coloringSvg: 'abc_bw.svg',
     coloringPng: 'abc_bw.png',
+    coloringSvg: 'abc.svg',
   });
 });
 
 test('outputNames normalizes a .jpeg input original to .jpg', () => {
   const names = outputNames('photo.jpeg');
   assert.equal(names.original, 'photo.jpg');
-  assert.equal(names.coloringSvg, 'photo_bw.svg');
+  assert.equal(names.coloringSvg, 'photo.svg');
+  assert.equal(names.coloringPng, 'photo_bw.png');
 });
 
 test('outputPaths joins names into the order directory', () => {
   const paths = outputPaths('abc.jpg', 'out/order1');
   assert.match(paths.original, /order1[\\/]abc\.jpg$/);
-  assert.match(paths.coloringSvg, /order1[\\/]abc_bw\.svg$/);
+  assert.match(paths.coloringSvg, /order1[\\/]abc\.svg$/);
+  assert.match(paths.coloringPng, /order1[\\/]abc_bw\.png$/);
 });

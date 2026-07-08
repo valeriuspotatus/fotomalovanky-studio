@@ -1,11 +1,19 @@
 {
   "generator": {
     "baseUrl": "https://fotomalovanky-app.onrender.com/REPLACE_WITH_YOUR_TOKEN/",
-    "mode": null,
-    "variant": "REPLACE_WITH_DEFAULT_VARIANT",
+    "mode": "api",
+    "variant": "2509_1.5",
     "diffusionSteps": 4,
-    "positivePrompt": "REPLACE_WITH_YOUR_DEFAULT_POSITIVE_PROMPT",
-    "negativePrompt": "REPLACE_WITH_YOUR_DEFAULT_NEGATIVE_PROMPT"
+    "positivePrompt": "Convert the image into a clean black-and-white coloring book illustration.\n\nPreserve the original composition, proportions, and recognizable features of all subjects including people, animals, objects, and background elements.\n\nUse clean contour outlines to represent all shapes. All enclosed areas must remain white and colorable.\n\nDo not fill any regions with solid black. Dark objects such as hair, fur, clothing, trees, shadows, or dark materials must be represented using outlines and simple interior contour lines only.\n\nRemove all shading, grayscale, gradients, shadows, and cross-hatching.\n\nFacial features must remain clear and natural. Both eyes must include visible irises and enclosed pupils.\n\nSimplify textures so the drawing stays detailed but easy to color. Fur, hair, and fabric folds should be represented with light directional lines rather than dense texture.\n\nKeep foreground and background clearly separated using clean outlines while preserving the original background scene.\n\nOutput style: professional coloring book page, clean vector-style line art, consistent line weight, crisp edges, white background.",
+    "negativePrompt": "solid black fill, filled clothing, filled fur, filled shadows, silhouette fill, grayscale shading, gradients, cross-hatching, engraving style, comic shading, painterly shading, sketch shading, dense texture, messy lines, rough pencil, blurry outlines, uneven line thickness, missing pupils, blank eyes, invented background elements",
+    "timeouts": {
+      "requestMs": 60000,
+      "vectorizeMs": 180000,
+      "pollIntervalMs": 4000,
+      "maxPollMs": 1200000,
+      "retries": 4,
+      "backoffBaseMs": 1000
+    }
   },
   "builder": {
     "baseUrl": "https://fotomalovanky-service.onrender.com/"

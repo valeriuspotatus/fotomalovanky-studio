@@ -57,6 +57,8 @@ export function validateConfig(cfg) {
       diffusionSteps: cfg.generator.diffusionSteps ?? 4,
       positivePrompt: cfg.generator.positivePrompt ?? '',
       negativePrompt: cfg.generator.negativePrompt ?? '',
+      // Optional driver tuning (request/poll timeouts, retries); the driver falls back to its own defaults.
+      timeouts: cfg.generator.timeouts ?? null,
     },
     builder: { baseUrl: buildUrl },
     paths: {
