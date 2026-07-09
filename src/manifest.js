@@ -24,9 +24,33 @@ export function holdsForReview(status) {
   return status === STATES.FLAGGED || status === STATES.PENDING_REVIEW;
 }
 
-/** Resume skips only "resolved" photos; flagged / pending / manual are picked up again. */
-export function isResolved(status) {
-  return isBuilderEligible(status) || status === STATES.FAILED;
+/** Should the batch (re-)generate this photo?
+ *  Yes for never-run, auto-flagged (a redo is a fresh roll of the stochastic generator),
+ *  and failed (usually a lost GPU job, worth another attempt on the next run).
+ *  No for finished photos, and no for the two states the *operator* owns —
+ *  regenerating those would overwrite a manual repair that is waiting to be reviewed. */
+export function needsGeneration(status) {
+  return status == null || status === STATES.FLAGGED || status === STATES.FAILED;
+}
+
+/** Per-order tally used by the review gate and the run report. An order reaches the builder
+ *  only once every one of its photos is builder-eligible.
+ *
+ *  Pass the order's photo bases: a run killed before its last photo was recorded leaves no
+ *  manifest entry for it, and counting only what the manifest knows would call that order
+ *  ready and print an incomplete book. An unrecorded photo counts as pending. */
+export function summarizeOrder(manifest, bases = Object.keys(manifest.photos ?? {})) {
+  const statuses = bases.map((b) => getStatus(manifest, b));
+  const count = (fn) => statuses.filter(fn).length;
+  return {
+    total: bases.length,
+    eligible: count(isBuilderEligible),
+    held: count(holdsForReview),
+    manual: count((s) => s === STATES.MANUAL_IN_PROGRESS),
+    failed: count((s) => s === STATES.FAILED),
+    pending: count((s) => s == null),
+    ready: bases.length > 0 && count(isBuilderEligible) === bases.length,
+  };
 }
 
 // Legal transitions. from -> allowed to-states.
@@ -39,10 +63,12 @@ const TRANSITIONS = {
   [STATES.FAILED]: [STATES.OK, STATES.FLAGGED],
 };
 
-/** null `from` means initial assignment (always allowed). */
+/** null `from` means initial assignment (always allowed). Re-recording the status a photo
+ *  already has is idempotent, not a transition — a redo that comes back just as bad stays
+ *  flagged, and a resumed run must be able to re-write what it already wrote. */
 export function canTransition(from, to) {
   if (!ALL.has(to)) return false;
-  if (from == null) return true;
+  if (from == null || from === to) return true;
   return (TRANSITIONS[from] ?? []).includes(to);
 }
 

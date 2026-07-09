@@ -1,10 +1,10 @@
-import { mkdirSync, copyFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig, redactForLog } from './config.js';
 import { createGeneratorDriver } from './generator/factory.js';
 import { BuilderDriver } from './builder/builderDriver.js';
-import { outputPaths } from './organize.js';
+import { writeOutputs } from './organize.js';
 
 // Phase-0 walking skeleton: prove one photo end-to-end.
 //   photo -> generator.generate() -> organize into the builder triple
@@ -20,7 +20,6 @@ export async function runWalkingSkeleton({ config, photoPath, orderDir, onStage,
   const builder = new BuilderDriver(config);
 
   mkdirSync(orderDir, { recursive: true });
-  const out = outputPaths(photoPath, orderDir);
 
   // 1. Generate the coloring-book outputs for this one photo.
   stage('1/3 generate — running the photo through the generator (diffusion + vectorize)…');
@@ -28,9 +27,7 @@ export async function runWalkingSkeleton({ config, photoPath, orderDir, onStage,
 
   // 2. Organize into the builder's expected pair naming.
   stage('2/3 organize — writing the builder triple (<base>.jpg + <base>_bw.png + <base>.svg)…');
-  copyFileSync(result.originalPath, out.original);
-  copyFileSync(result.coloringSvgPath, out.coloringSvg);
-  if (result.coloringPngPath) copyFileSync(result.coloringPngPath, out.coloringPng);
+  const out = writeOutputs(photoPath, orderDir, result);
 
   // 3. Drive the builder to a print-ready PDF for this single-photo order.
   stage('3/3 build — driving the builder to the print-ready A4 PDF…');

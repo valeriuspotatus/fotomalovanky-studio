@@ -7,14 +7,19 @@ builder, automating the tedious per-photo generation loop.
 
 Plan: `docs/plans/2026-07-08-001-feat-fotomalovanky-order-automation-plan.md`.
 
-> **Status: Phase 0 (walking skeleton).** The offline core is built and tested, and
-> **both live seams are implemented**:
+> **Status: Phase 1 (build-out).** Both live seams are implemented and the value gate
+> (U8) is passed, so the batch pipeline is being built on top:
 > - **Generator (U2):** scripted HTTP API — resolved *and live-validated*
 >   (`generator.mode = "api"`; `docs/spikes/2026-07-09-u2-generator-api.md`).
 > - **Builder (U5):** Playwright + headless-Chromium print pipeline — resolved and
 >   coded, *pending a live validation run* (`docs/spikes/2026-07-09-u5-builder.md`).
 >   Requires `npx playwright install chromium` once (the browser binary is skipped by
 >   a plain `npm install`).
+> - **Value gate (U8):** passed — `docs/spikes/2026-07-09-u8-value-gate.md`. The shipped
+>   config runs **8 diffusion steps**, which fixed both the missing edges and the
+>   cut-off limbs.
+> - **Ingest + batch (U3):** done — resumable, one `state.json` per order.
+> - **Next:** U4 (review grid), U6 (orchestration), U7 (packaging).
 
 ## Requirements
 
@@ -39,9 +44,9 @@ Plan: `docs/plans/2026-07-08-001-feat-fotomalovanky-order-automation-plan.md`.
 npm test
 ```
 
-Runs the offline suite (config validation, output naming, the `state.json` state
-machine, and the QC heuristics) with Node's built-in test runner — no network, no
-installed dependencies required.
+Runs the offline suite (config validation, ingest, output naming, the `state.json`
+state machine, the QC heuristics, the batch's resume/failure behaviour, and the
+generator's retry logic) with Node's built-in test runner — no network.
 
 ## Run the walking skeleton
 
@@ -60,25 +65,52 @@ node src/generator/apiDriver.js <path-to-one-photo> [outDir]   # generator only
 node src/builder/builderDriver.js <order-folder> [outPdfPath]  # builder only (needs chromium)
 ```
 
-## Finishing Phase 0 (what's left)
+## Run a real batch (generation only, no PDF yet)
 
-Both seams are resolved (U2 live-validated; U5 coded). To close Phase 0:
+```bash
+npm run batch -- <inbox-folder> [outbox-folder]
+```
+
+Point it at the folder the Chrome extension downloads into. Every photo-bearing
+subfolder is one order; you can also point straight at a single order folder. Each
+order becomes `<outbox>/<order>/` holding the builder triple per photo plus a
+`state.json` manifest.
+
+**The order number comes from the photo names** (`1523_img0001_-_…`), not the folder
+name — folder names get hand-edited, and one real sample folder is named *1522* while
+holding eight *1523* photos. If the two disagree, the run says so.
+
+The run is **resumable and idempotent**: `state.json` is written after every photo, so
+an interrupted batch picks up exactly where it stopped. Re-running regenerates only
+photos that are new, auto-flagged (a redo is a fresh roll of a stochastic generator),
+or failed. It never re-generates a photo you are repairing by hand — that would
+overwrite your work. One photo's failure is recorded and the batch continues.
+
+The PDF step is not wired into the batch yet (U6); use `npm run skeleton` or the
+builder CLI for that.
+
+## What's left
 
 1. `npx playwright install chromium` — one-time, for the builder's headless print path.
 2. **A live builder validation run** — build a real order folder to a PDF and eyeball it
    against the current manual output (`… Final.pdf`).
 3. Confirm the operator's standard **title/cover routine** so the builder defaults match.
-
-That completes the walking skeleton: one order proven end-to-end to a print-ready A4 PDF.
+4. **U4** — the review grid over `state.json`: approve or redo the flagged photos.
+5. **U6** — one "Go" run: batch → review gate → builder → per-order PDF.
+6. **Measure the redo rate on the shipped config.** The 15% in the U8 doc was the *old*
+   4-step config; the 8-step config has not been counted on a real batch yet.
 
 ## Layout
 
 ```
 src/
   config.js              # load/validate config; redact secrets for logs
+  ingest.js              # extension folders -> order/photo model
   organize.js            # builder-compatible output naming (<base>.jpg + <base>_bw.png + <base>.svg)
   manifest.js            # state.json read/write + state machine + builder gate
   qc.js                  # pure QC heuristics (near-blank / near-solid / empty-SVG)
+  qcFiles.js             # sharp adapter: decodes the outputs, feeds qc.js
+  batch.js               # resumable per-order generation (U3)
   generator/
     driver.js            # GeneratorDriver interface
     apiDriver.js         # scripted HTTP driver (implemented — the active generator seam)

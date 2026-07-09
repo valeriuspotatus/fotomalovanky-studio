@@ -9,7 +9,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "skeleton": "node src/skeleton.js"
+    "skeleton": "node src/skeleton.js",
+    "batch": "node src/batch.js"
   },
   "dependencies": {
     "playwright": "^1.48.0",

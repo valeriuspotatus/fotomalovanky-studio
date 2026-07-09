@@ -1,3 +1,4 @@
+import { copyFileSync, mkdirSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 
 const PHOTO_EXT = /\.(jpe?g)$/i;
@@ -36,4 +37,15 @@ export function outputPaths(photoPath, orderDir) {
     coloringSvg: join(orderDir, names.coloringSvg),
     coloringPng: join(orderDir, names.coloringPng),
   };
+}
+
+/** The only side-effecting function here: copy a generator result into the order folder
+ *  under the builder's expected names. Returns the written paths. */
+export function writeOutputs(photoPath, orderDir, result) {
+  mkdirSync(orderDir, { recursive: true });
+  const out = outputPaths(photoPath, orderDir);
+  copyFileSync(result.originalPath, out.original);
+  copyFileSync(result.coloringSvgPath, out.coloringSvg);
+  if (result.coloringPngPath) copyFileSync(result.coloringPngPath, out.coloringPng);
+  return out;
 }
