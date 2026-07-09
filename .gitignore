@@ -23,6 +23,13 @@ coloring-book-*.zip
 # Real/sample order folders dropped into the repo during dev (customer photos + names)
 Fotomalovanky.cz*/
 Objedn*/
+
+# Loose customer photos / renders dropped at the repo root while comparing outputs.
+# No image belongs at the top level, so ignore them all rather than rely on remembering.
+/*.png
+/*.jpg
+/*.jpeg
+/*.svg
 # Operator's fixture pack. The SOP inside embeds the live token-scoped generator URL and
 # the screen recording shows it on camera; plus ~211MB of images. Local only.
 Fotomalovanky Automation/
