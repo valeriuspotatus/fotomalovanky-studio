@@ -1,6 +1,45 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isPhoto, photoBase, outputNames, outputPaths } from '../src/organize.js';
+import { isPhoto, photoBase, outputNames, outputPaths, copyWithRetry } from '../src/organize.js';
+
+// ---- the Windows file lock ---------------------------------------------------
+// The review grid reads a photo to draw its tile while the run rewrites that same photo.
+// Windows refuses the overwrite for as long as the reader's handle lives. It is momentary.
+
+const lockedOnce = (times, code = 'UNKNOWN') => {
+  let calls = 0;
+  return () => {
+    if (++calls <= times) { const e = new Error('copyfile failed'); e.code = code; throw e; }
+    return calls;
+  };
+};
+
+test('a momentarily locked file is copied once the lock clears', async () => {
+  const copy = lockedOnce(2);
+  const sleeps = [];
+  await copyWithRetry('a', 'b', { copy, sleep: async (ms) => sleeps.push(ms) });
+  assert.deepEqual(sleeps, [60, 120], 'backs off further each attempt');
+});
+
+test('a lock that never clears surfaces the real error rather than looping', async () => {
+  const copy = lockedOnce(Infinity, 'EBUSY');
+  await assert.rejects(() => copyWithRetry('a', 'b', { copy, attempts: 3, sleep: async () => {} }), /copyfile failed/);
+});
+
+test('an error that is not a lock is not retried — a missing file will never appear', async () => {
+  let calls = 0;
+  const copy = () => { calls++; const e = new Error('no such file'); e.code = 'ENOENT'; throw e; };
+  await assert.rejects(() => copyWithRetry('a', 'b', { copy, sleep: async () => {} }), /no such file/);
+  assert.equal(calls, 1);
+});
+
+test('an unlocked copy happens once, with no waiting', async () => {
+  let calls = 0;
+  const sleeps = [];
+  await copyWithRetry('a', 'b', { copy: () => calls++, sleep: async (ms) => sleeps.push(ms) });
+  assert.equal(calls, 1);
+  assert.deepEqual(sleeps, []);
+});
 
 test('isPhoto matches jpg/jpeg case-insensitively and rejects others', () => {
   assert.ok(isPhoto('a.jpg'));

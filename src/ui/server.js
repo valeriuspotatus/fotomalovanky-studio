@@ -75,7 +75,10 @@ async function thumbnail(path) {
   const key = `${path}:${statSync(path).mtimeMs}`;
   const hit = thumbs.get(key);
   if (hit) return hit;
-  const buf = await sharp(path)
+  // Decode from bytes, not from the path: handed a path, libvips keeps the file mapped while it
+  // decodes, and on Windows the run cannot then overwrite that very file — the grid drawing a
+  // tile would fail the photo being regenerated behind it. readFileSync closes before we decode.
+  const buf = await sharp(readFileSync(path))
     .flatten({ background: '#ffffff' })
     .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
     .jpeg({ quality: 82 })
@@ -186,7 +189,6 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
             orderId: o.orderId,
             status: o.status,
             reason: o.reason,
-            warning: o.warning,
             pdf: Boolean(o.pdfPath),
           })),
         };

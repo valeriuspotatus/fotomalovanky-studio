@@ -3,6 +3,27 @@ import { basename, extname, join } from 'node:path';
 
 const PHOTO_EXT = /\.(jpe?g)$/i;
 
+/** Windows refuses to overwrite a file another handle still holds. The review grid reads these
+ *  very files to draw its tiles while the run rewrites them, and a virus scanner or an open
+ *  Explorer preview can hold one too. The lock is momentary, so wait it out rather than failing
+ *  a photo the GPU already paid for. (`UNKNOWN` is libuv's word for a Windows error it has no
+ *  errno for — a memory-mapped read is one.) */
+const LOCKED = new Set(['EBUSY', 'EPERM', 'EACCES', 'UNKNOWN']);
+const COPY_ATTEMPTS = 6;
+const COPY_BACKOFF_MS = 60;
+
+export async function copyWithRetry(src, dest, { attempts = COPY_ATTEMPTS, backoffMs = COPY_BACKOFF_MS, copy = copyFileSync, sleep } = {}) {
+  const wait = sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return copy(src, dest);
+    } catch (err) {
+      if (attempt >= attempts || !LOCKED.has(err?.code)) throw err;
+      await wait(backoffMs * attempt);
+    }
+  }
+}
+
 /** True for .jpg / .jpeg input photos (case-insensitive). */
 export function isPhoto(filename) {
   return PHOTO_EXT.test(filename);
@@ -41,11 +62,11 @@ export function outputPaths(photoPath, orderDir) {
 
 /** The only side-effecting function here: copy a generator result into the order folder
  *  under the builder's expected names. Returns the written paths. */
-export function writeOutputs(photoPath, orderDir, result) {
+export async function writeOutputs(photoPath, orderDir, result) {
   mkdirSync(orderDir, { recursive: true });
   const out = outputPaths(photoPath, orderDir);
-  copyFileSync(result.originalPath, out.original);
-  copyFileSync(result.coloringSvgPath, out.coloringSvg);
-  if (result.coloringPngPath) copyFileSync(result.coloringPngPath, out.coloringPng);
+  await copyWithRetry(result.originalPath, out.original);
+  await copyWithRetry(result.coloringSvgPath, out.coloringSvg);
+  if (result.coloringPngPath) await copyWithRetry(result.coloringPngPath, out.coloringPng);
   return out;
 }

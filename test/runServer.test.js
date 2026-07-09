@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { createReviewServer } from '../src/ui/server.js';
-import { STATES, readManifest, getStatus } from '../src/manifest.js';
+import { STATES, readManifest, getStatus, emptyManifest, setDedication, writeManifest } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
 
 const CONFIG = {
@@ -14,6 +14,12 @@ const CONFIG = {
   paths: { inbox: './inbox', outbox: './outbox' },
 };
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0 L10 10"/></svg>';
+
+/** A stand-in coloring raster: 1px lines with white paper between them. Half ink, but nothing
+ *  filled — a solid black block would trip qc's solid-fill tripwire, and rightly so. */
+const LINE_ART = Buffer.alloc(8 * 8, 255);
+for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x += 2) LINE_ART[y * 8 + x] = 0;
+const RAW_8 = { raw: { width: 8, height: 8, channels: 1 } };
 
 /** Generator that parks on `gate` so the test can inspect a run while it is in flight. */
 class GatedGenerator {
@@ -31,10 +37,7 @@ class GatedGenerator {
     const coloringPngPath = join(this.workDir, `${base}_bw.png`);
     const coloringSvgPath = join(this.workDir, `${base}.svg`);
     writeFileSync(originalPath, 'jpeg-bytes');
-    await sharp({ create: { width: 8, height: 8, channels: 3, background: '#ffffff' } })
-      .composite([{ input: { create: { width: 8, height: 4, channels: 3, background: '#000000' } }, top: 0, left: 0 }])
-      .png()
-      .toFile(coloringPngPath);
+    await sharp(LINE_ART, RAW_8).png().toFile(coloringPngPath);
     writeFileSync(coloringSvgPath, SVG);
     return { originalPath, coloringPngPath, coloringSvgPath };
   }
@@ -55,8 +58,10 @@ before(async () => {
   outbox = join(root, 'outbox');
   orderDir = join(outbox, '1510');
   mkdirSync(join(inbox, '1510'), { recursive: true });
-  mkdirSync(outbox, { recursive: true });
+  mkdirSync(orderDir, { recursive: true });
   await sharp({ create: { width: 20, height: 20, channels: 3, background: '#ccc' } }).jpeg().toFile(join(inbox, '1510', 'a.jpeg'));
+  // The run holds an order with no title text, so give this one a dedication up front.
+  writeManifest(orderDir, setDedication(emptyManifest('1510'), 'Pro Barču'));
 
   generator = new GatedGenerator();
   ({ server } = createReviewServer({ config: CONFIG, inboxRoot: inbox, outboxRoot: outbox, driver: generator, builder: stubBuilder }));
@@ -134,7 +139,6 @@ test('the run finishes, reports per-order status, and reopens the review gate', 
   assert.equal(run.report.orders[0].orderId, '1510');
   assert.equal(run.report.orders[0].status, 'done');
   assert.equal(run.report.orders[0].pdf, true);
-  assert.match(run.report.orders[0].warning, /no title page/);
 
   assert.ok(existsSync(join(orderDir, '1510 Final.pdf')));
   assert.equal(getStatus(readManifest(orderDir), 'a'), STATES.OK);

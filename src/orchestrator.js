@@ -64,7 +64,7 @@ async function buildOrder({ orderId, orderDir, bases, dedication, builder, confi
 
   if (!force && pdfIsCurrent(pdfPath, orderDir)) {
     onEvent({ type: 'build-skipped', orderId, pdfPath });
-    return { status: ORDER_STATUS.DONE, pdfPath, reason: null, warning: titlePageWarning(dedication) };
+    return { status: ORDER_STATUS.DONE, pdfPath, reason: null };
   }
 
   try {
@@ -74,7 +74,7 @@ async function buildOrder({ orderId, orderDir, bases, dedication, builder, confi
     if (dedication) options.dedication = dedication;
     const { pairs } = await builder.buildPdf(orderDir, options);
     onEvent({ type: 'build-done', orderId, pdfPath, pairs });
-    return { status: ORDER_STATUS.DONE, pdfPath, reason: null, warning: titlePageWarning(dedication) };
+    return { status: ORDER_STATUS.DONE, pdfPath, reason: null };
   } catch (err) {
     const reason = describeFailure(err);
     onEvent({ type: 'build-failed', orderId, reason });
@@ -82,11 +82,12 @@ async function buildOrder({ orderId, orderDir, bases, dedication, builder, confi
   }
 }
 
-/** The builder renders a title page only when there is dedication text (or cover images), and
- *  the operator's books have one. Printing without it is legal but is a different book — say so
- *  rather than shipping a silently shorter PDF. */
-function titlePageWarning(dedication) {
-  return dedication ? null : 'no title page — set the order\'s title text in the review grid';
+/** The text the builder will print on the title page: the customer's dedication, or a configured
+ *  default if the operator set one. The builder renders a title page only when this is non-empty,
+ *  so without it the order prints a structurally different (2 pages shorter) book. */
+export function titleTextFor(config, dedication) {
+  const fallback = config.builder?.pdf ?? {};
+  return dedication || fallback.dedication || fallback.title || '';
 }
 
 /** Run every order end to end. Never throws for a single order; returns a report. */
@@ -122,7 +123,8 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
     const failed = notEligible.filter((b) => getStatus(manifest, b) === STATES.FAILED);
     const held = notEligible.filter((b) => getStatus(manifest, b) !== STATES.FAILED);
 
-    let entry = { orderId, orderDir, summary, held, failed, pdfPath: null, reason: null, warning: null, status: null };
+    let entry = { orderId, orderDir, summary, held, failed, pdfPath: null, reason: null, status: null };
+    const dedication = getDedication(manifest);
 
     if (failed.length) {
       entry.status = ORDER_STATUS.FAILED;
@@ -130,9 +132,13 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
     } else if (held.length) {
       entry.status = ORDER_STATUS.HELD;
       entry.reason = `${held.length} photo(s) waiting for you in the review grid`;
+    } else if (!titleTextFor(config, dedication)) {
+      // Every book the operator ships has a title page. Printing one without it is a different
+      // book, so the run holds the order rather than quietly handing over a 2-pages-shorter PDF.
+      entry.status = ORDER_STATUS.HELD;
+      entry.reason = "no title text — set the order's title in the review grid";
     } else {
       build ??= new BuilderDriver(config);
-      const dedication = getDedication(manifest);
       const result = await buildOrder({ orderId, orderDir, bases, dedication, builder: build, config, force, onEvent });
       entry = { ...entry, ...result };
     }
@@ -230,7 +236,6 @@ function printReport({ orders, counts }) {
     if (o.status === ORDER_STATUS.DONE) console.log(`  ${id}  done    ${o.pdfPath}`);
     else if (o.status === ORDER_STATUS.HELD) console.log(`  ${id}  held    ${o.reason}`);
     else console.log(`  ${id}  FAILED  ${o.reason}`);
-    if (o.warning) console.log(`  ${' '.repeat(width)}          ⚠ ${o.warning}`);
   }
   console.log(`\n${counts.done} done, ${counts.held} waiting for you, ${counts.failed} failed.`);
   if (counts.held) console.log('Review them:  npm run review -- <inbox>     then run this again.');

@@ -49,12 +49,21 @@ export function validateConfig(cfg) {
   if (mode !== null && mode !== 'api' && mode !== 'browser') {
     throw new ConfigError(`generator.mode must be "api", "browser", or null (unset); got ${JSON.stringify(mode)}.`);
   }
+  const diffusionSteps = cfg.generator.diffusionSteps ?? 4;
+  // A redo re-rolls by raising the step count (the generator takes no seed), so it needs a ceiling.
+  const maxDiffusionSteps = cfg.generator.maxDiffusionSteps ?? 12;
+  if (!Number.isInteger(maxDiffusionSteps) || maxDiffusionSteps < diffusionSteps) {
+    throw new ConfigError(
+      `generator.maxDiffusionSteps must be an integer >= generator.diffusionSteps (${diffusionSteps}); got ${JSON.stringify(cfg.generator.maxDiffusionSteps)}.`,
+    );
+  }
   return {
     generator: {
       baseUrl: genUrl,
       mode,
       variant: cfg.generator.variant ?? null,
-      diffusionSteps: cfg.generator.diffusionSteps ?? 4,
+      diffusionSteps,
+      maxDiffusionSteps,
       positivePrompt: cfg.generator.positivePrompt ?? '',
       negativePrompt: cfg.generator.negativePrompt ?? '',
       // Optional driver tuning (request/poll timeouts, retries); the driver falls back to its own defaults.
@@ -65,9 +74,9 @@ export function validateConfig(cfg) {
       // Passed straight through to BuilderDriver, which reads both. Dropping them here would
       // silently ignore anything the operator set in config.json.
       timeouts: cfg.builder.timeouts ?? null,
-      // Layout options for the printed book: { title, dedication, mode, addAllCovers,
-      // rotationMin, rotationMax }. Defaults to none — an order number printed on a
-      // customer's title page would be worse than no title page.
+      // Layout options for the printed book: { title, dedication, mode, coverCount,
+      // addAllCovers, rotationMin, rotationMax }. Defaults to none — an order number printed
+      // on a customer's title page would be worse than no title page.
       pdf: cfg.builder.pdf ?? {},
     },
     paths: {

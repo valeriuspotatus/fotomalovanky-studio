@@ -43,3 +43,15 @@ test('redactForLog masks the token-scoped URL', () => {
 test('loadConfig throws a clear error when the file is missing', () => {
   assert.throws(() => loadConfig('/definitely/not/here/config.json'), ConfigError);
 });
+
+test('maxDiffusionSteps defaults to 12 and must leave room above diffusionSteps', () => {
+  assert.equal(validateConfig(good).generator.maxDiffusionSteps, 12);
+
+  const withSteps = (diffusionSteps, maxDiffusionSteps) =>
+    validateConfig({ ...good, generator: { ...good.generator, diffusionSteps, maxDiffusionSteps } });
+
+  assert.equal(withSteps(8, 10).generator.maxDiffusionSteps, 10);
+  assert.equal(withSteps(8, 8).generator.maxDiffusionSteps, 8, 'equal means "no re-rolls", which is legal');
+  assert.throws(() => withSteps(8, 7), ConfigError, 'a ceiling below the floor is a typo, not a policy');
+  assert.throws(() => withSteps(8, 9.5), ConfigError);
+});

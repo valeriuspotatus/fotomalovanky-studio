@@ -58,12 +58,29 @@ When it finishes you get a summary:
 Photos the tool is unsure about — and any you don't like — appear at the top of the page,
 with the original photo beside its colouring page.
 
+The tool only notices four things by itself, and it says which one next to the photo:
+
+| it says | what happened |
+|---|---|
+| `solid-fill` | hair, dark clothes or shadows came out **filled in solid black** instead of drawn as outlines. Nobody can colour those in. This is the one you will see most often. |
+| `near-blank` | the page came out almost empty. |
+| `near-solid` | the page came out almost entirely black. |
+| `empty-svg` / `no-paths` | the drawing file has nothing in it. |
+
+**It cannot see anything else.** It does not know whether a face still looks like the person,
+whether someone's eyes were drawn open when they were closed, or whether the machine invented
+a tree that was never in the photo. Those are the mistakes that actually reach customers, and
+only your eye catches them. **Look at every photo, not only the ones the tool marked.**
+
 For each one:
 
 - **Approve** — it's good. Only an approved photo can go into the book.
 - **Mark bad** — you don't like it. It leaves the book until you fix it.
-- **Redo** — make it again. Every attempt comes out slightly different, so a redo often
-  fixes a bad drawing on its own. This is the first thing to try.
+- **Redo** — make it again, drawing it more slowly this time. Ask the drawing machine the
+  exact same question and it gives you the exact same answer, so each redo asks a little
+  differently. This is the first thing to try. Each redo takes a bit longer than the last,
+  and after four of them the tool stops and says so — at that point, approve it, fix it by
+  hand, or ask whoever set this up.
 - **Fix by hand** — repair it yourself. The tool shows you which folder to save into.
   Repair the drawing (in the generator, or in Figma), save the new `.svg` and `_bw.png`
   files with **exactly the same names** into that folder, then press **I've replaced it**.
@@ -84,8 +101,9 @@ done and just prints the books.
 Each book can open with a dedication — *"Pro Barču, s láskou od rodiny"*. Type it into the
 **Title page** box at the top of the order, then press Tab or click away.
 
-If you leave it empty the book has **no title page**, which makes it two pages shorter than
-the books you've been making. The tool warns you when an order has none.
+Every book you make has one, so **the tool will not print an order until you type it.** The
+order waits in the review grid and the run report says `no title text`. Fill it in, press Go
+again, and the book prints — title page, four cover thumbnails and all.
 
 ---
 
@@ -93,8 +111,10 @@ the books you've been making. The tool warns you when an order has none.
 
 - **Nothing is lost if you close the tool.** Every decision is saved the moment you make
   it. Close it, reopen it, and carry on.
-- **Pressing Go again is always safe.** Photos already finished are not made again, and a
-  book is only reprinted if something about it changed.
+- **Pressing Go again is always safe.** Photos you approved, and photos that came out clean,
+  are never made again. A book is only reprinted if something about it changed. Photos still
+  marked bad *are* made again, the same way the **Redo** button makes them again — so if you
+  would rather fix one by hand, press **Fix by hand** before you press Go.
 - **While a run is going, the buttons are switched off.** The tool is rewriting those
   files; letting you change them at the same time would lose your decision.
 - **Your photos never leave your computer**, except to the generator — the same place they

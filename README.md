@@ -16,19 +16,22 @@ Plan: `docs/plans/2026-07-08-001-feat-fotomalovanky-order-automation-plan.md`.
 > (U8) is passed, so the batch pipeline is being built on top:
 > - **Generator (U2):** scripted HTTP API — resolved *and live-validated*
 >   (`generator.mode = "api"`; `docs/spikes/2026-07-09-u2-generator-api.md`).
-> - **Builder (U5):** Playwright + headless-Chromium print pipeline — resolved and
->   coded, *pending a live validation run* (`docs/spikes/2026-07-09-u5-builder.md`).
->   Requires `npx playwright install chromium` once (the browser binary is skipped by
->   a plain `npm install`).
+> - **Builder (U5):** Playwright + headless-Chromium print pipeline — resolved, coded, and
+>   *live-validated on a full 8-photo order* against the operator's own `1523 Final.pdf`:
+>   same 20 pages, same A4, every content page's ink within one pixel of the manual book
+>   (`docs/spikes/2026-07-09-u5-builder.md`). Requires `npx playwright install chromium` once
+>   (the browser binary is skipped by a plain `npm install`).
 > - **Value gate (U8):** passed — `docs/spikes/2026-07-09-u8-value-gate.md`. The shipped
 >   config runs **8 diffusion steps**, which fixed both the missing edges and the
->   cut-off limbs.
+>   cut-off limbs. That same comparison found the 8-step config **fills hair and dark
+>   clothing solid black** on some photos; `qc.js` now flags it (`solid-fill`).
 > - **Ingest + batch (U3):** done — resumable, one `state.json` per order.
 > - **Review gate (U4):** done — a local review grid over `state.json`.
 > - **Orchestration (U6):** done — `npm run go` runs the whole pipeline to per-order PDFs.
 > - **Packaging (U7):** done — `Setup.cmd` / `Fotomalovanky.cmd`, and a **Go** button in the
 >   grid, so the operator never opens a terminal.
-> - **Next:** measure the redo rate on a real batch; eyeball a full order's PDF.
+> - **Next:** a first real batch run by the operator, which also measures the redo rate and
+>   gives the labelled set the solid-fill thresholds need.
 
 ## Requirements
 
@@ -126,11 +129,17 @@ continues. No stack traces.
 
 ### The title page
 
-The builder prints a title page only when the order has **dedication text** — and the
-operator's current books have one, so an order without it prints a structurally different
-(2 pages shorter) book. Set it per order in the review grid; the run report warns when an
-order has none. `config.json`'s `builder.pdf` holds the layout defaults (`mode`,
-`addAllCovers`, rotation); a per-order dedication always wins over a configured default.
+The builder prints a title page only when the order has **dedication text** — and every book the
+operator ships has one, so an order without it would print a structurally different (2 pages
+shorter) book. **The run holds such an order rather than printing it**, exactly as it holds an
+order with a photo awaiting review. Set the text per order in the review grid and run again.
+
+`config.json`'s `builder.pdf` holds the layout defaults (`mode`, `coverCount`, rotation); a
+per-order dedication always wins over a configured `title`/`dedication` default, and a configured
+default is enough to release the hold. `coverCount` is how many coloring pages appear as
+thumbnails on the title page — the operator's books use **4**. It selects the *first* N photos of
+the order; choosing *which* four still needs the builder page by hand. (`addAllCovers: true` is
+the old spelling of `coverCount: 8`.)
 
 ## Run generation only (no PDF)
 
@@ -149,9 +158,16 @@ holding eight *1523* photos. If the two disagree, the run says so.
 
 The run is **resumable and idempotent**: `state.json` is written after every photo, so
 an interrupted batch picks up exactly where it stopped. Re-running regenerates only
-photos that are new, auto-flagged (a redo is a fresh roll of a stochastic generator),
-or failed. It never re-generates a photo you are repairing by hand — that would
-overwrite your work. One photo's failure is recorded and the batch continues.
+photos that are new, auto-flagged, or failed. It never re-generates a photo you are
+repairing by hand — that would overwrite your work. One photo's failure is recorded and
+the batch continues.
+
+**A re-roll always changes the step count.** At 8+ steps this generator is deterministic and
+its API takes no seed, so re-sending the same request returns the same page. Every re-roll of
+a flagged photo therefore climbs one diffusion step (`generator.maxDiffusionSteps`, default 12).
+At the ceiling the photo stops going back to the GPU and says so: approve it, repair it by hand,
+or change `generator.variant`. A photo that *failed* (a lost GPU job) retries at the same step
+count — there was no page to differ from.
 
 This is the generation half of `npm run go`, without the builder. Useful when you want to
 generate overnight and review in the morning.
@@ -164,8 +180,8 @@ npm run review -- <inbox-folder> [outbox-folder]
 
 Opens a local page (127.0.0.1 only) showing every photo of every order: the original
 beside its coloring page, sorted so the ones needing you come first. Per tile you can
-**Approve**, **Mark bad**, **Redo** (regenerate — a fresh roll of a stochastic
-generator), or **Fix by hand** (repair it in the generator or Figma, save the new
+**Approve**, **Mark bad**, **Redo** (regenerate at one diffusion step higher — an identical
+re-run would return an identical page), or **Fix by hand** (repair it in the generator or Figma, save the new
 `<base>.svg` and `<base>_bw.png` into the order folder, then click *I've replaced it*).
 
 The rule the whole gate exists for: **a flagged photo is never auto-approved.** Clean
@@ -190,16 +206,20 @@ npm run grid-smoke -- --shot grid.png
 
 ## What's left
 
-1. **Eyeball a real order's PDF against the current manual output.** One-photo orders were
-   validated live (page structure matches the builder's own formula: `2N+4` with a title
-   page, `2N+2` without); a full 8–16 photo order has not been compared side by side.
-2. **A first real batch run by the operator, following only `docs/OPERATOR.md`.** That is
+1. **A first real batch run by the operator, following only `docs/OPERATOR.md`.** That is
    U7's actual verification, and it needs the operator, not me.
-3. **Measure the redo rate on the shipped config.** The 15% in the U8 doc was the *old*
-   4-step config; the 8-step config has not been counted on a real batch yet. The review
-   grid is the instrument — the verdicts now land in `state.json`, so the rate can be
-   counted from a real order instead of estimated.
-4. **Rotate the generator token.** It is visible in the operator's screen recording. Every
+2. **Re-tune the solid-fill thresholds.** They are calibrated on one order (16 rasters, 2 of
+   them bad — see `DEFAULT_QC` in `src/qc.js`), and the margin on the subtler of the two is
+   only ~2× either side. The review grid's verdicts in `state.json` are the labelled set.
+3. **Let the operator choose *which* photos go on the title page.** `builder.pdf.coverCount`
+   takes the first N; the manual books do not always use the first four.
+4. **Measure the redo rate on the shipped config, and set `manualTouchThreshold`.** The 15% in
+   the U8 doc was the *old* 4-step config. On order 1523 the 8-step config filled 2 of 8 photos
+   solid black, so the real rate may be worse than the number that passed the value gate. The
+   review grid is the instrument — the verdicts land in `state.json`.
+5. **The purge.** `retentionDays` is validated and then ignored — see *Data handling*. It needs
+   a `printed` verdict (and a button that sets it) before it can be automated.
+6. **Rotate the generator token.** It is visible in the operator's screen recording. Every
    surface of this tool keeps it hidden; that recording is the remaining exposure.
 
 ## Layout
@@ -213,7 +233,7 @@ src/
   ingest.js              # extension folders -> order/photo model
   organize.js            # builder-compatible output naming (<base>.jpg + <base>_bw.png + <base>.svg)
   manifest.js            # state.json read/write + state machine + builder gate
-  qc.js                  # pure QC heuristics (near-blank / near-solid / empty-SVG)
+  qc.js                  # pure QC heuristics (near-blank / near-solid / solid-fill / empty-SVG)
   qcFiles.js             # sharp adapter: decodes the outputs, feeds qc.js
   batch.js               # resumable per-order generation (U3)
   orchestrator.js        # the "Go" run: generate -> review gate -> builder -> PDF (U6)
@@ -235,6 +255,12 @@ test/                    # offline unit tests (node --test)
 ## Data handling
 
 Customer photos, generated outputs, and PDFs stay **local only** — the tool sends
-nothing to the cloud beyond what the generator already receives. Photos are purged
-once an order's PDF is confirmed printed, or after `retentionDays`. Playwright debug
+nothing to the cloud beyond what the generator already receives. Playwright debug
 traces are gitignored and strip the token URL and photo bytes.
+
+> **There is no purge yet.** `retentionDays` is read and validated, and then nothing uses it:
+> no code in this repo deletes a customer's photos. Deleting them when the book is printed,
+> or after 30 days, is currently the operator's job, and `docs/OPERATOR.md` asks them to do
+> it. Automating it needs a *printed* verdict the tool does not have — nothing today records
+> that a PDF actually reached the printer — so it is a unit of work, not a cleanup. Until it
+> exists, do not describe this tool as purging anything.

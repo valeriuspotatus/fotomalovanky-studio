@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { collectPairs } from '../src/builder/builderDriver.js';
+import { collectPairs, coverCountFor } from '../src/builder/builderDriver.js';
 
 /** Build a throwaway order folder containing exactly `names`. */
 function orderDir(names) {
@@ -51,4 +51,26 @@ test('six PNG originals reproduce the AI Family pair count (N=6 -> 16pg gallery)
   const names = [];
   for (let i = 1; i <= 6; i++) names.push(`p${i}.png`, `p${i}.svg`, `p${i}_bw.png`);
   assert.equal(collectPairs(orderDir(names)).length, 6);
+});
+
+// ---- the title-page collage -------------------------------------------------
+// The operator's books show four thumbnails. The builder's "add all" button always selects
+// eight, so the driver clicks tiles instead and needs to know how many.
+
+test('coverCount picks how many thumbnails the title page gets', () => {
+  assert.equal(coverCountFor({ coverCount: 4 }, 8), 4);
+  assert.equal(coverCountFor({ coverCount: 0 }, 8), 0);
+  assert.equal(coverCountFor({}, 8), 0, 'no covers unless asked for');
+});
+
+test('coverCount never exceeds the pairs on hand or the builder cap of 8', () => {
+  assert.equal(coverCountFor({ coverCount: 4 }, 2), 2, 'a two-photo order cannot show four');
+  assert.equal(coverCountFor({ coverCount: 99 }, 12), 8, 'the builder itself caps at 8');
+  assert.equal(coverCountFor({ coverCount: -1 }, 8), 0);
+});
+
+test('addAllCovers still means eight, and coverCount overrides it', () => {
+  assert.equal(coverCountFor({ addAllCovers: true }, 8), 8);
+  assert.equal(coverCountFor({ addAllCovers: true }, 3), 3);
+  assert.equal(coverCountFor({ addAllCovers: true, coverCount: 4 }, 8), 4);
 });

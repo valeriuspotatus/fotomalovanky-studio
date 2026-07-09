@@ -8,8 +8,14 @@ import { runPipeline, buildabilityProblem, ORDER_STATUS } from '../src/orchestra
 import { approve, setOrderDedication } from '../src/review.js';
 import { GeneratorError } from '../src/generator/driver.js';
 import { BuilderError } from '../src/builder/builderDriver.js';
-import { STATES, readManifest, getStatus } from '../src/manifest.js';
+import { STATES, readManifest, getStatus, emptyManifest, setDedication, writeManifest } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
+
+/** A stand-in coloring raster: 1px lines with white paper between them. Half ink, but nothing
+ *  filled — a solid black block would trip qc's solid-fill tripwire, and rightly so. */
+const LINE_ART = Buffer.alloc(8 * 8, 255);
+for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x += 2) LINE_ART[y * 8 + x] = 0;
+const RAW_8 = { raw: { width: 8, height: 8, channels: 1 } };
 
 const CONFIG = {
   generator: { baseUrl: 'https://example.test/tok', mode: 'api', variant: '2509_1.5', diffusionSteps: 8 },
@@ -35,10 +41,7 @@ class StubGenerator {
     const coloringPngPath = join(this.workDir, `${base}_bw.png`);
     const coloringSvgPath = join(this.workDir, `${base}.svg`);
     writeFileSync(originalPath, 'jpeg-bytes');
-    await sharp({ create: { width: 8, height: 8, channels: 3, background: '#ffffff' } })
-      .composite([{ input: { create: { width: 8, height: 4, channels: 3, background: '#000000' } }, top: 0, left: 0 }])
-      .png()
-      .toFile(coloringPngPath);
+    await sharp(LINE_ART, RAW_8).png().toFile(coloringPngPath);
     writeFileSync(coloringSvgPath, SVG);
     return { originalPath, coloringPngPath, coloringSvgPath };
   }
@@ -59,7 +62,11 @@ class StubBuilder {
   }
 }
 
-function fixture(orders) {
+const DEDICATION = 'Pro Barču, s láskou';
+
+/** Seeds each order with a dedication, because a real one has one and the run holds an order
+ *  that does not. Pass `{ dedication: null }` to exercise that hold. */
+function fixture(orders, { dedication = DEDICATION } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'fma-orch-'));
   const inbox = join(root, 'inbox');
   const outbox = join(root, 'outbox');
@@ -68,6 +75,10 @@ function fixture(orders) {
   for (const [orderId, names] of Object.entries(orders)) {
     mkdirSync(join(inbox, orderId), { recursive: true });
     for (const n of names) writeFileSync(join(inbox, orderId, `${n}.jpeg`), 'photo');
+    if (dedication) {
+      mkdirSync(join(outbox, orderId), { recursive: true });
+      writeManifest(join(outbox, orderId), setDedication(emptyManifest(orderId), dedication));
+    }
   }
   return { root, inbox, outbox, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
@@ -263,31 +274,48 @@ test('the builder is handed the configured layout options and the order-named ou
 
 // ---- the title page --------------------------------------------------------
 
-test('an order with no dedication prints without a title page, and the report says so', async () => {
-  const f = fixture({ 1510: ['a'] });
+test('an order with no dedication is held, not printed without a title page', async () => {
+  const f = fixture({ 1510: ['a'] }, { dedication: null });
   try {
     const builder = new StubBuilder();
-    const { orders } = await run(f, { builder });
+    const { orders, counts } = await run(f, { builder });
 
-    assert.equal(orders[0].status, ORDER_STATUS.DONE);
-    assert.equal(builder.calls[0].options.dedication, undefined);
-    assert.match(orders[0].warning, /no title page/);
+    assert.equal(orders[0].status, ORDER_STATUS.HELD);
+    assert.match(orders[0].reason, /no title text/);
+    assert.equal(builder.calls.length, 0, 'the builder is never reached');
+    assert.equal(orders[0].pdfPath, null);
+    assert.deepEqual(counts, { done: 0, held: 1, failed: 0 });
   } finally {
     f.cleanup();
   }
 });
 
-test("the operator's dedication reaches the builder and clears the warning", async () => {
-  const f = fixture({ 1510: ['a'] });
+test("the operator's dedication releases the hold and reaches the builder", async () => {
+  const f = fixture({ 1510: ['a'] }, { dedication: null });
   try {
     const first = await run(f);
+    assert.equal(first.orders[0].status, ORDER_STATUS.HELD);
     setOrderDedication(first.orders[0].orderDir, '  Pro Barču, s láskou  ');
 
     const builder = new StubBuilder();
     const { orders } = await run(f, { builder });
 
+    assert.equal(orders[0].status, ORDER_STATUS.DONE);
     assert.equal(builder.calls[0].options.dedication, 'Pro Barču, s láskou', 'trimmed, and it is the title-page text');
-    assert.equal(orders[0].warning, null);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a configured default title releases the hold when the order has no dedication', async () => {
+  const f = fixture({ 1510: ['a'] }, { dedication: null });
+  try {
+    const builder = new StubBuilder();
+    const config = { ...CONFIG, builder: { ...CONFIG.builder, pdf: { title: 'a global default' } } };
+    const { orders } = await runPipeline({ config, inboxRoot: f.inbox, outboxRoot: f.outbox, generator: new StubGenerator(), builder, qc: OK_QC });
+
+    assert.equal(orders[0].status, ORDER_STATUS.DONE);
+    assert.equal(builder.calls[0].options.title, 'a global default');
   } finally {
     f.cleanup();
   }
@@ -298,6 +326,7 @@ test('changing the dedication reprints the book', async () => {
   try {
     const first = await run(f);
     const { orderDir } = first.orders[0];
+    assert.equal(first.orders[0].status, ORDER_STATUS.DONE, 'the seeded dedication printed a book');
 
     const unchanged = new StubBuilder();
     await run(f, { builder: unchanged });

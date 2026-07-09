@@ -25,8 +25,9 @@ export function holdsForReview(status) {
 }
 
 /** Should the batch (re-)generate this photo?
- *  Yes for never-run, auto-flagged (a redo is a fresh roll of the stochastic generator),
- *  and failed (usually a lost GPU job, worth another attempt on the next run).
+ *  Yes for never-run, auto-flagged (which re-rolls with a changed step count — see
+ *  `nextAttemptSettings`; an identical re-run would return the identical page), and failed
+ *  (usually a lost GPU job, worth another attempt on the next run).
  *  No for finished photos, and no for the two states the *operator* owns —
  *  regenerating those would overwrite a manual repair that is waiting to be reviewed. */
 export function needsGeneration(status) {
@@ -135,4 +136,21 @@ export function setSource(manifest, base, sourcePath) {
 
 export function getSource(manifest, base) {
   return manifest.photos?.[base]?.source ?? null;
+}
+
+/** Remember the generator settings that produced the output now on disk.
+ *
+ *  A redo has to change at least one of them. At >= 8 diffusion steps this generator is
+ *  deterministic within a run: re-sending a byte-identical request returns a byte-identical
+ *  page, so a plain re-roll of a bad photo is a no-op that looks like work. The API exposes no
+ *  seed, so the step count is the knob we turn. See docs/spikes/2026-07-09-u8-value-gate.md.
+ *  Recorded only when generation succeeded — a lost GPU job produced no page to differ from. */
+export function setAttempt(manifest, base, attempt) {
+  manifest.photos ??= {};
+  manifest.photos[base] = { ...manifest.photos[base], attempt: { ...attempt } };
+  return manifest;
+}
+
+export function getAttempt(manifest, base) {
+  return manifest.photos?.[base]?.attempt ?? null;
 }

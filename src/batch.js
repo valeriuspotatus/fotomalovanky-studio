@@ -11,6 +11,8 @@ import {
   getStatus,
   setStatus,
   setSource,
+  setAttempt,
+  getAttempt,
   needsGeneration,
   readManifest,
   writeManifest,
@@ -26,23 +28,65 @@ export function describeFailure(err) {
   return `${seam} seam${step}: ${err?.message ?? String(err)}`;
 }
 
+export const DEFAULT_MAX_STEPS = 12;
+
+/** What to send the generator when re-rolling a photo whose last attempt came back bad.
+ *
+ *  It must differ from `prev`, or the re-roll returns the same page: at >= 8 steps the generator
+ *  is deterministic within a run, and its API takes no seed. The step count is the only knob that
+ *  changes the sampler's trajectory while staying above 8, where the negative prompt is evaluated
+ *  at all. Returns null once the ceiling is reached — at that point re-rolling cannot help and
+ *  saying so is better than burning a GPU minute to reprint the same defect.
+ *
+ *  @param {object} generator  config.generator
+ *  @param {?{steps:number}} prev  the attempt that produced what is on disk now
+ *  @returns {?object} settings for driver.generate, or null when exhausted */
+export function nextAttemptSettings(generator, prev) {
+  const ceiling = generator.maxDiffusionSteps ?? DEFAULT_MAX_STEPS;
+  const last = prev?.steps ?? generator.diffusionSteps;
+  const steps = last + 1;
+  if (steps > ceiling) return null;
+  return { ...generator, diffusionSteps: steps };
+}
+
 /** One photo through the whole per-photo path: generate -> organize -> QC -> record.
  *  Never throws; a failure becomes a FAILED status. Writes state.json before returning, so an
  *  interrupt costs at most this photo. The review gate's redo calls this too — a redo must be
- *  the same code path as a first attempt, or the two drift. Returns the resulting status. */
+ *  the same code path as a first attempt, or the two drift. Returns the resulting status.
+ *
+ *  A photo that is flagged and already carries an attempt is being re-rolled, so it goes back to
+ *  the generator with a changed step count rather than the identical request that produced the
+ *  page the operator just rejected. */
 export async function generatePhoto({ config, photoPath, orderDir, manifest, orderId, driver, qc = assessOutputFiles, onEvent = noop }) {
   const base = photoBase(photoPath);
-  onEvent({ type: 'photo-start', orderId, base, redo: getStatus(manifest, base) != null });
+  const prev = getAttempt(manifest, base);
+  const reroll = prev != null && getStatus(manifest, base) === STATES.FLAGGED;
+
+  const settings = reroll ? nextAttemptSettings(config.generator, prev) : { ...config.generator };
+  if (settings === null) {
+    const reason =
+      `re-rolled up to ${prev.steps} diffusion steps, the ceiling — this generator repeats itself, ` +
+      `so running it again returns the same page. Approve it, repair it by hand, or change generator.variant.`;
+    setStatus(manifest, base, STATES.FLAGGED, reason);
+    writeManifest(orderDir, manifest);
+    onEvent({ type: 'photo-flagged', orderId, base, reason });
+    return getStatus(manifest, base);
+  }
+
+  onEvent({ type: 'photo-start', orderId, base, redo: getStatus(manifest, base) != null, steps: settings.diffusionSteps });
   try {
     const result = await driver.generate(photoPath, {
-      ...config.generator,
+      ...settings,
       onProgress: ({ step, message }) => onEvent({ type: 'progress', orderId, base, step, message }),
     });
-    const out = writeOutputs(photoPath, orderDir, result);
+    const out = await writeOutputs(photoPath, orderDir, result);
     const verdict = await qc(out);
     const next = verdict.verdict === 'ok' ? STATES.OK : STATES.FLAGGED;
     setStatus(manifest, base, next, verdict.reason);
     setSource(manifest, base, photoPath);
+    // Only a completed generation records an attempt: a lost GPU job left no page to differ from,
+    // so its retry must repeat the settings rather than climb the ladder for nothing.
+    setAttempt(manifest, base, { steps: settings.diffusionSteps, variant: settings.variant ?? null });
     onEvent({ type: next === STATES.OK ? 'photo-ok' : 'photo-flagged', orderId, base, reason: verdict.reason });
   } catch (err) {
     setStatus(manifest, base, STATES.FAILED, describeFailure(err));

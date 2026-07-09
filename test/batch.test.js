@@ -4,10 +4,16 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { generateOrder, runBatch } from '../src/batch.js';
+import { generateOrder, runBatch, nextAttemptSettings } from '../src/batch.js';
 import { GeneratorError } from '../src/generator/driver.js';
 import { STATES, readManifest, getStatus, setStatus, writeManifest, emptyManifest } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
+
+/** A stand-in coloring raster: 1px lines with white paper between them. Half ink, but nothing
+ *  filled — a solid black block would trip qc's solid-fill tripwire, and rightly so. */
+const LINE_ART = Buffer.alloc(8 * 8, 255);
+for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x += 2) LINE_ART[y * 8 + x] = 0;
+const RAW_8 = { raw: { width: 8, height: 8, channels: 1 } };
 
 const CONFIG = {
   generator: { baseUrl: 'https://example.test/tok', mode: 'api', variant: '2509_1.5', diffusionSteps: 8 },
@@ -24,12 +30,14 @@ class StubDriver {
     this.failOn = new Set(failOn);
     this.svg = svg;
     this.calls = [];
+    this.steps = []; // the diffusionSteps each call was asked for
     this.workDir = mkdtempSync(join(tmpdir(), 'fma-stubgen-'));
   }
 
-  async generate(photoPath) {
+  async generate(photoPath, settings = {}) {
     const base = photoBase(photoPath);
     this.calls.push(base);
+    this.steps.push(settings.diffusionSteps);
     if (this.failOn.has(base)) {
       throw new GeneratorError('Generation failed on the GPU: worker lost', { step: 'poll' });
     }
@@ -43,14 +51,16 @@ class StubDriver {
   }
 }
 
-function fixture(fn) {
+/** `await fn(...)`, not `return fn(...)`: without the await the finally block tore the temp tree
+ *  down while the test was still using it, and only writeOutputs' mkdir put it back. */
+async function fixture(fn) {
   const root = mkdtempSync(join(tmpdir(), 'fma-batch-'));
   const inbox = join(root, 'inbox');
   const outbox = join(root, 'outbox');
   mkdirSync(inbox, { recursive: true });
   mkdirSync(outbox, { recursive: true });
   try {
-    return fn({ root, inbox, outbox });
+    return await fn({ root, inbox, outbox });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -111,7 +121,7 @@ test('re-running skips photos already ok and does not call the generator again',
   });
 });
 
-test('re-running regenerates a flagged photo — a redo is a fresh roll', async () => {
+test('re-running regenerates a flagged photo, each time with a changed step count', async () => {
   await fixture(async ({ inbox, outbox }) => {
     const order = seedOrder(inbox, '1510', ['a.jpeg', 'b.jpeg']);
     let verdict = 'flagged';
@@ -120,11 +130,13 @@ test('re-running regenerates a flagged photo — a redo is a fresh roll', async 
     const first = new StubDriver();
     await generateOrder({ config: CONFIG, order, outboxRoot: outbox, driver: first, qc });
     assert.deepEqual(first.calls, ['a', 'b']);
+    assert.deepEqual(first.steps, [8, 8], 'a first attempt runs at the configured step count');
 
     // Still bad on the second roll: flagged -> flagged is idempotent, not an illegal transition.
     const second = new StubDriver();
     const { summary } = await generateOrder({ config: CONFIG, order, outboxRoot: outbox, driver: second, qc });
     assert.deepEqual(second.calls, ['a', 'b']);
+    assert.deepEqual(second.steps, [9, 9], 'a re-roll must differ, or this generator repeats itself');
     assert.equal(summary.held, 2);
 
     // Good on the third: both clear the gate.
@@ -217,6 +229,72 @@ test('state.json is written after each photo, so an interrupt loses at most one'
   });
 });
 
+// ---- the re-roll ladder -----------------------------------------------------
+// At >= 8 steps the generator is deterministic and its API takes no seed, so an identical
+// re-run returns the identical page. A re-roll has to change the step count or it is theatre.
+
+test('nextAttemptSettings climbs from the last attempt and stops at the ceiling', () => {
+  const g = { variant: '2509_1.5', diffusionSteps: 8, maxDiffusionSteps: 10 };
+  assert.equal(nextAttemptSettings(g, null).diffusionSteps, 9, 'no attempt yet: one above the configured floor');
+  assert.equal(nextAttemptSettings(g, { steps: 8 }).diffusionSteps, 9);
+  assert.equal(nextAttemptSettings(g, { steps: 9 }).diffusionSteps, 10);
+  assert.equal(nextAttemptSettings(g, { steps: 10 }), null, 'the ceiling is exhausted');
+  assert.equal(nextAttemptSettings(g, { steps: 8 }).variant, '2509_1.5', 'everything else is carried over');
+});
+
+test('nextAttemptSettings defaults the ceiling when the config omits it', () => {
+  assert.equal(nextAttemptSettings({ diffusionSteps: 8 }, { steps: 11 }).diffusionSteps, 12);
+  assert.equal(nextAttemptSettings({ diffusionSteps: 8 }, { steps: 12 }), null);
+});
+
+test('a photo re-rolled to the ceiling stops calling the generator and says why', async () => {
+  await fixture(async ({ inbox, outbox }) => {
+    const order = seedOrder(inbox, '1510', ['a.jpeg']);
+    const config = { ...CONFIG, generator: { ...CONFIG.generator, maxDiffusionSteps: 9 } };
+    const qc = async () => ({ verdict: 'flagged', reason: 'solid-fill' });
+
+    const first = new StubDriver();
+    await generateOrder({ config, order, outboxRoot: outbox, driver: first, qc });
+    assert.deepEqual(first.steps, [8]);
+
+    const second = new StubDriver();
+    await generateOrder({ config, order, outboxRoot: outbox, driver: second, qc });
+    assert.deepEqual(second.steps, [9], 'the last rung');
+
+    const third = new StubDriver();
+    const { orderDir, summary } = await generateOrder({ config, order, outboxRoot: outbox, driver: third, qc });
+    assert.deepEqual(third.calls, [], 'no GPU minute burned reprinting the same defect');
+    assert.equal(summary.held, 1, 'and it still holds the order');
+    const manifest = readManifest(orderDir);
+    assert.equal(getStatus(manifest, 'a'), STATES.FLAGGED);
+    assert.match(manifest.photos.a.reason, /ceiling/);
+    assert.match(manifest.photos.a.reason, /repair it by hand/);
+  });
+});
+
+test('a photo that failed to generate retries at the same step count, not the next rung', async () => {
+  await fixture(async ({ inbox, outbox }) => {
+    const order = seedOrder(inbox, '1510', ['a.jpeg']);
+    // A lost GPU job produced no page, so there is nothing for a re-roll to differ from.
+    const failing = new StubDriver({ failOn: ['a'] });
+    await generateOrder({ config: CONFIG, order, outboxRoot: outbox, driver: failing, qc: OK_QC });
+    assert.deepEqual(failing.steps, [8]);
+
+    const retry = new StubDriver();
+    const { orderDir } = await generateOrder({ config: CONFIG, order, outboxRoot: outbox, driver: retry, qc: OK_QC });
+    assert.deepEqual(retry.steps, [8], 'a lost worker is not a bad drawing');
+    assert.equal(getStatus(readManifest(orderDir), 'a'), STATES.OK);
+  });
+});
+
+test('the attempt that produced the page on disk is recorded in state.json', async () => {
+  await fixture(async ({ inbox, outbox }) => {
+    const order = seedOrder(inbox, '1510', ['a.jpeg']);
+    const { orderDir } = await generateOrder({ config: CONFIG, order, outboxRoot: outbox, driver: new StubDriver(), qc: OK_QC });
+    assert.deepEqual(readManifest(orderDir).photos.a.attempt, { steps: 8, variant: '2509_1.5' });
+  });
+});
+
 test('the real QC adapter flags a blank render and passes an inked one', async () => {
   await fixture(async ({ inbox, outbox }) => {
     const order = seedOrder(inbox, '1510', ['blank.jpeg']);
@@ -226,15 +304,12 @@ test('the real QC adapter flags a blank render and passes an inked one', async (
     assert.equal(getStatus(manifest, 'blank'), STATES.FLAGGED);
     assert.equal(manifest.photos.blank.reason, 'near-blank');
 
-    // Same pipeline, but the render carries ink: half the pixels black.
+    // Same pipeline, but the render carries ink: line art, half the pixels black.
     const inked = new StubDriver();
     inked.generate = async (photoPath) => {
       const base = photoBase(photoPath);
       const res = await StubDriver.prototype.generate.call(inked, photoPath);
-      await sharp({ create: { width: 8, height: 8, channels: 3, background: '#ffffff' } })
-        .composite([{ input: { create: { width: 8, height: 4, channels: 3, background: '#000000' } }, top: 0, left: 0 }])
-        .png()
-        .toFile(join(inked.workDir, `${base}_bw.png`));
+      await sharp(LINE_ART, RAW_8).png().toFile(join(inked.workDir, `${base}_bw.png`));
       return res;
     };
     const order2 = seedOrder(inbox, '1511', ['inked.jpeg']);

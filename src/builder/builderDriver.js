@@ -36,6 +36,17 @@ const COLORING_PNG = /_bw\.png$/i;
 const SVG = /\.svg$/i;
 const svgBase = (n) => n.replace(/_bw\.svg$/i, '').replace(/\.svg$/i, '');
 
+// The builder caps the title-page collage at 8 thumbnails, and its "add all" button always
+// selects that many. The operator's books use four, so the driver clicks the first N cover
+// tiles instead of pressing the button — `addAllCovers` stays as the old spelling of "8".
+const MAX_COVERS = 8;
+
+/** How many cover thumbnails belong on the title page, given the options and the pairs on hand. */
+export function coverCountFor({ coverCount, addAllCovers } = {}, pairs = 0) {
+  const wanted = Number.isInteger(coverCount) ? coverCount : addAllCovers ? MAX_COVERS : 0;
+  return Math.max(0, Math.min(wanted, pairs, MAX_COVERS));
+}
+
 /** Find the builder's photo+SVG pairs in an order folder (mirrors its own pairing rules). */
 export function collectPairs(orderDir) {
   const names = readdirSync(orderDir);
@@ -63,7 +74,7 @@ export class BuilderDriver {
   /**
    * @param {string} orderDir  folder of <base>.{jpg,jpeg,png} + <base>.svg pairs (the "_bw.png" is ignored by the builder)
    * @param {object} options   { title|dedication, outPdfPath, mode:'gallery'|'fullpage',
-   *                             addAllCovers, rotationMin, rotationMax }
+   *                             coverCount, addAllCovers, rotationMin, rotationMax }
    * @returns {Promise<{ pdfPath: string, pairs: number }>}
    */
   async buildPdf(orderDir, options = {}) {
@@ -109,7 +120,17 @@ export class BuilderDriver {
       if (options.mode === 'fullpage') await page.click('.mode-btn[data-mode="fullpage"]');
       const title = options.dedication ?? options.title ?? '';
       if (title) await page.fill('#titleInput', title);
-      if (options.addAllCovers) await page.click('#addAllCoverBtn');
+
+      // Each tile toggles one thumbnail onto the title page. Clicking the first N reproduces the
+      // operator's four-up collage, which the "add all" button (always 8) cannot.
+      const covers = coverCountFor(options, pairs.length);
+      if (covers > 0) {
+        await page.waitForSelector('.cover-grid-item', { timeout: this.loadTimeoutMs })
+          .catch(() => { throw new BuilderError('Builder never offered cover thumbnails to choose from.', { step: 'load' }); });
+        const tiles = page.locator('.cover-grid-item');
+        for (let i = 0; i < covers; i++) await tiles.nth(i).click();
+      }
+
       if (Number.isFinite(options.rotationMin)) await page.fill('#rotationMin', String(options.rotationMin));
       if (Number.isFinite(options.rotationMax)) await page.fill('#rotationMax', String(options.rotationMax));
 

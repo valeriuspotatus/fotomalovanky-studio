@@ -210,7 +210,6 @@ function paintRun(run) {
       if (o.status === 'failed') parts.push(`<span class="err">  ${esc(o.orderId)}  FAILED  ${esc(o.reason)}</span>`);
       else if (o.status === 'held') parts.push(`  ${esc(o.orderId)}  held    ${esc(o.reason)}`);
       else parts.push(`  ${esc(o.orderId)}  done    PDF written`);
-      if (o.warning) parts.push(`<span class="warn">          ⚠ ${esc(o.warning)}</span>`);
     }
   }
   const html = parts.join('\n');
@@ -240,7 +239,7 @@ async function saveDedication(orderId, text) {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'could not save the title page text');
-    toast(body.dedication ? 'Title page saved.' : 'Title page removed — this book will have no title page.');
+    toast(body.dedication ? 'Title page saved.' : 'Title page removed — this order will not print until it has one.');
   } catch (err) {
     toast(err.message, true);
   }
@@ -383,8 +382,8 @@ function render(data, force) {
     // have one — so an empty dedication silently prints a different book.
     const ded = `<div class="ded" data-order="${esc(o.orderId)}">
         <label for="ded-${esc(o.orderId)}">Title page</label>
-        <input id="ded-${esc(o.orderId)}" value="${esc(o.dedication)}"${locked ? ' disabled' : ''} placeholder="dedication text — leave empty for no title page">
-        ${o.dedication ? '' : '<span class="warn">no title page</span>'}
+        <input id="ded-${esc(o.orderId)}" value="${esc(o.dedication)}"${locked ? ' disabled' : ''} placeholder="dedication text — the book will not print without it">
+        ${o.dedication ? '' : '<span class="warn">needed before this order can print</span>'}
       </div>`;
     return `<section class="order">
       <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}${ded}</header>

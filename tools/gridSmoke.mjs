@@ -194,7 +194,14 @@ try {
   const log = await page.locator('#runpanel').textContent();
 
   // photo_manual is still out for manual repair, so this order is not builder-eligible.
-  check('the run reports the order as waiting, not printed', /waiting for you/.test(log), /(\d+ done[^.]*\.)/.exec(log)?.[1]);
+  // Match the counts, not the words: "0 waiting for you" contains "waiting for you" too, so the
+  // old /waiting for you/ test passed even when the run reported the order as FAILED.
+  const counts = /(\d+) done, (\d+) waiting for you, (\d+) failed/.exec(log);
+  check(
+    'the run reports the order as waiting, not printed and not failed',
+    counts?.[1] === '0' && counts?.[2] === '1' && counts?.[3] === '0',
+    counts?.[0] ?? 'no run summary in the log',
+  );
   check('the review gate kept the unfinished order out of the builder', builtPdfs.length === 0);
   check('the grid unlocks once the run is over', (await page.locator('.tile button:not(:disabled)').count()) > 0);
 

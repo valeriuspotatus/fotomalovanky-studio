@@ -177,8 +177,11 @@ export async function acceptReplacement({ orderDir, base, qc = assessOutputFiles
 
 /** Re-generate one photo. A redo always starts from flagged, so it runs the identical code path
  *  a first attempt runs (generatePhoto) and a clean result auto-advances to ok exactly as it
- *  would have in the batch. Regenerates from the operator's original photo when it still exists;
- *  the generator's echoed-back copy is a second JPEG compression and is only the fallback. */
+ *  would have in the batch. Regenerating from flagged is also what makes the re-roll differ from
+ *  the attempt the operator rejected — generatePhoto raises the step count rather than re-sending
+ *  a request this deterministic generator would answer identically.
+ *  Regenerates from the operator's original photo when it still exists; the generator's echoed-back
+ *  copy is a second JPEG compression and is only the fallback. */
 export async function redo({ config, orderDir, base, driver, qc, onEvent }) {
   const manifest = readManifest(orderDir);
   const status = getStatus(manifest, base);

@@ -27,7 +27,7 @@ export async function runWalkingSkeleton({ config, photoPath, orderDir, onStage,
 
   // 2. Organize into the builder's expected pair naming.
   stage('2/3 organize — writing the builder triple (<base>.jpg + <base>_bw.png + <base>.svg)…');
-  const out = writeOutputs(photoPath, orderDir, result);
+  const out = await writeOutputs(photoPath, orderDir, result);
 
   // 3. Drive the builder to a print-ready PDF for this single-photo order.
   stage('3/3 build — driving the builder to the print-ready A4 PDF…');

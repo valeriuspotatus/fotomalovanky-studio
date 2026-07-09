@@ -19,12 +19,12 @@ const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0 L10 10"/></sv
 const OK_QC = async () => ({ verdict: 'ok', reason: 'ok' });
 const BAD_QC = async () => ({ verdict: 'flagged', reason: 'near-blank' });
 
-/** Half-black raster: real ink, so the real QC adapter passes it. */
-const inkedPng = (dest) =>
-  sharp({ create: { width: 8, height: 8, channels: 3, background: '#ffffff' } })
-    .composite([{ input: { create: { width: 8, height: 4, channels: 3, background: '#000000' } }, top: 0, left: 0 }])
-    .png()
-    .toFile(dest);
+/** Line art — 1px lines with white paper between them. Real ink, so the real QC adapter passes
+ *  it; nothing is filled, so it does not trip the solid-fill tripwire either. */
+const LINE_ART = Buffer.alloc(8 * 8, 255);
+for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x += 2) LINE_ART[y * 8 + x] = 0;
+
+const inkedPng = (dest) => sharp(LINE_ART, { raw: { width: 8, height: 8, channels: 1 } }).png().toFile(dest);
 
 class StubDriver {
   constructor({ fail = false } = {}) {
