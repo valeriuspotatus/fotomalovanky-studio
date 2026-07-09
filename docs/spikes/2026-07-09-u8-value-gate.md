@@ -443,6 +443,34 @@ the edge without anything imagined."* On `1510` the same prompt family invents h
 instruction is therefore **photo-dependent** — harmless where real content reaches the frame, harmful
 where the background is blank. Requires an operator choice, not a metric.
 
+## Cut-off legs (1510): already fixed, by `steps=8` — not by any prompt
+
+The seated grandmother wears black leggings. In the operator's original renders both shins end in a
+flat cut, with no ankles and no feet. The obvious theory — that `Do not fill any regions with solid
+black` makes the model erase dark clothing — is **wrong**.
+
+Within-run isolation (`outbox/ab7`, one photo, **byte-identical prompt**, steps the only variable):
+
+| cell | steps | prompt | legs | ink | blank tiles | svg paths |
+|---|---|---|---|---|---|---|
+| `A` | 4 | original | **both shins truncated** | 7.40% | 2 | 1277 |
+| `D` | 8 | original | **complete, down to the ankles** | 6.81% | 1 | 1056 |
+
+The prompt is not implicated: `D` runs the operator's *unmodified* prompt. Raising the step count
+alone completes the legs. Confirmed again in `ab6` (`D`, `F1hi`, `F2hi` all draw the legs; only the
+4-step renders truncate them).
+
+**This is the same defect as the "missing edges".** Both are the 4-step Lightning sampler failing to
+finish a contour: at the frame border it reads as white space, mid-limb it reads as a cut-off leg.
+One cause, two symptoms, both resolved by the step increase that already shipped.
+
+**The metric is wrong here too, and in the opposite direction.** The 4-step render has *more* ink
+(7.40% vs 6.81%) and more traced paths (1277 vs 1056) than the correct 8-step one. Ink coverage
+measures how much was drawn, never whether what was drawn is finished. Do not use it as a
+completeness proxy.
+
+**No action required** — `config.json` already runs `steps=8`. Nothing to change.
+
 ## Follow-up sequence
 
 1. **Eyeball `outbox/ab1/ab.pdf`** — confirm 8 steps does not degrade likeness. Blank-tile counts
