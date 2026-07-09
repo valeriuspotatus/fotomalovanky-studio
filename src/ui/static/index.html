@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fotomalovánky — review</title>
+<style>
+ :root{--bad:#d33;--good:#128a3a;--hold:#0b62c4;--manual:#b8730b;--line:#ddd}
+ *{box-sizing:border-box}
+ body{font:15px/1.55 system-ui,-apple-system,sans-serif;margin:0;background:#f6f6f7;color:#111}
+ .bar{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);
+      padding:11px 22px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;
+      box-shadow:0 1px 4px rgba(0,0,0,.06)}
+ .bar h1{font-size:17px;margin:0;font-weight:600}
+ .bar .grow{flex:1}
+ .chip{font-size:13px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);background:#fafafa}
+ .chip.hold{border-color:var(--bad);color:var(--bad)}
+ .chip.ready{border-color:var(--good);color:var(--good)}
+ .wrap{max-width:1560px;margin:0 auto;padding:20px 22px 90px}
+ .empty{background:#fff;border:1px dashed var(--line);border-radius:10px;padding:44px;text-align:center;color:#555}
+ .empty code{background:#f2f2f3;padding:2px 6px;border-radius:4px}
+ .order{background:#fff;border:1px solid var(--line);border-radius:10px;margin:18px 0;overflow:hidden}
+ .order>header{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+ .order h2{font-size:16px;margin:0}
+ .order .note{font-size:12px;color:#777}
+ .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;padding:16px;align-items:start}
+ .tile{border:1px solid var(--line);border-radius:8px;padding:11px;position:relative;background:#fff}
+ .tile.flagged,.tile.failed{border-color:var(--bad);box-shadow:0 0 0 2px #fdecec inset}
+ .tile.pending_review{border-color:var(--hold);box-shadow:0 0 0 2px #e8f1fb inset}
+ .tile.manual_in_progress{border-color:var(--manual);box-shadow:0 0 0 2px #fdf3e3 inset}
+ .tile.approved{border-color:var(--good);box-shadow:0 0 0 2px #e7f4ec inset}
+ .tile.pending{border-style:dashed;background:#fbfbfc}
+ .imgs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+ .imgs figure{margin:0;min-height:90px;display:flex;flex-direction:column}
+ .imgs img{width:100%;height:auto;border:1px solid #eee;border-radius:4px;background:#fff;display:block;cursor:zoom-in}
+ .ph{flex:1;display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);
+     border-radius:4px;color:#999;font-size:13px;min-height:120px;text-align:center;padding:8px}
+ figcaption{font-size:11px;color:#777;text-align:center;margin-top:4px}
+ .name{font:12px/1.4 ui-monospace,monospace;color:#444;margin:9px 0 2px;word-break:break-all}
+ .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;border:1px solid}
+ .pill.ok{color:var(--good);border-color:var(--good)}
+ .pill.approved{color:#fff;background:var(--good);border-color:var(--good)}
+ .pill.flagged,.pill.failed{color:#fff;background:var(--bad);border-color:var(--bad)}
+ .pill.pending_review{color:#fff;background:var(--hold);border-color:var(--hold)}
+ .pill.manual_in_progress{color:#fff;background:var(--manual);border-color:var(--manual)}
+ .pill.pending{color:#777;border-color:#bbb}
+ .why{font-size:12px;color:#666;margin:5px 0 0}
+ .why.err{color:var(--bad);font-family:ui-monospace,monospace;word-break:break-word}
+ .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line)}
+ button{padding:6px 12px;border-radius:6px;border:1px solid #bbb;background:#fff;cursor:pointer;font:inherit;font-size:13px}
+ button:hover:not(:disabled){background:#f4f4f5}
+ button:disabled{opacity:.45;cursor:default}
+ button.primary{border-color:var(--good);color:var(--good);font-weight:600}
+ button.danger{border-color:var(--bad);color:var(--bad)}
+ .busy{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line);
+       font-size:12px;color:#555;font-family:ui-monospace,monospace}
+ .spin{width:13px;height:13px;border:2px solid #ccc;border-top-color:#555;border-radius:50%;animation:s .8s linear infinite;flex:none}
+ @keyframes s{to{transform:rotate(360deg)}}
+ .manualbox{background:#fdf8ef;border:1px solid #f0dfbe;border-radius:6px;padding:9px 10px;margin-top:9px;font-size:12.5px;color:#5c4708}
+ .manualbox code{background:#fff;border:1px solid #eadfc6;border-radius:3px;padding:1px 5px;font-size:11.5px}
+ #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#222;color:#fff;
+        padding:11px 17px;border-radius:8px;max-width:min(760px,92vw);box-shadow:0 6px 22px rgba(0,0,0,.3);
+        opacity:0;pointer-events:none;transition:opacity .18s;z-index:20;font-size:14px}
+ #toast.show{opacity:1}
+ #toast.err{background:#8c1c1c}
+ dialog{border:none;border-radius:8px;padding:0;max-width:96vw;max-height:96vh}
+ dialog img{max-width:96vw;max-height:96vh;cursor:zoom-out;display:block}
+ dialog::backdrop{background:rgba(0,0,0,.82)}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Review</h1>
+  <span class="chip" id="c-orders">—</span>
+  <span class="chip hold" id="c-hold" hidden></span>
+  <span class="chip ready" id="c-ready" hidden></span>
+  <span class="grow"></span>
+  <span class="chip" id="c-live">live</span>
+</div>
+
+<div class="wrap"><div id="root"></div></div>
+
+<div id="toast"></div>
+<dialog id="lb"><img id="lbimg" alt=""></dialog>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const enc = encodeURIComponent;
+
+const LABEL = {
+  ok: 'clean', approved: 'approved', flagged: 'needs review',
+  pending_review: 'repaired — needs approval', manual_in_progress: 'out for manual repair',
+  failed: 'failed', pending: 'not generated yet',
+};
+
+// Photos that need the operator come first — that is the entire job of this page. Within a
+// group, keep the order's natural photo order (img0001, img0002, …).
+const RANK = { failed: 0, flagged: 1, pending_review: 2, manual_in_progress: 3, pending: 4, ok: 5, approved: 6 };
+const byAttention = (a, b) =>
+  RANK[a.status ?? 'pending'] - RANK[b.status ?? 'pending'] || a.base.localeCompare(b.base, 'en', { numeric: true });
+
+let toastTimer;
+function toast(msg, isErr) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.className = ''), isErr ? 7000 : 2600);
+}
+
+async function act(orderId, base, action) {
+  for (const b of document.querySelectorAll(`[data-key="${CSS.escape(orderId + '/' + base)}"] button`)) b.disabled = true;
+  try {
+    const res = await fetch(`/api/${enc(orderId)}/${enc(base)}/${action}`, { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `${action} failed (HTTP ${res.status})`);
+    if (action === 'redo') toast('Regenerating — this takes a couple of minutes.');
+  } catch (err) {
+    toast(err.message, true);
+  }
+  // Force the repaint: a refused action leaves the state identical, and the buttons this
+  // click disabled would otherwise stay disabled.
+  await refresh(true);
+}
+
+async function open(what, orderId) {
+  const res = await fetch(`/api/open/${what}${orderId ? '/' + enc(orderId) : ''}`, { method: 'POST' });
+  const body = await res.json().catch(() => ({}));
+  if (!body.opened) toast('Could not open it from here — open it yourself.', true);
+}
+
+function tile(orderId, orderDir, p) {
+  const status = p.status ?? 'pending';
+  const key = orderId + '/' + p.base;
+  const busy = p.busy;
+
+  const shot = (kind, cap) => {
+    const has = kind === 'coloring' ? p.hasColoring : p.hasOriginal;
+    if (!has) return `<figure><div class="ph">${kind === 'coloring' ? 'no line-art yet' : 'photo purged'}</div><figcaption>${cap}</figcaption></figure>`;
+    const v = kind === 'coloring' ? `?v=${p.coloringVersion}` : '';
+    return `<figure><img loading="lazy" src="/img/${enc(orderId)}/${enc(p.base)}/${kind}${v}" alt="${esc(cap)}"><figcaption>${cap}</figcaption></figure>`;
+  };
+
+  let why = '';
+  if (status === 'failed') why = `<p class="why err">${esc(p.reason)}</p>`;
+  else if (status === 'flagged' && p.reason && p.reason !== 'ok') why = `<p class="why">auto-flagged: ${esc(p.reason)}</p>`;
+  else if (p.reason && p.reason !== 'ok') why = `<p class="why">${esc(p.reason)}</p>`;
+
+  let acts = '';
+  if (busy) {
+    acts = `<div class="busy"><div class="spin"></div><span>${esc(busy.message)}</span></div>`;
+  } else if (status === 'pending') {
+    acts = `<div class="busy"><div class="spin"></div><span>waiting for the batch to reach this photo</span></div>`;
+  } else if (status === 'manual_in_progress') {
+    acts = `<div class="manualbox">
+        Repair it, then save <code>${esc(p.base)}.svg</code> and <code>${esc(p.base)}_bw.png</code> into<br>
+        <code>${esc(orderDir)}</code>
+      </div>
+      <div class="acts">
+        <button class="primary" data-a="replaced">I've replaced it</button>
+        <button data-open="generator">Open generator</button>
+        <button data-open="folder">Open folder</button>
+        <button data-a="redo">Give up, regenerate</button>
+      </div>`;
+  } else if (status === 'failed') {
+    acts = `<div class="acts"><button class="danger" data-a="redo">Try again</button></div>`;
+  } else if (status === 'approved') {
+    acts = `<div class="acts"><button class="danger" data-a="reject">Mark bad</button></div>`;
+  } else if (status === 'ok') {
+    acts = `<div class="acts">
+        <button class="danger" data-a="reject">Mark bad</button>
+        <button data-a="redo">Redo</button>
+        <button data-a="handoff">Fix by hand</button>
+      </div>`;
+  } else {
+    // flagged / pending_review — the two states that hold the order back.
+    acts = `<div class="acts">
+        <button class="primary" data-a="approve">Approve</button>
+        <button data-a="redo">Redo</button>
+        <button data-a="handoff">Fix by hand</button>
+      </div>`;
+  }
+
+  return `<div class="tile ${status}" data-key="${esc(key)}" data-order="${esc(orderId)}" data-base="${esc(p.base)}">
+    <div class="imgs">${shot('original', 'original photo')}${shot('coloring', 'coloring page')}</div>
+    <p class="name">${esc(p.base)}</p>
+    <span class="pill ${status}">${LABEL[status]}</span>
+    ${why}
+    ${acts}
+  </div>`;
+}
+
+// Everything the DOM depends on, except the progress *text* of an in-flight redo. Re-rendering
+// on every poll would refetch every (no-store) thumbnail and flicker the page under the
+// operator's cursor, so a poll that changed nothing repaints nothing.
+const skeletonOf = (data) =>
+  JSON.stringify(data.orders.map((o) => ({ ...o, photos: o.photos.map(({ busy, ...p }) => ({ ...p, busy: Boolean(busy) })) })));
+
+function patchProgress(data) {
+  for (const o of data.orders) {
+    for (const p of o.photos) {
+      if (!p.busy) continue;
+      const span = document.querySelector(`[data-key="${CSS.escape(o.orderId + '/' + p.base)}"] .busy span`);
+      if (span) span.textContent = p.busy.message;
+    }
+  }
+}
+
+let lastSkeleton = null;
+
+function render(data) {
+  const root = $('#root');
+  const orders = data.orders;
+
+  const skeleton = skeletonOf(data);
+  if (skeleton === lastSkeleton) return patchProgress(data);
+  lastSkeleton = skeleton;
+
+  if (!orders.length) {
+    root.innerHTML = `<div class="empty"><p><b>Nothing to review yet.</b></p>
+      <p>Generate an order first:<br><code>npm run batch -- &lt;inbox-folder&gt;</code></p>
+      <p style="font-size:13px;color:#888">Watching <code>${esc(data.outbox)}</code></p></div>`;
+    $('#c-orders').textContent = 'no orders';
+    return;
+  }
+
+  let held = 0, ready = 0;
+  for (const o of orders) { held += o.summary.held + o.summary.failed; if (o.summary.ready) ready++; }
+  $('#c-orders').textContent = `${orders.length} order${orders.length > 1 ? 's' : ''}`;
+  $('#c-hold').hidden = !held;
+  $('#c-hold').textContent = `${held} need${held === 1 ? 's' : ''} you`;
+  $('#c-ready').hidden = !ready;
+  $('#c-ready').textContent = `${ready} ready for the builder`;
+
+  root.innerHTML = orders.map((o) => {
+    const s = o.summary;
+    const note = o.dirName && o.dirName !== o.orderId ? `<span class="note">folder: ${esc(o.dirName)}</span>` : '';
+    const badge = s.ready
+      ? `<span class="chip ready">ready — ${s.total} photo${s.total > 1 ? 's' : ''}</span>`
+      : `<span class="chip hold">${s.eligible}/${s.total} ready</span>`;
+    return `<section class="order">
+      <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}</header>
+      <div class="grid">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p)).join('')}</div>
+    </section>`;
+  }).join('');
+}
+
+let inFlight = false;
+async function refresh(force) {
+  if (inFlight) return;
+  inFlight = true;
+  if (force) lastSkeleton = null;
+  try {
+    const res = await fetch('/api/state');
+    render(await res.json());
+    $('#c-live').textContent = 'live';
+  } catch {
+    $('#c-live').textContent = 'disconnected — is the tool still running?';
+  } finally {
+    inFlight = false;
+  }
+}
+
+// A photo that will not decode becomes a labelled placeholder, not a broken-image icon.
+document.addEventListener('error', (e) => {
+  const img = e.target;
+  if (img.tagName !== 'IMG' || !img.closest('.imgs')) return;
+  const fig = img.closest('figure');
+  const cap = fig.querySelector('figcaption')?.textContent ?? '';
+  fig.innerHTML = `<div class="ph">unreadable file</div><figcaption>${esc(cap)}</figcaption>`;
+}, true);
+
+document.addEventListener('click', (e) => {
+  const img = e.target.closest('.imgs img');
+  if (img) { $('#lbimg').src = img.src; $('#lb').showModal(); return; }
+  if (e.target === $('#lbimg') || e.target === $('#lb')) { $('#lb').close(); return; }
+
+  const btn = e.target.closest('button[data-a],button[data-open]');
+  if (!btn) return;
+  const t = btn.closest('.tile');
+  if (btn.dataset.a) act(t.dataset.order, t.dataset.base, btn.dataset.a);
+  else open(btn.dataset.open, t.dataset.order);
+});
+
+refresh();
+setInterval(refresh, 1500);
+</script>
+</body>
+</html>

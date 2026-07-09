@@ -57,7 +57,8 @@ export function summarizeOrder(manifest, bases = Object.keys(manifest.photos ?? 
 const TRANSITIONS = {
   [STATES.OK]: [STATES.FLAGGED, STATES.APPROVED, STATES.FAILED],
   [STATES.FLAGGED]: [STATES.APPROVED, STATES.MANUAL_IN_PROGRESS, STATES.OK, STATES.FAILED],
-  [STATES.MANUAL_IN_PROGRESS]: [STATES.PENDING_REVIEW, STATES.FAILED],
+  // FLAGGED: the operator abandoned the handoff and wants the generator to try again instead.
+  [STATES.MANUAL_IN_PROGRESS]: [STATES.PENDING_REVIEW, STATES.FLAGGED, STATES.FAILED],
   [STATES.PENDING_REVIEW]: [STATES.APPROVED, STATES.FLAGGED, STATES.MANUAL_IN_PROGRESS, STATES.FAILED],
   [STATES.APPROVED]: [STATES.FLAGGED],
   [STATES.FAILED]: [STATES.OK, STATES.FLAGGED],
@@ -96,7 +97,8 @@ export function getStatus(manifest, base) {
   return manifest.photos?.[base]?.status ?? null;
 }
 
-/** Set a photo's status, enforcing the transition guard. Returns the manifest. */
+/** Set a photo's status, enforcing the transition guard. Merges, so fields that outlive a
+ *  status change (`source`) survive it. Returns the manifest. */
 export function setStatus(manifest, base, status, reason = null) {
   if (!ALL.has(status)) throw new ManifestError(`Unknown status: ${status}`);
   const current = getStatus(manifest, base);
@@ -104,6 +106,19 @@ export function setStatus(manifest, base, status, reason = null) {
     throw new ManifestError(`Illegal transition for ${base}: ${current ?? '(new)'} -> ${status}`);
   }
   manifest.photos ??= {};
-  manifest.photos[base] = { status, reason };
+  manifest.photos[base] = { ...manifest.photos[base], status, reason };
   return manifest;
+}
+
+/** Remember which input photo produced this output, so a redo re-generates from the operator's
+ *  original rather than from the generator's own echoed-back copy (a second JPEG compression).
+ *  The original may be purged after `retentionDays`; callers fall back to the order folder. */
+export function setSource(manifest, base, sourcePath) {
+  manifest.photos ??= {};
+  manifest.photos[base] = { ...manifest.photos[base], source: sourcePath };
+  return manifest;
+}
+
+export function getSource(manifest, base) {
+  return manifest.photos?.[base]?.source ?? null;
 }

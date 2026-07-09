@@ -10,6 +10,7 @@ import {
   STATES,
   getStatus,
   setStatus,
+  setSource,
   needsGeneration,
   readManifest,
   writeManifest,
@@ -19,10 +20,37 @@ import {
 const noop = () => {};
 
 /** Plain-language failure text for the manifest and the operator's report. Never a stack trace. */
-function describeFailure(err) {
+export function describeFailure(err) {
   const seam = err?.seam ?? 'unknown';
   const step = err?.step ? ` (${err.step})` : '';
   return `${seam} seam${step}: ${err?.message ?? String(err)}`;
+}
+
+/** One photo through the whole per-photo path: generate -> organize -> QC -> record.
+ *  Never throws; a failure becomes a FAILED status. Writes state.json before returning, so an
+ *  interrupt costs at most this photo. The review gate's redo calls this too — a redo must be
+ *  the same code path as a first attempt, or the two drift. Returns the resulting status. */
+export async function generatePhoto({ config, photoPath, orderDir, manifest, orderId, driver, qc = assessOutputFiles, onEvent = noop }) {
+  const base = photoBase(photoPath);
+  onEvent({ type: 'photo-start', orderId, base, redo: getStatus(manifest, base) != null });
+  try {
+    const result = await driver.generate(photoPath, {
+      ...config.generator,
+      onProgress: ({ step, message }) => onEvent({ type: 'progress', orderId, base, step, message }),
+    });
+    const out = writeOutputs(photoPath, orderDir, result);
+    const verdict = await qc(out);
+    const next = verdict.verdict === 'ok' ? STATES.OK : STATES.FLAGGED;
+    setStatus(manifest, base, next, verdict.reason);
+    setSource(manifest, base, photoPath);
+    onEvent({ type: next === STATES.OK ? 'photo-ok' : 'photo-flagged', orderId, base, reason: verdict.reason });
+  } catch (err) {
+    setStatus(manifest, base, STATES.FAILED, describeFailure(err));
+    onEvent({ type: 'photo-failed', orderId, base, reason: describeFailure(err) });
+  } finally {
+    writeManifest(orderDir, manifest);
+  }
+  return getStatus(manifest, base);
 }
 
 /** Generate every photo of one order that still needs it, writing state.json after each photo
@@ -46,23 +74,7 @@ export async function generateOrder({ config, order, outboxRoot, driver, qc = as
       continue;
     }
 
-    onEvent({ type: 'photo-start', orderId, base, redo: status != null });
-    try {
-      const result = await generator.generate(photoPath, {
-        ...config.generator,
-        onProgress: ({ step, message }) => onEvent({ type: 'progress', orderId, base, step, message }),
-      });
-      const out = writeOutputs(photoPath, orderDir, result);
-      const verdict = await qc(out);
-      const next = verdict.verdict === 'ok' ? STATES.OK : STATES.FLAGGED;
-      setStatus(manifest, base, next, verdict.reason);
-      onEvent({ type: next === STATES.OK ? 'photo-ok' : 'photo-flagged', orderId, base, reason: verdict.reason });
-    } catch (err) {
-      setStatus(manifest, base, STATES.FAILED, describeFailure(err));
-      onEvent({ type: 'photo-failed', orderId, base, reason: describeFailure(err) });
-    } finally {
-      writeManifest(orderDir, manifest);
-    }
+    await generatePhoto({ config, photoPath, orderDir, manifest, orderId, driver: generator, qc, onEvent });
   }
 
   return { orderId, orderDir, manifest, summary: summarizeOrder(manifest, order.photos.map(photoBase)) };

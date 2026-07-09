@@ -10,7 +10,9 @@
   "scripts": {
     "test": "node --test",
     "skeleton": "node src/skeleton.js",
-    "batch": "node src/batch.js"
+    "batch": "node src/batch.js",
+    "review": "node src/ui/server.js",
+    "grid-smoke": "node tools/gridSmoke.mjs"
   },
   "dependencies": {
     "playwright": "^1.48.0",

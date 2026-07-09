@@ -19,7 +19,8 @@ Plan: `docs/plans/2026-07-08-001-feat-fotomalovanky-order-automation-plan.md`.
 >   config runs **8 diffusion steps**, which fixed both the missing edges and the
 >   cut-off limbs.
 > - **Ingest + batch (U3):** done — resumable, one `state.json` per order.
-> - **Next:** U4 (review grid), U6 (orchestration), U7 (packaging).
+> - **Review gate (U4):** done — a local review grid over `state.json`.
+> - **Next:** U6 (orchestration), U7 (packaging).
 
 ## Requirements
 
@@ -89,16 +90,50 @@ overwrite your work. One photo's failure is recorded and the batch continues.
 The PDF step is not wired into the batch yet (U6); use `npm run skeleton` or the
 builder CLI for that.
 
+## Review and redo the bad ones
+
+```bash
+npm run review -- <inbox-folder> [outbox-folder]
+```
+
+Opens a local page (127.0.0.1 only) showing every photo of every order: the original
+beside its coloring page, sorted so the ones needing you come first. Per tile you can
+**Approve**, **Mark bad**, **Redo** (regenerate — a fresh roll of a stochastic
+generator), or **Fix by hand** (repair it in the generator or Figma, save the new
+`<base>.svg` and `<base>_bw.png` into the order folder, then click *I've replaced it*).
+
+The rule the whole gate exists for: **a flagged photo is never auto-approved.** Clean
+results advance on their own; anything the QC tripwire or your eye doubted has to be
+approved by hand before it can reach the PDF. A hand-repaired photo re-enters review as
+`pending_review` — a handoff is a redo, not a shortcut past review.
+
+Every verdict is written straight to the order's `state.json`, which is the same file
+the batch reads to resume and the builder gate reads to decide what to print. Closing
+the tool never loses a decision. You can leave the page open while a batch runs; tiles
+fill in as photos complete.
+
+The generator's token-scoped URL is never sent to the page — *Open generator* is a
+request that makes the **server** launch your browser, so the token stays out of the
+DOM and out of any screen recording.
+
+Browser smoke (needs `npx playwright install chromium`, not part of `npm test`):
+
+```bash
+npm run grid-smoke -- --shot grid.png
+```
+
 ## What's left
 
 1. `npx playwright install chromium` — one-time, for the builder's headless print path.
 2. **A live builder validation run** — build a real order folder to a PDF and eyeball it
    against the current manual output (`… Final.pdf`).
 3. Confirm the operator's standard **title/cover routine** so the builder defaults match.
-4. **U4** — the review grid over `state.json`: approve or redo the flagged photos.
-5. **U6** — one "Go" run: batch → review gate → builder → per-order PDF.
-6. **Measure the redo rate on the shipped config.** The 15% in the U8 doc was the *old*
-   4-step config; the 8-step config has not been counted on a real batch yet.
+4. **U6** — one "Go" run: batch → review gate → builder → per-order PDF, and a launcher
+   that starts the review grid instead of the operator running two commands.
+5. **Measure the redo rate on the shipped config.** The 15% in the U8 doc was the *old*
+   4-step config; the 8-step config has not been counted on a real batch yet. The review
+   grid is the instrument — the verdicts now land in `state.json`, so the rate can be
+   counted from a real order instead of estimated.
 
 ## Layout
 
@@ -111,6 +146,10 @@ src/
   qc.js                  # pure QC heuristics (near-blank / near-solid / empty-SVG)
   qcFiles.js             # sharp adapter: decodes the outputs, feeds qc.js
   batch.js               # resumable per-order generation (U3)
+  review.js              # the review gate: approve / reject / redo / manual handoff (U4)
+  ui/
+    server.js            # local review server (127.0.0.1 only; the token never reaches the page)
+    static/index.html    # the review grid
   generator/
     driver.js            # GeneratorDriver interface
     apiDriver.js         # scripted HTTP driver (implemented — the active generator seam)

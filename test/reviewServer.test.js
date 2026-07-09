@@ -1,0 +1,137 @@
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import sharp from 'sharp';
+import { createReviewServer } from '../src/ui/server.js';
+import { STATES, readManifest, getStatus, setStatus, writeManifest, emptyManifest } from '../src/manifest.js';
+
+const TOKEN = 'sup3r-s3cret-t0ken-abc123';
+const CONFIG = {
+  generator: { baseUrl: `https://fotomalovanky-app.onrender.com/${TOKEN}/`, mode: 'api', variant: '2509_1.5', diffusionSteps: 8 },
+  builder: { baseUrl: 'https://example.test/builder' },
+  paths: { inbox: './inbox', outbox: './outbox' },
+};
+const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0 L10 10"/></svg>';
+
+let root, inbox, outbox, orderDir, server, origin;
+
+before(async () => {
+  root = mkdtempSync(join(tmpdir(), 'fma-srv-'));
+  inbox = join(root, 'inbox');
+  outbox = join(root, 'outbox');
+  orderDir = join(outbox, '1510');
+  mkdirSync(join(inbox, '1510'), { recursive: true });
+  mkdirSync(orderDir, { recursive: true });
+
+  for (const base of ['clean', 'bad', 'manual']) {
+    writeFileSync(join(inbox, '1510', `${base}.jpeg`), 'photo');
+    writeFileSync(join(orderDir, `${base}.jpg`), 'jpeg-bytes');
+    writeFileSync(join(orderDir, `${base}.svg`), SVG);
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: '#ffffff' } })
+      .composite([{ input: { create: { width: 8, height: 4, channels: 3, background: '#000000' } }, top: 0, left: 0 }])
+      .png()
+      .toFile(join(orderDir, `${base}_bw.png`));
+  }
+
+  const m = emptyManifest('1510');
+  setStatus(m, 'clean', STATES.OK, 'ok');
+  setStatus(m, 'bad', STATES.FLAGGED, 'near-blank');
+  setStatus(m, 'manual', STATES.FLAGGED);
+  setStatus(m, 'manual', STATES.MANUAL_IN_PROGRESS);
+  writeManifest(orderDir, m);
+
+  ({ server } = createReviewServer({ config: CONFIG, inboxRoot: inbox, outboxRoot: outbox, driver: { generate: async () => {} } }));
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  origin = `http://127.0.0.1:${server.address().port}`;
+});
+
+after(() => {
+  server?.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
+const get = (p) => fetch(`${origin}${p}`);
+const post = (p) => fetch(`${origin}${p}`, { method: 'POST' });
+
+test('the grid serves its page', async () => {
+  const res = await get('/');
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /text\/html/);
+  assert.match(await res.text(), /<title>Fotomalov/);
+});
+
+test('the state endpoint reports each photo with its status and reason', async () => {
+  const { orders } = await (await get('/api/state')).json();
+  assert.equal(orders.length, 1);
+  assert.equal(orders[0].orderId, '1510');
+
+  const byBase = Object.fromEntries(orders[0].photos.map((p) => [p.base, p]));
+  assert.equal(byBase.clean.status, STATES.OK);
+  assert.equal(byBase.clean.builderEligible, true);
+  assert.equal(byBase.bad.status, STATES.FLAGGED);
+  assert.equal(byBase.bad.reason, 'near-blank');
+  assert.equal(byBase.bad.builderEligible, false);
+  assert.equal(byBase.manual.status, STATES.MANUAL_IN_PROGRESS);
+  assert.equal(orders[0].summary.ready, false);
+});
+
+test('the generator token never crosses to the page', async () => {
+  const body = await (await get('/api/state')).text();
+  assert.ok(!body.includes(TOKEN), 'the token is the only credential the generator has');
+  assert.ok(!body.includes('onrender.com'));
+  const html = await (await get('/')).text();
+  assert.ok(!html.includes(TOKEN));
+});
+
+test('photo files are addressed by (order, base, kind), never by path', async () => {
+  const { orders } = await (await get('/api/state')).json();
+  const payload = JSON.stringify(orders[0].photos);
+  assert.ok(!payload.includes('.png'), 'no file paths in the photo payload');
+  assert.ok(!payload.includes('.svg'));
+
+  const res = await get('/img/1510/bad/coloring');
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'image/jpeg');
+  // A completed redo must not be masked by a cached render of the version just rejected.
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+});
+
+test('a crafted image path is refused, not walked', async () => {
+  for (const p of ['/img/1510/..%2F..%2F..%2Fetc%2Fpasswd/coloring', '/img/..%2F..%2Fsecrets/x/original', '/img/1510/nope/coloring']) {
+    const res = await get(p);
+    assert.equal(res.status, 409, p);
+    assert.match((await res.json()).error, /Unknown/);
+  }
+});
+
+test('approving a flagged photo writes state.json and clears the review gate', async () => {
+  const res = await post('/api/1510/bad/approve');
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).status, STATES.APPROVED);
+  assert.equal(getStatus(readManifest(orderDir), 'bad'), STATES.APPROVED);
+
+  const { orders } = await (await get('/api/state')).json();
+  assert.ok(orders[0].photos.find((p) => p.base === 'bad').builderEligible);
+});
+
+test('approving a photo that is out for manual repair is refused with the operator-facing reason', async () => {
+  const res = await post('/api/1510/manual/approve');
+  assert.equal(res.status, 409);
+  assert.match((await res.json()).error, /out for manual repair/);
+  assert.equal(getStatus(readManifest(orderDir), 'manual'), STATES.MANUAL_IN_PROGRESS);
+});
+
+test('an unknown action or photo is a clean 4xx, not a crash', async () => {
+  assert.equal((await post('/api/1510/clean/detonate')).status, 404);
+  assert.equal((await post('/api/1510/ghost/approve')).status, 409);
+  assert.equal((await post('/api/9999/clean/approve')).status, 409);
+});
+
+test('marking a clean photo bad pulls it back out of the builder gate', async () => {
+  assert.equal((await (await post('/api/1510/clean/reject')).json()).status, STATES.FLAGGED);
+  const { orders } = await (await get('/api/state')).json();
+  assert.equal(orders[0].photos.find((p) => p.base === 'clean').builderEligible, false);
+  assert.equal(orders[0].summary.ready, false);
+});
