@@ -9,7 +9,7 @@
 
 import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, basename, extname } from 'node:path';
 import sharp from 'sharp';
 import { chromium } from 'playwright';
 import { createReviewServer } from '../src/ui/server.js';
@@ -80,12 +80,31 @@ const config = {
   builder: { baseUrl: 'https://example.test' },
   paths: { inbox: fx.inbox, outbox: fx.outbox },
 };
-const { server } = createReviewServer({
-  config,
-  inboxRoot: fx.inbox,
-  outboxRoot: fx.outbox,
-  driver: { generate: async () => { throw new Error('the smoke never spends GPU'); } },
-});
+// Stubs: the smoke never spends GPU and never launches the print browser.
+const generator = {
+  async generate(photoPath) {
+    const base = basename(photoPath, extname(photoPath));
+    const d = mkdtempSync(join(tmpdir(), 'fma-smoke-gen-'));
+    await photo(join(d, `${base}.jpeg`));
+    await lineArt(join(d, `${base}_bw.png`));
+    writeFileSync(join(d, `${base}.svg`), SVG);
+    return {
+      originalPath: join(d, `${base}.jpeg`),
+      coloringPngPath: join(d, `${base}_bw.png`),
+      coloringSvgPath: join(d, `${base}.svg`),
+    };
+  },
+};
+const builtPdfs = [];
+const builder = {
+  async buildPdf(orderDir, options) {
+    builtPdfs.push(options.outPdfPath);
+    writeFileSync(options.outPdfPath, '%PDF-1.4\nstub\n');
+    return { pdfPath: options.outPdfPath, pairs: 1 };
+  },
+};
+
+const { server } = createReviewServer({ config, inboxRoot: fx.inbox, outboxRoot: fx.outbox, driver: generator, builder });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 
@@ -157,6 +176,27 @@ try {
   await ded.blur();
   await page.waitForFunction(() => document.querySelector('[data-key="1510/photo_ok"] .pill')?.textContent === 'approved');
   check('the deferred repaint arrives on blur', readManifest(fx.orderDir).dedication === typed, typed);
+
+  // ---- the Go button. Last, because a run mutates every order's state.json.
+  await page.fill('#inbox', fx.inbox);
+  await page.click('#run');
+  await page.waitForSelector('#runpanel:not([hidden])');
+  await page.waitForFunction(() => document.querySelector('#run').disabled);
+
+  check('Go locks itself while a run is going', await page.locator('#run').isDisabled());
+  check(
+    'a run locks the verdict buttons it would otherwise overwrite',
+    (await page.locator('.tile button:not(:disabled)').count()) === 0,
+  );
+
+  await page.waitForFunction(() => !document.querySelector('#run').disabled, null, { timeout: 60_000 });
+  await page.waitForTimeout(300);
+  const log = await page.locator('#runpanel').textContent();
+
+  // photo_manual is still out for manual repair, so this order is not builder-eligible.
+  check('the run reports the order as waiting, not printed', /waiting for you/.test(log), /(\d+ done[^.]*\.)/.exec(log)?.[1]);
+  check('the review gate kept the unfinished order out of the builder', builtPdfs.length === 0);
+  check('the grid unlocks once the run is over', (await page.locator('.tile button:not(:disabled)').count()) > 0);
 
   check('no page errors', errors.length === 0, errors.join('; '));
 

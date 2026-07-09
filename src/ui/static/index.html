@@ -62,6 +62,18 @@
  @keyframes s{to{transform:rotate(360deg)}}
  .manualbox{background:#fdf8ef;border:1px solid #f0dfbe;border-radius:6px;padding:9px 10px;margin-top:9px;font-size:12.5px;color:#5c4708}
  .manualbox code{background:#fff;border:1px solid #eadfc6;border-radius:3px;padding:1px 5px;font-size:11.5px}
+ .go{background:#fff;border-bottom:1px solid var(--line);padding:12px 22px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+ .go label{font-size:13px;color:#555;white-space:nowrap}
+ .go input[type=text]{flex:1;min-width:300px;font:13px/1.4 ui-monospace,monospace;padding:7px 10px;
+      border:1px solid var(--line);border-radius:6px;background:#fafafa}
+ .go input[type=text]:focus{background:#fff;outline:2px solid #cfe0f5;border-color:#9dbde0}
+ .go .primary{font-weight:600;padding:8px 22px;font-size:14px}
+ .go .chk{display:flex;align-items:center;gap:5px;font-size:12.5px;color:#666}
+ #runpanel{background:#111;color:#ddd;border-bottom:1px solid #000;max-height:230px;overflow:auto;
+      padding:11px 22px;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap}
+ #runpanel .hdr{color:#8fd6a0;font-weight:600}
+ #runpanel .err{color:#ff8b8b}
+ #runpanel .warn{color:#ffcf7a}
  #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#222;color:#fff;
         padding:11px 17px;border-radius:8px;max-width:min(760px,92vw);box-shadow:0 6px 22px rgba(0,0,0,.3);
         opacity:0;pointer-events:none;transition:opacity .18s;z-index:20;font-size:14px}
@@ -81,6 +93,16 @@
   <span class="grow"></span>
   <span class="chip" id="c-live">live</span>
 </div>
+
+<div class="go">
+  <label for="inbox">Order photos</label>
+  <input type="text" id="inbox" spellcheck="false" placeholder="the folder your Chrome extension downloads into">
+  <button id="browse">Browse…</button>
+  <button class="primary" id="run">Go</button>
+  <label class="chk"><input type="checkbox" id="force"> reprint finished PDFs</label>
+</div>
+
+<div id="runpanel" hidden></div>
 
 <div class="wrap"><div id="root"></div></div>
 
@@ -134,6 +156,81 @@ async function open(what, orderId) {
   if (!body.opened) toast('Could not open it from here — open it yourself.', true);
 }
 
+const INBOX_KEY = 'fma:inbox';
+
+async function startRun() {
+  const inbox = $('#inbox').value.trim();
+  try {
+    const res = await fetch('/api/_run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inbox, force: $('#force').checked }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `could not start (HTTP ${res.status})`);
+    if (inbox) localStorage.setItem(INBOX_KEY, inbox);
+    toast('Running. Generating a photo takes a couple of minutes.');
+  } catch (err) {
+    toast(err.message, true);
+  }
+  await refresh(true);
+}
+
+async function browse() {
+  const btn = $('#browse');
+  btn.disabled = true;
+  btn.textContent = 'Choose a folder…';
+  try {
+    const { path } = await (await fetch('/api/_pick-folder', { method: 'POST' })).json();
+    if (path) {
+      $('#inbox').value = path;
+      localStorage.setItem(INBOX_KEY, path);
+    }
+  } catch {
+    toast('Could not open the folder picker — type or paste the path instead.', true);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Browse…';
+}
+
+/** The run log lives outside #root so a new line never repaints (and refetches) the grid. */
+function paintRun(run) {
+  const panel = $('#runpanel');
+  const has = run.active || run.report || run.error;
+  panel.hidden = !has;
+  if (!has) return;
+
+  const parts = [];
+  if (run.lines.length) parts.push(esc(run.lines.join('\n')));
+  if (run.error) parts.push(`<span class="err">Run stopped: ${esc(run.error)}</span>`);
+  if (run.report) {
+    const c = run.report.counts;
+    parts.push(`\n<span class="hdr">${c.done} done, ${c.held} waiting for you, ${c.failed} failed.</span>`);
+    for (const o of run.report.orders) {
+      if (o.status === 'failed') parts.push(`<span class="err">  ${esc(o.orderId)}  FAILED  ${esc(o.reason)}</span>`);
+      else if (o.status === 'held') parts.push(`  ${esc(o.orderId)}  held    ${esc(o.reason)}`);
+      else parts.push(`  ${esc(o.orderId)}  done    PDF written`);
+      if (o.warning) parts.push(`<span class="warn">          ⚠ ${esc(o.warning)}</span>`);
+    }
+  }
+  const html = parts.join('\n');
+  if (panel.dataset.html === html) return; // don't fight the operator's scrollbar
+  panel.dataset.html = html;
+  const pinned = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 24;
+  panel.innerHTML = html;
+  if (pinned) panel.scrollTop = panel.scrollHeight;
+}
+
+function paintGoBar(data) {
+  const running = data.run.active;
+  $('#run').disabled = running;
+  $('#run').textContent = running ? 'Running…' : 'Go';
+  $('#browse').disabled = running;
+  $('#force').disabled = running;
+  const inbox = $('#inbox');
+  if (document.activeElement !== inbox && !inbox.value) inbox.value = localStorage.getItem(INBOX_KEY) || data.inbox || '';
+}
+
 async function saveDedication(orderId, text) {
   try {
     const res = await fetch(`/api/${enc(orderId)}/dedication`, {
@@ -150,7 +247,7 @@ async function saveDedication(orderId, text) {
   await refresh(true);
 }
 
-function tile(orderId, orderDir, p) {
+function tile(orderId, orderDir, p, locked) {
   const status = p.status ?? 'pending';
   const key = orderId + '/' + p.base;
   const busy = p.busy;
@@ -202,6 +299,10 @@ function tile(orderId, orderDir, p) {
       </div>`;
   }
 
+  // A run rewrites each order's state.json as it goes; a verdict saved meanwhile would be
+  // overwritten. The server refuses them, so don't offer them.
+  if (locked) acts = acts.replaceAll('<button ', '<button disabled ');
+
   return `<div class="tile ${status}" data-key="${esc(key)}" data-order="${esc(orderId)}" data-base="${esc(p.base)}">
     <div class="imgs">${shot('original', 'original photo')}${shot('coloring', 'coloring page')}</div>
     <p class="name">${esc(p.base)}</p>
@@ -215,7 +316,13 @@ function tile(orderId, orderDir, p) {
 // on every poll would refetch every (no-store) thumbnail and flicker the page under the
 // operator's cursor, so a poll that changed nothing repaints nothing.
 const skeletonOf = (data) =>
-  JSON.stringify(data.orders.map((o) => ({ ...o, photos: o.photos.map(({ busy, ...p }) => ({ ...p, busy: Boolean(busy) })) })));
+  JSON.stringify({
+    orders: data.orders.map((o) => ({ ...o, photos: o.photos.map(({ busy, ...p }) => ({ ...p, busy: Boolean(busy) })) })),
+    // A run's log lines are not in here: they arrive every second and are painted separately,
+    // so a long run does not repaint (and refetch every thumbnail of) the grid.
+    running: data.run.active,
+    finished: Boolean(data.run.report || data.run.error),
+  });
 
 function patchProgress(data) {
   for (const o of data.orders) {
@@ -233,6 +340,10 @@ function render(data, force) {
   const root = $('#root');
   const orders = data.orders;
 
+  // Always current, whether or not the grid repaints.
+  paintRun(data.run);
+  paintGoBar(data);
+
   const skeleton = skeletonOf(data);
   if (!force) {
     if (skeleton === lastSkeleton) return patchProgress(data);
@@ -245,9 +356,10 @@ function render(data, force) {
   lastSkeleton = skeleton;
 
   if (!orders.length) {
-    root.innerHTML = `<div class="empty"><p><b>Nothing to review yet.</b></p>
-      <p>Generate an order first:<br><code>npm run batch -- &lt;inbox-folder&gt;</code></p>
-      <p style="font-size:13px;color:#888">Watching <code>${esc(data.outbox)}</code></p></div>`;
+    root.innerHTML = `<div class="empty">
+      <p><b>${data.run.active ? 'Working…' : 'Nothing here yet.'}</b></p>
+      <p>${data.run.active ? 'Photos will appear as they finish.' : 'Choose the folder your order photos are in, then press <b>Go</b>.'}</p>
+      <p style="font-size:13px;color:#888">Finished books go to <code>${esc(data.outbox)}</code></p></div>`;
     $('#c-orders').textContent = 'no orders';
     return;
   }
@@ -260,6 +372,7 @@ function render(data, force) {
   $('#c-ready').hidden = !ready;
   $('#c-ready').textContent = `${ready} ready for the builder`;
 
+  const locked = data.run.active;
   root.innerHTML = orders.map((o) => {
     const s = o.summary;
     const note = o.dirName && o.dirName !== o.orderId ? `<span class="note">folder: ${esc(o.dirName)}</span>` : '';
@@ -270,12 +383,12 @@ function render(data, force) {
     // have one — so an empty dedication silently prints a different book.
     const ded = `<div class="ded" data-order="${esc(o.orderId)}">
         <label for="ded-${esc(o.orderId)}">Title page</label>
-        <input id="ded-${esc(o.orderId)}" value="${esc(o.dedication)}" placeholder="dedication text — leave empty for no title page">
+        <input id="ded-${esc(o.orderId)}" value="${esc(o.dedication)}"${locked ? ' disabled' : ''} placeholder="dedication text — leave empty for no title page">
         ${o.dedication ? '' : '<span class="warn">no title page</span>'}
       </div>`;
     return `<section class="order">
       <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}${ded}</header>
-      <div class="grid">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p)).join('')}</div>
+      <div class="grid">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
     </section>`;
   }).join('');
 }
@@ -325,6 +438,14 @@ document.addEventListener('click', (e) => {
   else open(btn.dataset.open, t.dataset.order);
 });
 
+$('#run').addEventListener('click', startRun);
+$('#browse').addEventListener('click', browse);
+$('#inbox').addEventListener('change', () => localStorage.setItem(INBOX_KEY, $('#inbox').value.trim()));
+$('#inbox').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !$('#run').disabled) startRun();
+});
+
+$('#inbox').value = localStorage.getItem(INBOX_KEY) || '';
 refresh();
 setInterval(refresh, 1500);
 </script>

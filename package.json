@@ -8,6 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "start": "node src/ui/server.js",
     "test": "node --test",
     "go": "node src/orchestrator.js",
     "batch": "node src/batch.js",
@@ -18,5 +19,13 @@
   "dependencies": {
     "playwright": "^1.48.0",
     "sharp": "^0.33.5"
-  }
+  },
+  "files": [
+    "src",
+    "config.example.json",
+    "README.md",
+    "docs/OPERATOR.md",
+    "Fotomalovanky.cmd",
+    "Setup.cmd"
+  ]
 }

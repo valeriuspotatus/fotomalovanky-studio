@@ -6,6 +6,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { loadConfig } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
+import { BuilderDriver } from '../builder/builderDriver.js';
+import { runPipeline, formatEvent } from '../orchestrator.js';
+import { ingestOrders, IngestError } from '../ingest.js';
 import { reviewState, approve, reject, handoff, acceptReplacement, redo, setOrderDedication, ReviewError } from '../review.js';
 
 // The U4 review grid: a local page over state.json. Bound to 127.0.0.1 only — it can approve
@@ -82,6 +85,28 @@ async function thumbnail(path) {
   return buf;
 }
 
+const MAX_LOG_LINES = 400;
+
+/** Ask Windows for a folder. A non-technical operator should not have to paste a path.
+ *  Any failure (wrong platform, no PowerShell, cancelled) resolves to null — never throws. */
+async function pickFolder() {
+  if (process.platform !== 'win32') return null;
+  const script = [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    '$d = New-Object System.Windows.Forms.FolderBrowserDialog',
+    "$d.Description = 'Choose the folder your Chrome extension downloads orders into'",
+    "if ($d.ShowDialog() -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }",
+  ].join('; ');
+  return new Promise((resolve) => {
+    let out = '';
+    const ps = spawn('powershell', ['-NoProfile', '-STA', '-Command', script], { windowsHide: false });
+    const timer = setTimeout(() => { ps.kill(); resolve(null); }, 120_000);
+    ps.stdout.on('data', (d) => (out += d));
+    ps.on('error', () => { clearTimeout(timer); resolve(null); });
+    ps.on('close', () => { clearTimeout(timer); resolve(out.trim() || null); });
+  });
+}
+
 /** Best-effort "open this in the operator's desktop". Never throws into a request. */
 function openExternally(target) {
   const cmd =
@@ -98,11 +123,13 @@ function openExternally(target) {
   }
 }
 
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, qc } = {}) {
-  const inbox = inboxRoot ?? config.paths.inbox;
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc } = {}) {
+  let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
+  const run = { active: false, lines: [], report: null, error: null };
   let generator = driver ?? null;
+  let builderDriver = builder ?? null;
 
   const state = () => reviewState({ inboxRoot: inbox, outboxRoot: outbox });
 
@@ -114,7 +141,66 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, qc }
     return { order, photo };
   };
 
+  /** A run holds each order's manifest in memory and rewrites it after every photo. A verdict
+   *  saved meanwhile would be silently overwritten, so verdicts are refused while a run is on. */
+  const requireIdle = () => {
+    if (run.active) throw new ReviewError('A run is in progress — wait for it to finish before changing anything.');
+  };
+
+  function startRun({ inbox: requested, force }) {
+    if (run.active) throw new ReviewError('A run is already going.');
+    if (inFlight.size) throw new ReviewError('A photo is still being regenerated — wait for it to finish.');
+
+    const candidate = String(requested ?? '').trim() || inbox;
+    ingestOrders(candidate); // surfaces a missing folder before anything starts
+    inbox = candidate;
+
+    run.active = true;
+    run.lines = [];
+    run.report = null;
+    run.error = null;
+
+    generator ??= createGeneratorDriver(config);
+    builderDriver ??= new BuilderDriver(config);
+
+    // Deliberately not awaited: the operator watches the log while the GPU and the browser work.
+    runPipeline({
+      config,
+      inboxRoot: inbox,
+      outboxRoot: outbox,
+      generator,
+      builder: builderDriver,
+      qc,
+      force: Boolean(force),
+      onEvent: (e) => {
+        const line = formatEvent(e);
+        if (line === null) return;
+        run.lines.push(line);
+        if (run.lines.length > MAX_LOG_LINES) run.lines.splice(0, run.lines.length - MAX_LOG_LINES);
+      },
+    })
+      .then((result) => {
+        run.report = {
+          counts: result.counts,
+          orders: result.orders.map((o) => ({
+            orderId: o.orderId,
+            status: o.status,
+            reason: o.reason,
+            warning: o.warning,
+            pdf: Boolean(o.pdfPath),
+          })),
+        };
+      })
+      .catch((err) => {
+        run.error = `${err.seam ?? 'unknown'} seam: ${err.message}`;
+      })
+      .finally(() => {
+        run.active = false;
+      });
+  }
+
   async function startRedo(orderId, base) {
+    requireIdle();
     const key = `${orderId}/${base}`;
     if (inFlight.has(key)) throw new ReviewError(`"${base}" is already being regenerated.`);
     const { order } = find(orderId, base);
@@ -152,7 +238,18 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, qc }
       }
 
       if (req.method === 'GET' && url.pathname === '/api/state') {
-        return json(res, 200, { orders: forClient(state(), inFlight), inbox, outbox });
+        return json(res, 200, { orders: forClient(state(), inFlight), inbox, outbox, run });
+      }
+
+      // POST /api/_run  { inbox?, force? } — the Go button.
+      if (req.method === 'POST' && url.pathname === '/api/_run') {
+        startRun(await readJson(req));
+        return json(res, 202, { started: true, inbox });
+      }
+
+      // POST /api/_pick-folder — a native folder dialog, so no path has to be typed.
+      if (req.method === 'POST' && url.pathname === '/api/_pick-folder') {
+        return json(res, 200, { path: await pickFolder() });
       }
 
       // GET /img/<order>/<base>/<original|coloring>
@@ -187,6 +284,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, qc }
 
       // POST /api/<order>/dedication — the book's title-page text.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'dedication') {
+        requireIdle();
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         const { text } = await readJson(req);
@@ -196,6 +294,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, qc }
       // POST /api/<order>/<base>/<action>
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 4) {
         const [, orderId, base, action] = parts;
+        requireIdle();
         const { order } = find(orderId, base);
         if (action === 'approve') return json(res, 200, { status: approve(order.orderDir, base) });
         if (action === 'reject') return json(res, 200, { status: reject(order.orderDir, base) });
@@ -213,7 +312,8 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, qc }
 
       return json(res, 404, { error: 'Not found.' });
     } catch (err) {
-      if (err instanceof ReviewError) return json(res, 409, { error: err.message });
+      // Both carry operator-facing text; neither is a bug in the tool.
+      if (err instanceof ReviewError || err instanceof IngestError) return json(res, 409, { error: err.message });
       console.error(err);
       return json(res, 500, { error: err.message ?? 'Something went wrong.' });
     }
@@ -222,18 +322,34 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, qc }
   return { server, inFlight };
 }
 
-// CLI: node src/ui/server.js [inbox] [outbox] [--port 4173]
+// CLI: node src/ui/server.js [inbox] [outbox] [--port 4173] [--no-open]
+// This is what the double-click launcher runs: the operator's whole tool is this page.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const argv = process.argv.slice(2);
   const portFlag = argv.indexOf('--port');
   const port = portFlag >= 0 ? Number(argv[portFlag + 1]) : 4173;
   const [inboxRoot, outboxRoot] = argv.filter((a) => !a.startsWith('--') && a !== String(port));
 
-  const config = loadConfig();
+  let config;
+  try {
+    config = loadConfig();
+  } catch (err) {
+    console.error(`\n${err.message}\n`); // ConfigError already reads as instructions
+    process.exit(1);
+  }
+
   const { server } = createReviewServer({ config, inboxRoot, outboxRoot });
+  server.on('error', (err) => {
+    const why =
+      err.code === 'EADDRINUSE'
+        ? `Port ${port} is already in use — the tool may already be open in another window.`
+        : err.message;
+    console.error(`\nCould not start: ${why}\n`);
+    process.exit(1);
+  });
   server.listen(port, '127.0.0.1', () => {
     const url = `http://127.0.0.1:${port}/`;
-    console.log(`Review grid on ${url}  (local only — Ctrl-C to stop)`);
-    openExternally(url);
+    console.log(`\n  Fotomalovánky is running.\n\n  ${url}\n\n  Leave this window open. Close it (or press Ctrl-C) to stop.\n`);
+    if (!argv.includes('--no-open')) openExternally(url);
   });
 }

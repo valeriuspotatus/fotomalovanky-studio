@@ -150,6 +150,40 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
   return { inbox, outbox, orders: report, counts };
 }
 
+// ---- progress rendering ----------------------------------------------------
+
+/** One run event as a line the operator can read. Returns null for events with nothing to say.
+ *  Shared by the CLI and the review grid's run log, so both describe a run identically. */
+export function formatEvent(e) {
+  switch (e.type) {
+    case 'run-start':
+      return `${e.orders} order(s) in ${e.inbox}`;
+    case 'order-start': {
+      const from = e.dirName && e.dirName !== e.orderId ? ` (from the photo names; folder is "${e.dirName}")` : '';
+      return `\norder ${e.orderId} — ${e.photos} photo(s)${from}`;
+    }
+    case 'photo-start': return `  ${e.base}${e.redo ? ' (redo)' : ''}…`;
+    case 'progress': return `    [${e.step}] ${e.message}`;
+    case 'photo-ok': return `  ${e.base}: ok`;
+    case 'photo-flagged': return `  ${e.base}: FLAGGED (${e.reason}) — needs review`;
+    case 'photo-failed': return `  ${e.base}: FAILED — ${e.reason}`;
+    case 'photo-skipped': return `  ${e.base}: skipped (${e.status})`;
+    case 'build-start': return `  building the PDF from ${e.photos} photo(s)…`;
+    case 'build-done': return `  PDF: ${e.pdfPath} (${e.pairs} pairs)`;
+    case 'build-skipped': return `  PDF already up to date: ${e.pdfPath}`;
+    case 'build-failed': return `  BUILD FAILED — ${e.reason}`;
+    default: return null;
+  }
+}
+
+/** What the run is busy with, for a heartbeat. null when nothing long is in flight. */
+export function workingOn(e) {
+  if (e.type === 'photo-start') return e.base;
+  if (e.type === 'build-start') return `${e.orderId} PDF`;
+  if (['photo-ok', 'photo-flagged', 'photo-failed', 'build-done', 'build-failed'].includes(e.type)) return null;
+  return undefined; // no change
+}
+
 // ---- CLI -------------------------------------------------------------------
 
 const HEARTBEAT_MS = 15_000;
@@ -172,29 +206,14 @@ function cliRenderer() {
   return {
     stop: () => clearInterval(timer),
     onEvent: (e) => {
-      const say = (line) => {
-        lastAt = Date.now();
-        console.log(line);
-      };
-      switch (e.type) {
-        case 'run-start': return say(`${e.orders} order(s) in ${e.inbox}\n`);
-        case 'order-start': {
-          const from = e.dirName && e.dirName !== e.orderId ? ` (from the photo names; folder is "${e.dirName}")` : '';
-          return say(`order ${e.orderId} — ${e.photos} photo(s)${from}`);
-        }
-        case 'photo-start': working = e.base; return say(`  ${e.base}${e.redo ? ' (redo)' : ''}…`);
-        case 'progress': lastAt = Date.now(); return;
-        case 'photo-ok': working = null; return say(`  ${e.base}: ok`);
-        case 'photo-flagged': working = null; return say(`  ${e.base}: FLAGGED (${e.reason}) — needs review`);
-        case 'photo-failed': working = null; return say(`  ${e.base}: FAILED — ${e.reason}`);
-        case 'photo-skipped': return say(`  ${e.base}: skipped (${e.status})`);
-        case 'build-start': working = `${e.orderId} PDF`; return say(`  building the PDF from ${e.photos} photo(s)…`);
-        case 'build-done': working = null; return say(`  PDF: ${e.pdfPath} (${e.pairs} pairs)`);
-        case 'build-skipped': return say(`  PDF already up to date: ${e.pdfPath}`);
-        case 'build-failed': working = null; return say(`  BUILD FAILED — ${e.reason}`);
-        case 'order-done': return say('');
-        default: return;
-      }
+      const next = workingOn(e);
+      if (next !== undefined) working = next;
+      lastAt = Date.now();
+      // The driver's poll chatter keeps the heartbeat quiet without flooding the terminal.
+      if (e.type === 'progress') return;
+      const line = formatEvent(e);
+      if (line !== null) console.log(line);
+      if (e.type === 'order-done') console.log('');
     },
   };
 }

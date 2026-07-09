@@ -5,6 +5,11 @@ the print-ready A4 PDF for **fotomalovanky.cz**. It sits between the existing
 Chrome extension (which downloads order photos from Shopify) and the print
 builder, automating the tedious per-photo generation loop.
 
+**Using the tool?** Read [`docs/OPERATOR.md`](docs/OPERATOR.md) — it's the whole thing in
+plain words, no terminal. Double-click `Setup.cmd` once, then `Fotomalovanky.cmd` to work.
+
+The rest of this file is for whoever maintains the code.
+
 Plan: `docs/plans/2026-07-08-001-feat-fotomalovanky-order-automation-plan.md`.
 
 > **Status: Phase 1 (build-out).** Both live seams are implemented and the value gate
@@ -21,7 +26,9 @@ Plan: `docs/plans/2026-07-08-001-feat-fotomalovanky-order-automation-plan.md`.
 > - **Ingest + batch (U3):** done — resumable, one `state.json` per order.
 > - **Review gate (U4):** done — a local review grid over `state.json`.
 > - **Orchestration (U6):** done — `npm run go` runs the whole pipeline to per-order PDFs.
-> - **Next:** U7 (packaging), and measuring the redo rate on a real batch.
+> - **Packaging (U7):** done — `Setup.cmd` / `Fotomalovanky.cmd`, and a **Go** button in the
+>   grid, so the operator never opens a terminal.
+> - **Next:** measure the redo rate on a real batch; eyeball a full order's PDF.
 
 ## Requirements
 
@@ -67,7 +74,24 @@ node src/generator/apiDriver.js <path-to-one-photo> [outDir]   # generator only
 node src/builder/builderDriver.js <order-folder> [outPdfPath]  # builder only (needs chromium)
 ```
 
-## Run the whole thing
+## How the operator runs it
+
+Double-click **`Fotomalovanky.cmd`**. It starts a local server on `127.0.0.1:4173` and opens
+the page: choose a folder, press **Go**, watch the log, review what's flagged. Same pipeline
+as the CLI below, driven from the page. `Setup.cmd` does the one-time `npm install` +
+`playwright install chromium` + `config.json`.
+
+There is no bundled `.exe`: `sharp` ships a native binary and Playwright keeps Chromium in a
+separate cache, so a single-file build would still need both on disk. A `.cmd` is a
+double-click launcher, and it fails with an instruction rather than a stack trace when Node
+or the setup is missing.
+
+While a run is going, **every verdict button and the title field are disabled**. The run
+holds each order's `state.json` in memory and rewrites it after each photo; a verdict saved
+meanwhile would be silently overwritten. The server refuses those requests too — the page
+just doesn't offer them.
+
+## Run the whole thing from a terminal
 
 ```bash
 npm run go -- <inbox-folder> [outbox-folder]
@@ -166,19 +190,24 @@ npm run grid-smoke -- --shot grid.png
 
 ## What's left
 
-1. `npx playwright install chromium` — one-time, for the builder's headless print path.
-2. **Eyeball a real order's PDF against the current manual output.** One-photo orders were
+1. **Eyeball a real order's PDF against the current manual output.** One-photo orders were
    validated live (page structure matches the builder's own formula: `2N+4` with a title
    page, `2N+2` without); a full 8–16 photo order has not been compared side by side.
-3. **U7** — package it for double-click launch, so the operator never sees a terminal.
-4. **Measure the redo rate on the shipped config.** The 15% in the U8 doc was the *old*
+2. **A first real batch run by the operator, following only `docs/OPERATOR.md`.** That is
+   U7's actual verification, and it needs the operator, not me.
+3. **Measure the redo rate on the shipped config.** The 15% in the U8 doc was the *old*
    4-step config; the 8-step config has not been counted on a real batch yet. The review
    grid is the instrument — the verdicts now land in `state.json`, so the rate can be
    counted from a real order instead of estimated.
+4. **Rotate the generator token.** It is visible in the operator's screen recording. Every
+   surface of this tool keeps it hidden; that recording is the remaining exposure.
 
 ## Layout
 
 ```
+Fotomalovanky.cmd        # double-click launcher (operator)
+Setup.cmd                # one-time setup (operator)
+docs/OPERATOR.md         # the operator's manual
 src/
   config.js              # load/validate config; redact secrets for logs
   ingest.js              # extension folders -> order/photo model
@@ -190,8 +219,8 @@ src/
   orchestrator.js        # the "Go" run: generate -> review gate -> builder -> PDF (U6)
   review.js              # the review gate: approve / reject / redo / manual handoff (U4)
   ui/
-    server.js            # local review server (127.0.0.1 only; the token never reaches the page)
-    static/index.html    # the review grid
+    server.js            # local server: Go button + review grid (127.0.0.1 only; the token never reaches the page)
+    static/index.html    # the page
   generator/
     driver.js            # GeneratorDriver interface
     apiDriver.js         # scripted HTTP driver (implemented — the active generator seam)
