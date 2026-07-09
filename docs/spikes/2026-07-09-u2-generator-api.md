@@ -86,6 +86,25 @@ a single generation needed up to ~175 polls. The driver defaults (overridable vi
 3 min, 4 retries with exponential backoff. Retries treat network errors, timeouts, and
 408/429/5xx as transient (cold-start-aware).
 
+## GPU jobs fail, and are retried separately (2026-07-09)
+
+The operator's screen recording shows **2 of 24 jobs FAILED** (~8%) in one ordinary session. That is
+a *GPU-side* failure: the request succeeded, the job was accepted, and then the RunPod worker lost
+it. Transport retries inside `#request` cannot see this — polling the dead job only re-reads
+`FAILED` forever.
+
+`ApiGeneratorDriver` therefore has a **second, independent retry budget**, `generator.timeouts.gpuRetries`
+(default **2**, i.e. 3 attempts total). On `FAILED` it submits a **new** `/process` job rather than
+re-polling the old one, backing off 1 s / 2 s between attempts. Exhausting the budget raises a
+`GeneratorError` with `step: 'poll'` whose message carries the GPU's own reason and the attempt
+count — no stack trace reaches the operator.
+
+At the observed ~8% per-job failure rate an untried 16-photo order would drop ~1 photo per run;
+with two resubmissions the chance of losing a given photo falls to roughly 0.05%.
+
+`GeneratorError` now carries `retryable`. A dead GPU job is retryable; a rejected upload
+(`unsupported file type`) is not, and is never resubmitted.
+
 ## Live validation (2026-07-09)
 
 `ApiGeneratorDriver` was run end-to-end against the live app on one real order photo

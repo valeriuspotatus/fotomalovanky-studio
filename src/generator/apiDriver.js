@@ -56,7 +56,8 @@ export class ApiGeneratorDriver extends GeneratorDriver {
     this.vectorizeTimeoutMs = t.vectorizeMs ?? 180_000; // tracing a full image takes a while
     this.pollIntervalMs = t.pollIntervalMs ?? 4_000; // matches the web UI's cadence
     this.maxPollMs = t.maxPollMs ?? 20 * 60_000; // diffusion + GPU cold-start headroom
-    this.maxRetries = t.retries ?? 4;
+    this.maxRetries = t.retries ?? 4; // transport-level (network / 5xx) retries
+    this.gpuRetries = t.gpuRetries ?? 2; // resubmits after the GPU accepts a job and then FAILs it
     this.backoffBaseMs = t.backoffBaseMs ?? 1_000;
     this.onProgress = null; // optional (step, message) sink; set per-call from settings
   }
@@ -89,11 +90,8 @@ export class ApiGeneratorDriver extends GeneratorDriver {
     // 2. The server stores the file under a hash-prefixed name — learn it.
     const serverName = await this.#resolveServerFilename(jobId, filename);
 
-    // 3. Submit the diffusion job for the single configured variant.
-    const variantKey = await this.#process(jobId, serverName, { model, megapixels, steps, positive, negative }, variant);
-
-    // 4. Poll the GPU job to completion.
-    await this.#pollUntilDone(jobId, serverName, variantKey);
+    // 3 + 4. Submit the diffusion job and wait for the GPU, resubmitting if the job dies.
+    const variantKey = await this.#processAndWait(jobId, serverName, { model, megapixels, steps, positive, negative }, variant);
 
     // 5. Vectorize — this is what mints the final jpg / _bw.png / .svg triple.
     const names = await this.#vectorize(jobId, serverName, variantKey);
@@ -175,6 +173,33 @@ export class ApiGeneratorDriver extends GeneratorDriver {
     return key;
   }
 
+  /** Submit the job and wait for it. A GPU-side FAILED is retried by submitting a *new* job —
+   *  polling the dead one again would only re-read FAILED. Transport errors are already retried
+   *  inside #request; this loop exists solely for jobs the GPU accepted and then lost. */
+  async #processAndWait(jobId, serverName, params, variantFallback) {
+    for (let attempt = 0; ; attempt++) {
+      const variantKey = await this.#process(jobId, serverName, params, variantFallback);
+      try {
+        await this.#pollUntilDone(jobId, serverName, variantKey);
+        return variantKey;
+      } catch (err) {
+        const canRetry = err instanceof GeneratorError && err.retryable && attempt < this.gpuRetries;
+        if (!canRetry) {
+          if (err instanceof GeneratorError && err.retryable) {
+            throw new GeneratorError(
+              `${err.message} — gave up after ${this.gpuRetries + 1} attempts on the GPU.`,
+              { step: 'poll', cause: err },
+            );
+          }
+          throw err;
+        }
+        const waitMs = this.backoffBaseMs * 2 ** attempt;
+        this.#emit('poll', `GPU job failed; resubmitting in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 2}/${this.gpuRetries + 1})`);
+        await sleep(waitMs);
+      }
+    }
+  }
+
   async #pollUntilDone(jobId, serverName, variantKey) {
     const started = Date.now();
     const deadline = started + this.maxPollMs;
@@ -190,7 +215,13 @@ export class ApiGeneratorDriver extends GeneratorDriver {
         return;
       }
       if (data.status === 'FAILED') {
-        throw new GeneratorError(`Generation failed on the GPU: ${data.error ?? 'no detail'}`, { step: 'poll' });
+        // The GPU job died — a fresh job on a fresh worker usually succeeds, so let the
+        // caller resubmit rather than losing the photo. ~8% of jobs failed in the operator's
+        // recorded session, which is roughly one dropped photo per 16-photo order.
+        throw new GeneratorError(`Generation failed on the GPU: ${data.error ?? 'no detail'}`, {
+          step: 'poll',
+          retryable: true,
+        });
       }
       // IN_QUEUE / IN_PROGRESS -> keep waiting
       this.#emit('poll', `${data.status ?? 'waiting'}… ${elapsed}s`);

@@ -29,13 +29,18 @@ export class GeneratorNotImplementedError extends Error {}
  * A generator-seam failure phrased for the operator (no stack traces in the UI).
  * `step` names where in the flow it broke (upload/process/poll/vectorize/download)
  * so the orchestrator's run report can say which seam gave way.
+ *
+ * `retryable` marks a failure the driver may recover from by resubmitting the work —
+ * as opposed to one the operator has to act on. A GPU job that comes back FAILED is
+ * retryable (RunPod workers die, OOM, and cold-start badly); a rejected upload is not.
  */
 export class GeneratorError extends Error {
-  constructor(message, { step, cause } = {}) {
+  constructor(message, { step, cause, retryable = false } = {}) {
     super(message);
     this.name = 'GeneratorError';
     this.seam = 'generator';
     this.step = step ?? null;
+    this.retryable = retryable;
     if (cause !== undefined) this.cause = cause;
   }
 }

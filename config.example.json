@@ -12,6 +12,7 @@
       "pollIntervalMs": 4000,
       "maxPollMs": 1200000,
       "retries": 4,
+      "gpuRetries": 2,
       "backoffBaseMs": 1000
     }
   },
