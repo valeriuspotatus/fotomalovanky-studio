@@ -9,6 +9,8 @@ import {
   getStatus,
   getSource,
   setStatus,
+  getDedication,
+  setDedication,
   readManifest,
   writeManifest,
   summarizeOrder,
@@ -80,7 +82,14 @@ export function reviewState({ inboxRoot, outboxRoot }) {
       };
     });
 
-    orders.push({ orderId, orderDir, dirName: order.dirName ?? orderId, photos, summary: summarizeOrder(manifest, bases) });
+    orders.push({
+      orderId,
+      orderDir,
+      dirName: order.dirName ?? orderId,
+      dedication: getDedication(manifest),
+      photos,
+      summary: summarizeOrder(manifest, bases),
+    });
   }
   return orders.sort((a, b) => a.orderId.localeCompare(b.orderId, 'en', { numeric: true }));
 }
@@ -90,6 +99,15 @@ function outboxOrders(outboxRoot) {
   return readdirSync(outboxRoot, { withFileTypes: true })
     .filter((e) => e.isDirectory() && existsSync(join(outboxRoot, e.name, 'state.json')))
     .map((e) => ({ orderId: e.name, photos: [] }));
+}
+
+/** Set the order's title-page text. Writing it also makes any already-printed PDF stale,
+ *  because state.json is the order's "last decided" clock. */
+export function setOrderDedication(orderDir, text) {
+  const manifest = readManifest(orderDir);
+  setDedication(manifest, text);
+  writeManifest(orderDir, manifest);
+  return getDedication(manifest);
 }
 
 // ---- verdicts -------------------------------------------------------------

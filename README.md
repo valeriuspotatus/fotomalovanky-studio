@@ -20,7 +20,8 @@ Plan: `docs/plans/2026-07-08-001-feat-fotomalovanky-order-automation-plan.md`.
 >   cut-off limbs.
 > - **Ingest + batch (U3):** done — resumable, one `state.json` per order.
 > - **Review gate (U4):** done — a local review grid over `state.json`.
-> - **Next:** U6 (orchestration), U7 (packaging).
+> - **Orchestration (U6):** done — `npm run go` runs the whole pipeline to per-order PDFs.
+> - **Next:** U7 (packaging), and measuring the redo rate on a real batch.
 
 ## Requirements
 
@@ -66,7 +67,48 @@ node src/generator/apiDriver.js <path-to-one-photo> [outDir]   # generator only
 node src/builder/builderDriver.js <order-folder> [outPdfPath]  # builder only (needs chromium)
 ```
 
-## Run a real batch (generation only, no PDF yet)
+## Run the whole thing
+
+```bash
+npm run go -- <inbox-folder> [outbox-folder]
+```
+
+Ingest → generate → QC → **review gate** → builder → one print-ready A4 PDF per order,
+saved as `<outbox>/<order>/<order> Final.pdf`. It ends with a run report:
+
+```
+Run report
+  1510  done    …\1510\1510 Final.pdf
+  1523  held    2 photo(s) waiting for you in the review grid
+  1499  FAILED  1 photo(s) failed to generate: img0003 — generator seam (poll): …
+
+1 done, 1 waiting for you, 1 failed.
+Review them:  npm run review -- <inbox>     then run this again.
+```
+
+**The review gate is a wall, not a step.** An order is printed only when *every* photo is
+clean or explicitly approved. A single flagged photo holds back its own order's PDF and
+nothing else — the other orders still print. Approve it in the review grid and run `go`
+again.
+
+Everything is resumable and idempotent: photos already done are not regenerated, and a
+PDF is reprinted only when something actually changed (`state.json` is the order's
+"last decided" clock). Add `--force` to reprint anyway, `--review` to open the review
+grid automatically when an order is waiting for you.
+
+A break at either seam is caught, named in plain language (`generator seam (poll): …` /
+`builder seam (load): …`), recorded against that order, and the rest of the batch
+continues. No stack traces.
+
+### The title page
+
+The builder prints a title page only when the order has **dedication text** — and the
+operator's current books have one, so an order without it prints a structurally different
+(2 pages shorter) book. Set it per order in the review grid; the run report warns when an
+order has none. `config.json`'s `builder.pdf` holds the layout defaults (`mode`,
+`addAllCovers`, rotation); a per-order dedication always wins over a configured default.
+
+## Run generation only (no PDF)
 
 ```bash
 npm run batch -- <inbox-folder> [outbox-folder]
@@ -87,8 +129,8 @@ photos that are new, auto-flagged (a redo is a fresh roll of a stochastic genera
 or failed. It never re-generates a photo you are repairing by hand — that would
 overwrite your work. One photo's failure is recorded and the batch continues.
 
-The PDF step is not wired into the batch yet (U6); use `npm run skeleton` or the
-builder CLI for that.
+This is the generation half of `npm run go`, without the builder. Useful when you want to
+generate overnight and review in the morning.
 
 ## Review and redo the bad ones
 
@@ -125,12 +167,11 @@ npm run grid-smoke -- --shot grid.png
 ## What's left
 
 1. `npx playwright install chromium` — one-time, for the builder's headless print path.
-2. **A live builder validation run** — build a real order folder to a PDF and eyeball it
-   against the current manual output (`… Final.pdf`).
-3. Confirm the operator's standard **title/cover routine** so the builder defaults match.
-4. **U6** — one "Go" run: batch → review gate → builder → per-order PDF, and a launcher
-   that starts the review grid instead of the operator running two commands.
-5. **Measure the redo rate on the shipped config.** The 15% in the U8 doc was the *old*
+2. **Eyeball a real order's PDF against the current manual output.** One-photo orders were
+   validated live (page structure matches the builder's own formula: `2N+4` with a title
+   page, `2N+2` without); a full 8–16 photo order has not been compared side by side.
+3. **U7** — package it for double-click launch, so the operator never sees a terminal.
+4. **Measure the redo rate on the shipped config.** The 15% in the U8 doc was the *old*
    4-step config; the 8-step config has not been counted on a real batch yet. The review
    grid is the instrument — the verdicts now land in `state.json`, so the rate can be
    counted from a real order instead of estimated.
@@ -146,6 +187,7 @@ src/
   qc.js                  # pure QC heuristics (near-blank / near-solid / empty-SVG)
   qcFiles.js             # sharp adapter: decodes the outputs, feeds qc.js
   batch.js               # resumable per-order generation (U3)
+  orchestrator.js        # the "Go" run: generate -> review gate -> builder -> PDF (U6)
   review.js              # the review gate: approve / reject / redo / manual handoff (U4)
   ui/
     server.js            # local review server (127.0.0.1 only; the token never reaches the page)

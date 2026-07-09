@@ -17,7 +17,11 @@
     }
   },
   "builder": {
-    "baseUrl": "https://fotomalovanky-service.onrender.com/"
+    "baseUrl": "https://fotomalovanky-service.onrender.com/",
+    "pdf": {
+      "mode": "gallery",
+      "addAllCovers": false
+    }
   },
   "paths": {
     "inbox": "./inbox",

@@ -22,6 +22,11 @@
  .order>header{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
  .order h2{font-size:16px;margin:0}
  .order .note{font-size:12px;color:#777}
+ .ded{display:flex;align-items:center;gap:7px;flex:1;min-width:320px}
+ .ded label{font-size:12px;color:#666;white-space:nowrap}
+ .ded input{flex:1;font:inherit;font-size:13px;padding:5px 9px;border:1px solid var(--line);border-radius:6px;background:#fafafa}
+ .ded input:focus{background:#fff;outline:2px solid #cfe0f5;border-color:#9dbde0}
+ .ded .warn{font-size:11.5px;color:var(--manual);white-space:nowrap}
  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;padding:16px;align-items:start}
  .tile{border:1px solid var(--line);border-radius:8px;padding:11px;position:relative;background:#fff}
  .tile.flagged,.tile.failed{border-color:var(--bad);box-shadow:0 0 0 2px #fdecec inset}
@@ -124,9 +129,25 @@ async function act(orderId, base, action) {
 }
 
 async function open(what, orderId) {
-  const res = await fetch(`/api/open/${what}${orderId ? '/' + enc(orderId) : ''}`, { method: 'POST' });
+  const res = await fetch(`/api/_open/${what}${orderId ? '/' + enc(orderId) : ''}`, { method: 'POST' });
   const body = await res.json().catch(() => ({}));
   if (!body.opened) toast('Could not open it from here — open it yourself.', true);
+}
+
+async function saveDedication(orderId, text) {
+  try {
+    const res = await fetch(`/api/${enc(orderId)}/dedication`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'could not save the title page text');
+    toast(body.dedication ? 'Title page saved.' : 'Title page removed — this book will have no title page.');
+  } catch (err) {
+    toast(err.message, true);
+  }
+  await refresh(true);
 }
 
 function tile(orderId, orderDir, p) {
@@ -208,12 +229,19 @@ function patchProgress(data) {
 
 let lastSkeleton = null;
 
-function render(data) {
+function render(data, force) {
   const root = $('#root');
   const orders = data.orders;
 
   const skeleton = skeletonOf(data);
-  if (skeleton === lastSkeleton) return patchProgress(data);
+  if (!force) {
+    if (skeleton === lastSkeleton) return patchProgress(data);
+    // Never repaint over a field the operator is typing into. Repainting removes the focused,
+    // dirty input, which fires blur -> change -> save: a background poll would silently commit
+    // half-typed text as this book's title page. An action they took themselves always repaints
+    // (force), or saving the field would swallow its own result.
+    if (document.activeElement?.matches?.('.ded input')) return patchProgress(data);
+  }
   lastSkeleton = skeleton;
 
   if (!orders.length) {
@@ -238,8 +266,15 @@ function render(data) {
     const badge = s.ready
       ? `<span class="chip ready">ready — ${s.total} photo${s.total > 1 ? 's' : ''}</span>`
       : `<span class="chip hold">${s.eligible}/${s.total} ready</span>`;
+    // The builder prints a title page only when this is non-empty, and the operator's books
+    // have one — so an empty dedication silently prints a different book.
+    const ded = `<div class="ded" data-order="${esc(o.orderId)}">
+        <label for="ded-${esc(o.orderId)}">Title page</label>
+        <input id="ded-${esc(o.orderId)}" value="${esc(o.dedication)}" placeholder="dedication text — leave empty for no title page">
+        ${o.dedication ? '' : '<span class="warn">no title page</span>'}
+      </div>`;
     return `<section class="order">
-      <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}</header>
+      <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}${ded}</header>
       <div class="grid">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p)).join('')}</div>
     </section>`;
   }).join('');
@@ -249,10 +284,9 @@ let inFlight = false;
 async function refresh(force) {
   if (inFlight) return;
   inFlight = true;
-  if (force) lastSkeleton = null;
   try {
     const res = await fetch('/api/state');
-    render(await res.json());
+    render(await res.json(), force);
     $('#c-live').textContent = 'live';
   } catch {
     $('#c-live').textContent = 'disconnected — is the tool still running?';
@@ -269,6 +303,15 @@ document.addEventListener('error', (e) => {
   const cap = fig.querySelector('figcaption')?.textContent ?? '';
   fig.innerHTML = `<div class="ph">unreadable file</div><figcaption>${esc(cap)}</figcaption>`;
 }, true);
+
+// 'change' fires on blur or Enter — save when the operator is done typing, not per keystroke.
+document.addEventListener('change', (e) => {
+  const input = e.target.closest('.ded input');
+  if (input) saveDedication(input.closest('.ded').dataset.order, input.value);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.closest('.ded input')) e.target.blur();
+});
 
 document.addEventListener('click', (e) => {
   const img = e.target.closest('.imgs img');

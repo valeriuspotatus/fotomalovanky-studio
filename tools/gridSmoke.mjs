@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { chromium } from 'playwright';
 import { createReviewServer } from '../src/ui/server.js';
+import { approve as approveOutOfBand } from '../src/review.js';
 import { STATES, emptyManifest, setStatus, writeManifest, readManifest, getStatus } from '../src/manifest.js';
 
 const argv = process.argv.slice(2);
@@ -130,6 +131,32 @@ try {
   await page.waitForTimeout(400);
   check('a refused action leaves the tile usable', (await tile('photo_manual').locator('button:disabled').count()) === 0);
   check('the photo stays out for manual repair', getStatus(readManifest(fx.orderDir), 'photo_manual') === STATES.MANUAL_IN_PROGRESS);
+
+  // The title page only prints when this is set, so it has to survive a blur and a repaint.
+  const ded = page.locator('.ded input');
+  await ded.fill('Pro Barču, s láskou');
+  await ded.blur(); // `change` fires on blur — that is what saves it, not the typing
+  await page.waitForFunction(() => !document.querySelector('.ded .warn'));
+  check('the title-page text reaches state.json', readManifest(fx.orderDir).dedication === 'Pro Barču, s láskou');
+
+  // A background poll must not repaint the field the operator is typing into. Repainting
+  // *removes* a focused, dirty input, which fires blur -> change -> save: the poll would
+  // silently commit half-typed text as the dedication. Type key by key (pressSequentially
+  // fires `input` only, so nothing is saved yet) and change the state underneath them.
+  await ded.focus();
+  await page.keyboard.press('End');
+  await ded.pressSequentially(' od rodiny');
+  const typed = await ded.inputValue();
+  approveOutOfBand(fx.orderDir, 'photo_ok'); // state.json now differs from what the page shows
+  await page.waitForTimeout(2400); // two poll cycles
+
+  check('a poll does not commit half-typed text', readManifest(fx.orderDir).dedication === 'Pro Barču, s láskou');
+  check('the operator keeps focus while typing', await page.evaluate(() => !!document.activeElement?.matches?.('.ded input')));
+
+  // …and the deferred repaint lands as soon as the operator leaves the field.
+  await ded.blur();
+  await page.waitForFunction(() => document.querySelector('[data-key="1510/photo_ok"] .pill')?.textContent === 'approved');
+  check('the deferred repaint arrives on blur', readManifest(fx.orderDir).dedication === typed, typed);
 
   check('no page errors', errors.length === 0, errors.join('; '));
 

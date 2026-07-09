@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { loadConfig } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
-import { reviewState, approve, reject, handoff, acceptReplacement, redo, ReviewError } from '../review.js';
+import { reviewState, approve, reject, handoff, acceptReplacement, redo, setOrderDedication, ReviewError } from '../review.js';
 
 // The U4 review grid: a local page over state.json. Bound to 127.0.0.1 only — it can approve
 // photos and spend GPU, and it serves customer faces.
@@ -23,6 +23,23 @@ const json = (res, code, body) => {
   res.end(JSON.stringify(body));
 };
 
+/** Read a small JSON body. Bounded — this is a local tool, but an unbounded read is still a bug. */
+async function readJson(req, limit = 64 * 1024) {
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new ReviewError('Request body too large.');
+    chunks.push(chunk);
+  }
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new ReviewError('Request body was not valid JSON.');
+  }
+}
+
 /** Shape the state for the browser. Photo files are never addressed by path — the page asks for
  *  them by (order, base, kind), which also means a crafted path cannot reach the filesystem.
  *  The order folder *is* sent: the operator has to save a hand-repaired file into it. */
@@ -31,6 +48,7 @@ function forClient(orders, inFlight) {
     orderId: o.orderId,
     dirName: o.dirName,
     orderDir: o.orderDir,
+    dedication: o.dedication,
     summary: o.summary,
     photos: o.photos.map((p) => ({
       base: p.base,
@@ -155,6 +173,26 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, qc }
         return res.end(buf);
       }
 
+      // POST /api/_open/<generator|folder>[/<order>] — the server opens it, so no path or token
+      // is ever handed to the page. Reserved prefix, so an order can never shadow this route.
+      if (req.method === 'POST' && parts[0] === 'api' && parts[1] === '_open') {
+        if (parts[2] === 'generator') return json(res, 200, { opened: openExternally(config.generator.baseUrl) });
+        if (parts[2] === 'folder' && parts[3]) {
+          const order = state().find((o) => o.orderId === parts[3]);
+          if (!order) return json(res, 404, { error: 'Unknown order.' });
+          return json(res, 200, { opened: openExternally(order.orderDir) });
+        }
+        return json(res, 404, { error: 'Not found.' });
+      }
+
+      // POST /api/<order>/dedication — the book's title-page text.
+      if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'dedication') {
+        const order = state().find((o) => o.orderId === parts[1]);
+        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+        const { text } = await readJson(req);
+        return json(res, 200, { dedication: setOrderDedication(order.orderDir, text) });
+      }
+
       // POST /api/<order>/<base>/<action>
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 4) {
         const [, orderId, base, action] = parts;
@@ -171,17 +209,6 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, qc }
           return json(res, 202, { started: true });
         }
         return json(res, 404, { error: `Unknown action "${action}".` });
-      }
-
-      // POST /api/open/<generator|folder>[/<order>] — the server opens it, so no path or token
-      // is ever handed to the page.
-      if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'open') {
-        if (parts[2] === 'generator') return json(res, 200, { opened: openExternally(config.generator.baseUrl) });
-        if (parts[2] === 'folder' && parts[3]) {
-          const order = state().find((o) => o.orderId === parts[3]);
-          if (!order) return json(res, 404, { error: 'Unknown order.' });
-          return json(res, 200, { opened: openExternally(order.orderDir) });
-        }
       }
 
       return json(res, 404, { error: 'Not found.' });

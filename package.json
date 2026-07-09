@@ -9,9 +9,10 @@
   },
   "scripts": {
     "test": "node --test",
-    "skeleton": "node src/skeleton.js",
+    "go": "node src/orchestrator.js",
     "batch": "node src/batch.js",
     "review": "node src/ui/server.js",
+    "skeleton": "node src/skeleton.js",
     "grid-smoke": "node tools/gridSmoke.mjs"
   },
   "dependencies": {

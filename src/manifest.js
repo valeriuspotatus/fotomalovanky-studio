@@ -97,6 +97,20 @@ export function getStatus(manifest, base) {
   return manifest.photos?.[base]?.status ?? null;
 }
 
+/** The book's title-page text, an order-level operator input. The builder renders a title page
+ *  only when this is non-empty, and the operator's current books have one — so an order without
+ *  a dedication prints a structurally different (2 pages shorter) book. */
+const MAX_DEDICATION = 500;
+
+export function getDedication(manifest) {
+  return manifest.dedication ?? '';
+}
+
+export function setDedication(manifest, text) {
+  manifest.dedication = String(text ?? '').trim().slice(0, MAX_DEDICATION);
+  return manifest;
+}
+
 /** Set a photo's status, enforcing the transition guard. Merges, so fields that outlive a
  *  status change (`source`) survive it. Returns the manifest. */
 export function setStatus(manifest, base, status, reason = null) {

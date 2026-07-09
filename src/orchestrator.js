@@ -1,0 +1,246 @@
+import { existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { loadConfig } from './config.js';
+import { ingestOrders } from './ingest.js';
+import { generateOrder, describeFailure } from './batch.js';
+import { createGeneratorDriver } from './generator/factory.js';
+import { BuilderDriver, collectPairs } from './builder/builderDriver.js';
+import { photoBase } from './organize.js';
+import { STATES, getStatus, getDedication, isBuilderEligible, manifestPath } from './manifest.js';
+
+// U6: the single "Go" run. ingest -> generate -> QC -> [review gate] -> builder -> PDF.
+//
+// The review gate is a wall, not a step: an order whose photos are not all builder-eligible
+// is not built at all. That is what makes "only approved results reach the PDF" true — the
+// builder pairs whatever files it finds in the folder, so it cannot enforce the gate itself.
+//
+// A break at either seam is caught, named in plain language, and recorded against that order.
+// The rest of the batch continues; one dead GPU job must not cost the other orders.
+
+const noop = () => {};
+
+/** Per-order outcome. `held` means the operator has photos to review — not a failure. */
+export const ORDER_STATUS = Object.freeze({ DONE: 'done', HELD: 'held', FAILED: 'failed' });
+
+const pdfPathFor = (orderDir, orderId) => join(orderDir, `${orderId} Final.pdf`);
+
+/** The PDF is stale the moment any verdict changes: state.json is rewritten by generation and
+ *  by every review action, so its mtime is the order's "last decided" clock. */
+function pdfIsCurrent(pdfPath, orderDir) {
+  if (!existsSync(pdfPath)) return false;
+  const state = manifestPath(orderDir);
+  if (!existsSync(state)) return false;
+  return statSync(pdfPath).mtimeMs >= statSync(state).mtimeMs;
+}
+
+/** Refuse to print a folder that does not hold exactly this order's approved photos.
+ *  Returns an operator-facing reason, or null when the folder is safe to build. */
+export function buildabilityProblem(orderDir, bases) {
+  const have = new Set(collectPairs(orderDir).map((p) => p.base));
+  const missing = bases.filter((b) => !have.has(b));
+  if (missing.length) {
+    return `${missing.length} photo(s) have no coloring page to pair with: ${missing.join(', ')}`;
+  }
+  const extra = [...have].filter((b) => !bases.includes(b));
+  if (extra.length) {
+    const shown = extra.slice(0, 3).join(', ') + (extra.length > 3 ? ', …' : '');
+    return `the order folder holds ${extra.length} pair(s) that are not part of this order (${shown}) — they would be printed into the book`;
+  }
+  return null;
+}
+
+async function buildOrder({ orderId, orderDir, bases, dedication, builder, config, force, onEvent }) {
+  const pdfPath = pdfPathFor(orderDir, orderId);
+
+  // Safety before caching: a folder that changed under the operator must not silently reuse
+  // the PDF printed from what used to be in it.
+  const problem = buildabilityProblem(orderDir, bases);
+  if (problem) {
+    const reason = `builder seam (load): ${problem}`;
+    onEvent({ type: 'build-failed', orderId, reason });
+    return { status: ORDER_STATUS.FAILED, pdfPath: null, reason };
+  }
+
+  if (!force && pdfIsCurrent(pdfPath, orderDir)) {
+    onEvent({ type: 'build-skipped', orderId, pdfPath });
+    return { status: ORDER_STATUS.DONE, pdfPath, reason: null, warning: titlePageWarning(dedication) };
+  }
+
+  try {
+    onEvent({ type: 'build-start', orderId, photos: bases.length, dedication });
+    // The per-order dedication beats any global default: the title page is customer text.
+    const options = { ...(config.builder.pdf ?? {}), outPdfPath: pdfPath };
+    if (dedication) options.dedication = dedication;
+    const { pairs } = await builder.buildPdf(orderDir, options);
+    onEvent({ type: 'build-done', orderId, pdfPath, pairs });
+    return { status: ORDER_STATUS.DONE, pdfPath, reason: null, warning: titlePageWarning(dedication) };
+  } catch (err) {
+    const reason = describeFailure(err);
+    onEvent({ type: 'build-failed', orderId, reason });
+    return { status: ORDER_STATUS.FAILED, pdfPath: null, reason };
+  }
+}
+
+/** The builder renders a title page only when there is dedication text (or cover images), and
+ *  the operator's books have one. Printing without it is legal but is a different book — say so
+ *  rather than shipping a silently shorter PDF. */
+function titlePageWarning(dedication) {
+  return dedication ? null : 'no title page — set the order\'s title text in the review grid';
+}
+
+/** Run every order end to end. Never throws for a single order; returns a report. */
+export async function runPipeline({ config, inboxRoot, outboxRoot, generator, builder, qc, onEvent = noop, force = false }) {
+  const inbox = inboxRoot ?? config.paths.inbox;
+  const outbox = outboxRoot ?? config.paths.outbox;
+  const orders = ingestOrders(inbox);
+
+  // Drivers are constructed once, lazily, so a generation-only run never needs Chromium and a
+  // rebuild-only run never needs the generator token.
+  let gen = generator ?? null;
+  let build = builder ?? null;
+
+  onEvent({ type: 'run-start', orders: orders.length, inbox, outbox });
+
+  const report = [];
+  for (const order of orders) {
+    const { orderId } = order;
+    onEvent({ type: 'order-start', orderId, dirName: order.dirName, photos: order.photos.length });
+
+    gen ??= createGeneratorDriver(config);
+    const { orderDir, manifest, summary } = await generateOrder({
+      config,
+      order,
+      outboxRoot: outbox,
+      driver: gen,
+      qc,
+      onEvent,
+    });
+
+    const bases = order.photos.map(photoBase);
+    const notEligible = bases.filter((b) => !isBuilderEligible(getStatus(manifest, b)));
+    const failed = notEligible.filter((b) => getStatus(manifest, b) === STATES.FAILED);
+    const held = notEligible.filter((b) => getStatus(manifest, b) !== STATES.FAILED);
+
+    let entry = { orderId, orderDir, summary, held, failed, pdfPath: null, reason: null, warning: null, status: null };
+
+    if (failed.length) {
+      entry.status = ORDER_STATUS.FAILED;
+      entry.reason = `${failed.length} photo(s) failed to generate: ${failed.map((b) => `${b} — ${manifest.photos[b].reason}`).join('; ')}`;
+    } else if (held.length) {
+      entry.status = ORDER_STATUS.HELD;
+      entry.reason = `${held.length} photo(s) waiting for you in the review grid`;
+    } else {
+      build ??= new BuilderDriver(config);
+      const dedication = getDedication(manifest);
+      const result = await buildOrder({ orderId, orderDir, bases, dedication, builder: build, config, force, onEvent });
+      entry = { ...entry, ...result };
+    }
+
+    onEvent({ type: 'order-done', orderId, status: entry.status, pdfPath: entry.pdfPath, reason: entry.reason });
+    report.push(entry);
+  }
+
+  const counts = {
+    done: report.filter((o) => o.status === ORDER_STATUS.DONE).length,
+    held: report.filter((o) => o.status === ORDER_STATUS.HELD).length,
+    failed: report.filter((o) => o.status === ORDER_STATUS.FAILED).length,
+  };
+  onEvent({ type: 'run-done', counts });
+  return { inbox, outbox, orders: report, counts };
+}
+
+// ---- CLI -------------------------------------------------------------------
+
+const HEARTBEAT_MS = 15_000;
+
+function cliRenderer() {
+  let lastAt = Date.now();
+  let working = null;
+  const since = () => {
+    const s = Math.round((Date.now() - lastAt) / 1000);
+    return s >= 60 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s` : `${s}s`;
+  };
+
+  // Diffusion and vectorize can go minutes without a word. Say something, or a slow call
+  // reads as a hang and the operator kills the run.
+  const timer = setInterval(() => {
+    if (working && Date.now() - lastAt >= HEARTBEAT_MS) console.log(`    … still working on ${working} (${since()})`);
+  }, 5_000);
+  timer.unref();
+
+  return {
+    stop: () => clearInterval(timer),
+    onEvent: (e) => {
+      const say = (line) => {
+        lastAt = Date.now();
+        console.log(line);
+      };
+      switch (e.type) {
+        case 'run-start': return say(`${e.orders} order(s) in ${e.inbox}\n`);
+        case 'order-start': {
+          const from = e.dirName && e.dirName !== e.orderId ? ` (from the photo names; folder is "${e.dirName}")` : '';
+          return say(`order ${e.orderId} — ${e.photos} photo(s)${from}`);
+        }
+        case 'photo-start': working = e.base; return say(`  ${e.base}${e.redo ? ' (redo)' : ''}…`);
+        case 'progress': lastAt = Date.now(); return;
+        case 'photo-ok': working = null; return say(`  ${e.base}: ok`);
+        case 'photo-flagged': working = null; return say(`  ${e.base}: FLAGGED (${e.reason}) — needs review`);
+        case 'photo-failed': working = null; return say(`  ${e.base}: FAILED — ${e.reason}`);
+        case 'photo-skipped': return say(`  ${e.base}: skipped (${e.status})`);
+        case 'build-start': working = `${e.orderId} PDF`; return say(`  building the PDF from ${e.photos} photo(s)…`);
+        case 'build-done': working = null; return say(`  PDF: ${e.pdfPath} (${e.pairs} pairs)`);
+        case 'build-skipped': return say(`  PDF already up to date: ${e.pdfPath}`);
+        case 'build-failed': working = null; return say(`  BUILD FAILED — ${e.reason}`);
+        case 'order-done': return say('');
+        default: return;
+      }
+    },
+  };
+}
+
+function printReport({ orders, counts }) {
+  console.log('Run report');
+  if (!orders.length) {
+    console.log('  no orders found — looked for .jpg/.jpeg photos in the input folder and its subfolders');
+    return;
+  }
+  const width = Math.max(...orders.map((o) => o.orderId.length));
+  for (const o of orders) {
+    const id = o.orderId.padEnd(width);
+    if (o.status === ORDER_STATUS.DONE) console.log(`  ${id}  done    ${o.pdfPath}`);
+    else if (o.status === ORDER_STATUS.HELD) console.log(`  ${id}  held    ${o.reason}`);
+    else console.log(`  ${id}  FAILED  ${o.reason}`);
+    if (o.warning) console.log(`  ${' '.repeat(width)}          ⚠ ${o.warning}`);
+  }
+  console.log(`\n${counts.done} done, ${counts.held} waiting for you, ${counts.failed} failed.`);
+  if (counts.held) console.log('Review them:  npm run review -- <inbox>     then run this again.');
+}
+
+// node src/orchestrator.js [inbox] [outbox] [--force] [--review]
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const argv = process.argv.slice(2);
+  const force = argv.includes('--force');
+  const review = argv.includes('--review');
+  const [inboxRoot, outboxRoot] = argv.filter((a) => !a.startsWith('--'));
+
+  const config = loadConfig();
+  const cli = cliRenderer();
+  runPipeline({ config, inboxRoot, outboxRoot, force, onEvent: cli.onEvent })
+    .then(async (result) => {
+      cli.stop();
+      printReport(result);
+      if (review && result.counts.held) {
+        const { createReviewServer } = await import('./ui/server.js');
+        const { server } = createReviewServer({ config, inboxRoot: result.inbox, outboxRoot: result.outbox });
+        server.listen(4173, '127.0.0.1', () => console.log('\nReview grid: http://127.0.0.1:4173/  (Ctrl-C to stop)'));
+        return;
+      }
+      process.exit(result.counts.failed ? 1 : 0);
+    })
+    .catch((err) => {
+      cli.stop();
+      console.error(`Run stopped at the ${err.seam ?? 'unknown'} seam: ${err.message}`);
+      process.exit(1);
+    });
+}

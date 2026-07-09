@@ -129,6 +129,44 @@ test('an unknown action or photo is a clean 4xx, not a crash', async () => {
   assert.equal((await post('/api/9999/clean/approve')).status, 409);
 });
 
+test('the title-page text is saved on the order and reported back', async () => {
+  const res = await fetch(`${origin}/api/1510/dedication`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: '  Pro Barču, s láskou  ' }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).dedication, 'Pro Barču, s láskou');
+  assert.equal(readManifest(orderDir).dedication, 'Pro Barču, s láskou');
+
+  const { orders } = await (await get('/api/state')).json();
+  assert.equal(orders[0].dedication, 'Pro Barču, s láskou');
+});
+
+test('a malformed or oversized dedication body is refused, not stored', async () => {
+  const bad = await fetch(`${origin}/api/1510/dedication`, { method: 'POST', body: 'not json' });
+  assert.equal(bad.status, 409);
+  assert.match((await bad.json()).error, /not valid JSON/);
+
+  const unknown = await fetch(`${origin}/api/9999/dedication`, {
+    method: 'POST',
+    body: JSON.stringify({ text: 'x' }),
+  });
+  assert.equal(unknown.status, 409);
+
+  // The earlier value survived both refusals.
+  assert.equal(readManifest(orderDir).dedication, 'Pro Barču, s láskou');
+});
+
+test('an over-long dedication is capped rather than rejected', async () => {
+  const res = await fetch(`${origin}/api/1510/dedication`, {
+    method: 'POST',
+    body: JSON.stringify({ text: 'x'.repeat(900) }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).dedication.length, 500);
+});
+
 test('marking a clean photo bad pulls it back out of the builder gate', async () => {
   assert.equal((await (await post('/api/1510/clean/reject')).json()).status, STATES.FLAGGED);
   const { orders } = await (await get('/api/state')).json();

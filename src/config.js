@@ -60,7 +60,16 @@ export function validateConfig(cfg) {
       // Optional driver tuning (request/poll timeouts, retries); the driver falls back to its own defaults.
       timeouts: cfg.generator.timeouts ?? null,
     },
-    builder: { baseUrl: buildUrl },
+    builder: {
+      baseUrl: buildUrl,
+      // Passed straight through to BuilderDriver, which reads both. Dropping them here would
+      // silently ignore anything the operator set in config.json.
+      timeouts: cfg.builder.timeouts ?? null,
+      // Layout options for the printed book: { title, dedication, mode, addAllCovers,
+      // rotationMin, rotationMax }. Defaults to none — an order number printed on a
+      // customer's title page would be worse than no title page.
+      pdf: cfg.builder.pdf ?? {},
+    },
     paths: {
       inbox: cfg.paths?.inbox ?? './inbox',
       outbox: cfg.paths?.outbox ?? './outbox',
