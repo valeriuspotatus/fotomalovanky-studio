@@ -81,8 +81,11 @@ const graphql = {
   },
 };
 
-const page = `<!doctype html><html><head><title>Order</title></head><body>
-  <div id="page-title"><h1>#${ORDER}</h1></div>
+// The current Shopify order page has no <h1> and no #page-title. The only place the order number
+// the shop shows ("#1366") survives is the browser tab title — the URL carries a different,
+// internal id. Reproduce that exactly, so the order-number reader is tested against the real shape
+// and not the layout Shopify has already retired.
+const page = `<!doctype html><html><head><title>Fotomalovánky.cz · Orders · #${ORDER} · Shopify</title></head><body>
   <div class="Polaris-Box"><div class="_LineItemGroup_x1y2">line items</div></div>
   <script>
     // The extension hooks window.fetch and reads Shopify's GraphQL reply. Trigger one.

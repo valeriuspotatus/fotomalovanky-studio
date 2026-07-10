@@ -81,6 +81,21 @@ return{success:!0,usedFSA:!1,folder}}catch(n){const t=n instanceof Error?n.messa
   cs = cs.replace('t.usedFSA&&(J("', 't.success&&(J("');
   if (cs === before) throw new Error('could not find the success-toast guard');
 
+  // Shopify's order page dropped its <h1> and #page-title, so the order-number scrape returned
+  // nothing and the button bailed with "Could not find order number". The number the shop shows
+  // ("#1524") is still in the browser tab title. The number in the URL is a different internal id,
+  // so it is not used. Try the old headings first (harmless when empty), then the title.
+  cs = replaceFn(
+    cs,
+    'function de(',
+    'function de(){' +
+      'const grab=(txt)=>{const m=(txt||"").match(/#(\\d+)/);return m?m[1]:null};' +
+      'for(const sel of ["div#page-title h1","h1"]){' +
+      'const el=document.querySelector(sel),hit=grab(el&&el.textContent);' +
+      'if(hit)return hit}' +
+      'return grab(document.title)}',
+  );
+
   writeFileSync(CONTENT, cs);
   console.log('content script: patched');
 }
