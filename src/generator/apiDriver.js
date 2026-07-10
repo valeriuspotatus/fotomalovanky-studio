@@ -25,6 +25,29 @@ const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const enc = encodeURIComponent;
 
+/** Bytes ready to upload.
+ *
+ *  Phones store a portrait photo as landscape pixels plus an EXIF "orientation" flag that says
+ *  "rotate me". Browsers honour that flag when they draw the image to a canvas, so the generator's
+ *  own web UI uploads an upright photo without trying. sharp does NOT rotate unless asked, and
+ *  re-encoding drops the flag — so a portrait photo was being sent as a landscape one, and the
+ *  child came back drawn on their side, limbs cut off by the wrong-shaped frame.
+ *
+ *  `.rotate()` with no angle bakes the EXIF orientation into the pixels (and resets the flag). We
+ *  only re-encode when there is something to do — a photo that is already small and upright is
+ *  passed through untouched, so a good original is never needlessly recompressed. */
+export async function prepareImageForUpload(input, { maxDimension = MAX_DIMENSION, quality = JPEG_QUALITY } = {}) {
+  const meta = await sharp(input).metadata();
+  const tooBig = Math.max(meta.width ?? 0, meta.height ?? 0) > maxDimension;
+  const sideways = (meta.orientation ?? 1) > 1; // 1 = upright; 2..8 = the camera flipped or turned it
+  if (!tooBig && !sideways) return { buffer: input, changed: false, tooBig, sideways, meta };
+
+  let pipeline = sharp(input).rotate(); // apply the camera's orientation before anything measures w/h
+  if (tooBig) pipeline = pipeline.resize({ width: maxDimension, height: maxDimension, fit: 'inside', withoutEnlargement: true });
+  const buffer = await pipeline.jpeg({ quality }).toBuffer();
+  return { buffer, changed: true, tooBig, sideways, meta };
+}
+
 /** "2509_1.5" -> { model: "2509", megapixels: 1.5 } */
 function parseVariant(variant) {
   const i = String(variant).lastIndexOf('_');
@@ -113,15 +136,14 @@ export class ApiGeneratorDriver extends GeneratorDriver {
     const filename = basename(photoPath);
     const input = readFileSync(photoPath);
     try {
-      const meta = await sharp(input).metadata();
-      if (Math.max(meta.width ?? 0, meta.height ?? 0) > MAX_DIMENSION) {
-        const buffer = await sharp(input)
-          .resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: JPEG_QUALITY })
-          .toBuffer();
-        this.#emit('resize', `downscaled ${meta.width}x${meta.height} -> max ${MAX_DIMENSION}px`);
-        return { buffer, filename };
+      const { buffer, changed, tooBig, sideways, meta } = await prepareImageForUpload(input);
+      if (changed) {
+        const parts = [];
+        if (tooBig) parts.push(`downscaled ${meta.width}x${meta.height} -> max ${MAX_DIMENSION}px`);
+        if (sideways) parts.push("applied the camera's rotation");
+        this.#emit('resize', parts.join(', '));
       }
+      return { buffer, filename };
     } catch {
       // Not a sharp-readable image (or metadata failed) — let the server validate the raw bytes.
     }
