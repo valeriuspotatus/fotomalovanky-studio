@@ -20,7 +20,9 @@
     "queue-smoke": "node tools/queueSmoke.mjs",
     "smoke": "npm run grid-smoke && npm run queue-smoke && npm run editor-smoke && npm run ded-safety",
     "editor-smoke": "node tools/editorSmoke.mjs",
-    "purge": "node src/purge.js"
+    "purge": "node src/purge.js",
+    "extension-smoke": "node tools/extensionSmoke.mjs",
+    "patch-extension": "node tools/patchExtension.mjs"
   },
   "dependencies": {
     "playwright": "^1.48.0",
