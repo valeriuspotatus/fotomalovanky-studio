@@ -214,3 +214,26 @@ test('a browser that cannot be launched resolves false instead of killing the to
   // server died at startup. If that regressed, this test would not fail; it would crash the run.
   assert.equal(await openExternally('http://127.0.0.1:4173/', ['C:\\NoSuchDir\\nope.exe', []]), false);
 });
+
+// The grid can only prefill a title page it is actually sent. `reviewState` derived it, but the
+// field was dropped on the way through `forClient`, so the browser never saw it.
+test('the title-page text derived from the photo names reaches the browser', async () => {
+  const r = mkdtempSync(join(tmpdir(), 'fma-suggest-'));
+  const outb = join(r, 'outbox');
+  const dir = join(outb, '1521');
+  mkdirSync(dir, { recursive: true });
+  const base = '1521_img0001_-_pro_maxinnku_a_estellku';
+  await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).jpeg().toFile(join(dir, `${base}.jpg`));
+  writeManifest(dir, setStatus(emptyManifest('1521'), base, STATES.OK, 'ok'));
+
+  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: join(r, 'inbox'), outboxRoot: outb });
+  await new Promise((done) => s.listen(0, '127.0.0.1', done));
+  try {
+    const { orders } = await (await fetch(`http://127.0.0.1:${s.address().port}/api/state`)).json();
+    assert.equal(orders[0].dedication, '', 'nobody has decided it yet');
+    assert.equal(orders[0].suggestedDedication, 'Pro Maxinnku a Estellku');
+  } finally {
+    s.close();
+    rmSync(r, { recursive: true, force: true });
+  }
+});
