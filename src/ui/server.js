@@ -111,22 +111,35 @@ export function powershellPath(env = process.env) {
 }
 
 /** Ask Windows for a folder. A non-technical operator should not have to paste a path.
- *  Any failure (wrong platform, no PowerShell, cancelled) resolves to null — never throws. */
+ *
+ *  `ShowDialog()` with no owner opens *behind* the browser: a background process cannot take the
+ *  foreground in Windows, and a dialog with no owner has nothing to be on top of. An unshown
+ *  TopMost form is a valid owner and drags the dialog to the front with it.
+ *
+ *  Resolves `{ path, available }`. `path` is null when the operator cancels — which is not a
+ *  failure — so `available` says whether the dialog ever appeared, and only that earns a warning.
+ *  Never throws. */
 async function pickFolder() {
-  if (process.platform !== 'win32') return null;
+  if (process.platform !== 'win32') return { path: null, available: false };
   const script = [
     'Add-Type -AssemblyName System.Windows.Forms',
+    '$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true}',
     '$d = New-Object System.Windows.Forms.FolderBrowserDialog',
     "$d.Description = 'Choose the folder your Chrome extension downloads orders into'",
-    "if ($d.ShowDialog() -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }",
+    '$d.ShowNewFolderButton = $false',
+    "if ($d.ShowDialog($owner) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }",
+    '$owner.Dispose()',
   ].join('; ');
   return new Promise((resolve) => {
     let out = '';
     const ps = spawn(powershellPath(), ['-NoProfile', '-STA', '-Command', script], { windowsHide: false });
-    const timer = setTimeout(() => { ps.kill(); resolve(null); }, 120_000);
+    const timer = setTimeout(() => { ps.kill(); resolve({ path: null, available: false }); }, 120_000);
     ps.stdout.on('data', (d) => (out += d));
-    ps.on('error', () => { clearTimeout(timer); resolve(null); });
-    ps.on('close', () => { clearTimeout(timer); resolve(out.trim() || null); });
+    ps.on('error', () => { clearTimeout(timer); resolve({ path: null, available: false }); });
+    ps.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ path: out.trim() || null, available: code === 0 });
+    });
   });
 }
 
@@ -275,7 +288,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
 
       // POST /api/_pick-folder — a native folder dialog, so no path has to be typed.
       if (req.method === 'POST' && url.pathname === '/api/_pick-folder') {
-        return json(res, 200, { path: await pickFolder() });
+        return json(res, 200, await pickFolder());
       }
 
       // GET /img/<order>/<base>/<original|coloring>

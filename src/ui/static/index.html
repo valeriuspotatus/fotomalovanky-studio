@@ -4,84 +4,98 @@
 <meta charset="utf-8">
 <title>Fotomalovánky — review</title>
 <style>
- :root{--bad:#d33;--good:#128a3a;--hold:#0b62c4;--manual:#b8730b;--line:#ddd}
+ /* Dark by default. The operator reviews photographs for an hour at a stretch; a white page
+    beside a white coloring page is the wrong thing to stare at. The one surface that stays
+    white is the artwork itself — that white *is* the paper, and judging ink on it is the job. */
+ :root{color-scheme:dark;
+       --bg:#14161a;--panel:#1c1f25;--sunken:#22262e;--line:#333842;
+       --text:#e6e8ec;--muted:#9aa1ac;--faint:#7a828d;
+       --bad:#ff6b6b;--good:#3ecf78;--hold:#5aa9f7;--manual:#e0a33e;--on-accent:#0d1117}
  *{box-sizing:border-box}
- body{font:15px/1.55 system-ui,-apple-system,sans-serif;margin:0;background:#f6f6f7;color:#111}
- .bar{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);
+ body{font:15px/1.55 system-ui,-apple-system,sans-serif;margin:0;background:var(--bg);color:var(--text)}
+ .bar{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);
       padding:11px 22px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;
-      box-shadow:0 1px 4px rgba(0,0,0,.06)}
+      box-shadow:0 1px 4px rgba(0,0,0,.5)}
  .bar h1{font-size:17px;margin:0;font-weight:600}
  .bar .grow{flex:1}
- .chip{font-size:13px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);background:#fafafa}
+ .chip{font-size:13px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);background:var(--sunken)}
  .chip.hold{border-color:var(--bad);color:var(--bad)}
  .chip.ready{border-color:var(--good);color:var(--good)}
  .wrap{max-width:1560px;margin:0 auto;padding:20px 22px 90px}
- .empty{background:#fff;border:1px dashed var(--line);border-radius:10px;padding:44px;text-align:center;color:#555}
- .empty code{background:#f2f2f3;padding:2px 6px;border-radius:4px}
- .order{background:#fff;border:1px solid var(--line);border-radius:10px;margin:18px 0;overflow:hidden}
+ .empty{background:var(--panel);border:1px dashed var(--line);border-radius:10px;padding:44px;text-align:center;color:var(--muted)}
+ .empty code{background:var(--sunken);padding:2px 6px;border-radius:4px}
+ .order{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin:18px 0;overflow:hidden}
  .order>header{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
  .order h2{font-size:16px;margin:0}
- .order .note{font-size:12px;color:#777}
+ .order .note{font-size:12px;color:var(--faint)}
  .ded{display:flex;align-items:center;gap:7px;flex:1;min-width:320px}
- .ded label{font-size:12px;color:#666;white-space:nowrap}
- .ded input{flex:1;font:inherit;font-size:13px;padding:5px 9px;border:1px solid var(--line);border-radius:6px;background:#fafafa}
- .ded input:focus{background:#fff;outline:2px solid #cfe0f5;border-color:#9dbde0}
+ .ded label{font-size:12px;color:var(--muted);white-space:nowrap}
+ .ded input{flex:1;font:inherit;font-size:13px;padding:5px 9px;border:1px solid var(--line);border-radius:6px;
+      background:var(--sunken);color:var(--text)}
+ .ded input:focus{background:#171a20;outline:2px solid rgba(90,169,247,.45);border-color:var(--hold)}
  .ded .warn{font-size:11.5px;color:var(--manual);white-space:nowrap}
  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;padding:16px;align-items:start}
- .tile{border:1px solid var(--line);border-radius:8px;padding:11px;position:relative;background:#fff}
- .tile.flagged,.tile.failed{border-color:var(--bad);box-shadow:0 0 0 2px #fdecec inset}
- .tile.pending_review{border-color:var(--hold);box-shadow:0 0 0 2px #e8f1fb inset}
- .tile.manual_in_progress{border-color:var(--manual);box-shadow:0 0 0 2px #fdf3e3 inset}
- .tile.approved{border-color:var(--good);box-shadow:0 0 0 2px #e7f4ec inset}
- .tile.pending{border-style:dashed;background:#fbfbfc}
+ .tile{border:1px solid var(--line);border-radius:8px;padding:11px;position:relative;background:var(--sunken)}
+ .tile.flagged,.tile.failed{border-color:var(--bad);box-shadow:0 0 0 2px rgba(255,107,107,.16) inset}
+ .tile.pending_review{border-color:var(--hold);box-shadow:0 0 0 2px rgba(90,169,247,.16) inset}
+ .tile.manual_in_progress{border-color:var(--manual);box-shadow:0 0 0 2px rgba(224,163,62,.16) inset}
+ .tile.approved{border-color:var(--good);box-shadow:0 0 0 2px rgba(62,207,120,.16) inset}
+ .tile.pending{border-style:dashed;background:#1a1d23}
  .imgs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
  .imgs figure{margin:0;min-height:90px;display:flex;flex-direction:column}
- .imgs img{width:100%;height:auto;border:1px solid #eee;border-radius:4px;background:#fff;display:block;cursor:zoom-in}
+ /* The artwork keeps its white paper: this is what the operator is judging. */
+ .imgs img{width:100%;height:auto;border:1px solid var(--line);border-radius:4px;background:#fff;display:block;cursor:zoom-in}
  .ph{flex:1;display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);
-     border-radius:4px;color:#999;font-size:13px;min-height:120px;text-align:center;padding:8px}
- figcaption{font-size:11px;color:#777;text-align:center;margin-top:4px}
- .name{font:12px/1.4 ui-monospace,monospace;color:#444;margin:9px 0 2px;word-break:break-all}
+     border-radius:4px;color:var(--faint);font-size:13px;min-height:120px;text-align:center;padding:8px}
+ figcaption{font-size:11px;color:var(--faint);text-align:center;margin-top:4px}
+ .name{font:12px/1.4 ui-monospace,monospace;color:var(--muted);margin:9px 0 2px;word-break:break-all}
  .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;border:1px solid}
  .pill.ok{color:var(--good);border-color:var(--good)}
- .pill.approved{color:#fff;background:var(--good);border-color:var(--good)}
- .pill.flagged,.pill.failed{color:#fff;background:var(--bad);border-color:var(--bad)}
- .pill.pending_review{color:#fff;background:var(--hold);border-color:var(--hold)}
- .pill.manual_in_progress{color:#fff;background:var(--manual);border-color:var(--manual)}
- .pill.pending{color:#777;border-color:#bbb}
- .why{font-size:12px;color:#666;margin:5px 0 0}
+ .pill.approved{color:var(--on-accent);background:var(--good);border-color:var(--good)}
+ .pill.flagged,.pill.failed{color:var(--on-accent);background:var(--bad);border-color:var(--bad)}
+ .pill.pending_review{color:var(--on-accent);background:var(--hold);border-color:var(--hold)}
+ .pill.manual_in_progress{color:var(--on-accent);background:var(--manual);border-color:var(--manual)}
+ .pill.pending{color:var(--faint);border-color:#4a515b}
+ .why{font-size:12px;color:var(--muted);margin:5px 0 0}
  .why.err{color:var(--bad);font-family:ui-monospace,monospace;word-break:break-word}
  .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line)}
- button{padding:6px 12px;border-radius:6px;border:1px solid #bbb;background:#fff;cursor:pointer;font:inherit;font-size:13px}
- button:hover:not(:disabled){background:#f4f4f5}
- button:disabled{opacity:.45;cursor:default}
- button.primary{border-color:var(--good);color:var(--good);font-weight:600}
- button.danger{border-color:var(--bad);color:var(--bad)}
+ button{padding:6px 12px;border-radius:6px;border:1px solid #454c56;background:#2a2f38;color:var(--text);
+        cursor:pointer;font:inherit;font-size:13px}
+ button:hover:not(:disabled){background:#343a45;border-color:#565e6a}
+ button:disabled{opacity:.4;cursor:default}
+ button.primary{border-color:var(--good);color:var(--good);font-weight:600;background:rgba(62,207,120,.10)}
+ button.primary:hover:not(:disabled){background:rgba(62,207,120,.18)}
+ button.danger{border-color:var(--bad);color:var(--bad);background:rgba(255,107,107,.10)}
+ button.danger:hover:not(:disabled){background:rgba(255,107,107,.18)}
  .busy{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line);
-       font-size:12px;color:#555;font-family:ui-monospace,monospace}
- .spin{width:13px;height:13px;border:2px solid #ccc;border-top-color:#555;border-radius:50%;animation:s .8s linear infinite;flex:none}
+       font-size:12px;color:var(--muted);font-family:ui-monospace,monospace}
+ .spin{width:13px;height:13px;border:2px solid #3d434d;border-top-color:var(--hold);border-radius:50%;animation:s .8s linear infinite;flex:none}
  @keyframes s{to{transform:rotate(360deg)}}
- .manualbox{background:#fdf8ef;border:1px solid #f0dfbe;border-radius:6px;padding:9px 10px;margin-top:9px;font-size:12.5px;color:#5c4708}
- .manualbox code{background:#fff;border:1px solid #eadfc6;border-radius:3px;padding:1px 5px;font-size:11.5px}
- .go{background:#fff;border-bottom:1px solid var(--line);padding:12px 22px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
- .go label{font-size:13px;color:#555;white-space:nowrap}
+ .manualbox{background:rgba(224,163,62,.10);border:1px solid rgba(224,163,62,.35);border-radius:6px;
+      padding:9px 10px;margin-top:9px;font-size:12.5px;color:#f0d4a0}
+ .manualbox code{background:var(--bg);border:1px solid rgba(224,163,62,.30);border-radius:3px;padding:1px 5px;font-size:11.5px}
+ .go{background:var(--panel);border-bottom:1px solid var(--line);padding:12px 22px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+ .go label{font-size:13px;color:var(--muted);white-space:nowrap}
  .go input[type=text]{flex:1;min-width:300px;font:13px/1.4 ui-monospace,monospace;padding:7px 10px;
-      border:1px solid var(--line);border-radius:6px;background:#fafafa}
- .go input[type=text]:focus{background:#fff;outline:2px solid #cfe0f5;border-color:#9dbde0}
+      border:1px solid var(--line);border-radius:6px;background:var(--sunken);color:var(--text)}
+ .go input[type=text]::placeholder{color:var(--faint)}
+ .go input[type=text]:focus{background:#171a20;outline:2px solid rgba(90,169,247,.45);border-color:var(--hold)}
  .go .primary{font-weight:600;padding:8px 22px;font-size:14px}
- .go .chk{display:flex;align-items:center;gap:5px;font-size:12.5px;color:#666}
- #runpanel{background:#111;color:#ddd;border-bottom:1px solid #000;max-height:230px;overflow:auto;
+ .go .chk{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted)}
+ #runpanel{background:#0c0e12;color:#c9ced6;border-bottom:1px solid #000;max-height:230px;overflow:auto;
       padding:11px 22px;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap}
  #runpanel .hdr{color:#8fd6a0;font-weight:600}
  #runpanel .err{color:#ff8b8b}
  #runpanel .warn{color:#ffcf7a}
- #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#222;color:#fff;
-        padding:11px 17px;border-radius:8px;max-width:min(760px,92vw);box-shadow:0 6px 22px rgba(0,0,0,.3);
+ #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#2b313a;color:#fff;
+        border:1px solid #454c56;
+        padding:11px 17px;border-radius:8px;max-width:min(760px,92vw);box-shadow:0 6px 22px rgba(0,0,0,.6);
         opacity:0;pointer-events:none;transition:opacity .18s;z-index:20;font-size:14px}
  #toast.show{opacity:1}
- #toast.err{background:#8c1c1c}
- dialog{border:none;border-radius:8px;padding:0;max-width:96vw;max-height:96vh}
- dialog img{max-width:96vw;max-height:96vh;cursor:zoom-out;display:block}
- dialog::backdrop{background:rgba(0,0,0,.82)}
+ #toast.err{background:#7a2020;border-color:#a13030}
+ dialog{border:none;border-radius:8px;padding:0;max-width:96vw;max-height:96vh;background:var(--panel)}
+ dialog img{max-width:96vw;max-height:96vh;cursor:zoom-out;display:block;background:#fff}
+ dialog::backdrop{background:rgba(0,0,0,.86)}
 </style>
 </head>
 <body>
@@ -181,13 +195,17 @@ async function browse() {
   btn.disabled = true;
   btn.textContent = 'Choose a folder…';
   try {
-    const { path } = await (await fetch('/api/_pick-folder', { method: 'POST' })).json();
+    const { path, available } = await (await fetch('/api/_pick-folder', { method: 'POST' })).json();
     if (path) {
       $('#inbox').value = path;
       localStorage.setItem(INBOX_KEY, path);
+    } else if (!available) {
+      // Cancelling gives no path either, and that is not worth a warning. Only a dialog that
+      // never appeared is.
+      toast('Could not open the folder picker — type or paste the path into the box instead.', true);
     }
   } catch {
-    toast('Could not open the folder picker — type or paste the path instead.', true);
+    toast('Could not open the folder picker — type or paste the path into the box instead.', true);
   }
   btn.disabled = false;
   btn.textContent = 'Browse…';
