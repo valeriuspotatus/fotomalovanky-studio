@@ -115,6 +115,7 @@ try {
   await page.waitForSelector('#queue:not([hidden])');
   const boxes = await page.$$eval('#queue input[type=checkbox]', (cs) => cs.map((c) => [c.dataset.order, c.checked]));
   check('the folder scan lists every order', boxes.map((b) => b[0]).sort().join() === IN_FOLDER.join());
+  check('the newest order is at the top, not buried', boxes.map((b) => b[0]).join() === '1523,1510,1479');
   check('a handful arrives ticked', boxes.every((b) => b[1]));
   check('and a handful is a list worth showing', await page.locator('#queue .list').isVisible());
   check('scanning spends nothing', ran.length === 0 && builtFor.length === 0);
@@ -180,6 +181,34 @@ try {
   check('only the ticked orders were generated', ran.length === 2 && ran.every((p) => /1479|1510/.test(p)), ran.map((p) => p.split(/[\\/]/).pop()).join(', '));
   check('and only they were printed', builtFor.slice().sort().join() === '1479,1510', `built: [${builtFor.join(', ')}]`);
   check('the run log says what it left alone', /1 more you did not tick/.test(await page.locator('#runpanel').textContent()));
+
+  // The archive folder: hundreds of orders. The list must not bury the page under all of them.
+  const big = join(fx.root, 'archive');
+  const many = Array.from({ length: 30 }, (_, i) => String(1300 + i)); // 1300 … 1329
+  for (const id of many) {
+    mkdirSync(join(big, id), { recursive: true });
+    await photo(join(big, id, `${id}_img0001.jpeg`));
+  }
+  await page.fill('#inbox', big);
+  await page.press('#inbox', 'Enter');
+  await page.waitForFunction(() => document.querySelector('#queue .head')?.textContent.includes('30 orders'));
+  // A big folder starts folded so it cannot bury the page; the operator opens it to look.
+  check('a big folder keeps its list folded away', await page.locator('#queue .list').isHidden());
+  await page.click('#toggle-queue');
+  await page.waitForFunction(() => document.querySelector('#queue .list')?.hidden === false);
+  // A folder this big is not auto-ticked, so no ticked order forces its way into the view: the
+  // list is purely the most recent 20.
+  await page.waitForSelector('#queue #show-all');
+  let shown = await page.$$eval('#queue input[type=checkbox]', (cs) => cs.map((c) => c.dataset.order));
+  check('a big folder shows only the recent orders', shown.length === 20, `${shown.length} shown of 30`);
+  check('and the recent ones are the newest, top-first', shown[0] === '1329' && shown[19] === '1310');
+  check('with a button offering the rest', /show all 30 — 10 older/.test(await page.locator('#queue #show-all').textContent()));
+
+  await page.click('#queue #show-all');
+  await page.waitForFunction(() => document.querySelectorAll('#queue input[type=checkbox]').length === 30);
+  shown = await page.$$eval('#queue input[type=checkbox]', (cs) => cs.map((c) => c.dataset.order));
+  check('show-all reveals every order', shown.length === 30 && shown[0] === '1329' && shown[29] === '1300');
+  check('and then offers to fold back to the recent', /show only the recent/.test(await page.locator('#queue #show-all').textContent()));
 
   check('no page errors', errors.length === 0, errors.slice(0, 2).join(' | '));
 } finally {

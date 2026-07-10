@@ -43,6 +43,9 @@
  #queue .head button{font:inherit;font-size:11.5px;padding:2px 8px;border:1px solid var(--line);
                      border-radius:5px;background:var(--sunken);color:var(--text);cursor:pointer}
  #queue .list{display:flex;flex-wrap:wrap;gap:6px 16px}
+ #queue .more{margin-top:10px;font:inherit;font-size:11.5px;padding:3px 10px;border:1px solid var(--line);
+              border-radius:5px;background:var(--sunken);color:var(--muted);cursor:pointer}
+ #queue .more:hover{color:var(--text);border-color:#565e6a}
  /* An author `display` beats the browser's own rule for [hidden], so the folded list would still
     be on screen — visible, and telling the operator its own `hidden` property was a lie. */
  #queue .list[hidden]{display:none}
@@ -252,7 +255,9 @@ let showEarlier = false;
 // `null` lets the folder's size decide: a handful of orders is a list worth reading, an archive
 // of hundreds is not. Once the operator says otherwise, their answer holds until the next scan.
 const QUEUE_OPEN_MAX = 8;
+const QUEUE_RECENT = 20;
 let queueOpen = null;
+let queueAll = false; // show every order in the folder, not just the most recent
 
 // Clicking Go blurs the title-page box, so its save is already in flight when the run starts.
 // The server refuses a dedication once a run is active, so let the save land first — otherwise
@@ -270,36 +275,55 @@ function paintQueue(queue, selected, locked) {
     return;
   }
   const sel = new Set(selected ?? queue.map((o) => o.orderId));
-  // A handful of orders is a list worth reading. The 488-folder archive is not: it buried the page.
-  const showQueue = queueOpen ?? queue.length <= QUEUE_OPEN_MAX;
-  const sig = JSON.stringify([queue, [...sel], locked, showQueue]);
+
+  // Newest first. The order just downloaded has the highest number and is the one the operator
+  // came to run; the archive's oldest books should never sit above it.
+  const ordered = [...queue].sort((a, b) => b.orderId.localeCompare(a.orderId, 'en', { numeric: true }));
+
+  // A folder holding hundreds is the finished-orders archive. Show the most recent handful — what
+  // they came for — and put the rest one click behind "show all". Anything ticked is always drawn,
+  // so a running order can never fall off the list and get dropped from the selection.
+  const capped = !queueAll && ordered.length > QUEUE_RECENT;
+  const visible = capped ? ordered.filter((o, i) => i < QUEUE_RECENT || sel.has(o.orderId)) : ordered;
+  const olderHidden = ordered.length - visible.length;
+
+  // A handful of orders is a list worth reading. The 439-folder archive is not: it buried the page.
+  const showQueue = queueOpen ?? ordered.length <= QUEUE_OPEN_MAX;
+  const sig = JSON.stringify([visible.map((o) => o.orderId), [...sel], locked, showQueue, olderHidden, queueAll]);
   if (sig === lastQueueSig) return;
   lastQueueSig = sig;
 
+  const allVisibleTicked = visible.every((o) => sel.has(o.orderId));
   q.hidden = false;
   q.innerHTML = `
     <div class="head">
       <b>${queue.length} order${queue.length > 1 ? 's' : ''} in this folder</b>
       <span class="n">${sel.size} ticked${sel.size > 1 ? ' — they run one after another' : ''}</span>
       <span class="grow"></span>
-      <button data-tick="all"${locked || sel.size === queue.length ? ' disabled' : ''}>tick all</button>
+      <button data-tick="all"${locked || allVisibleTicked ? ' disabled' : ''}>tick shown</button>
       <button data-tick="none"${locked || sel.size === 0 ? ' disabled' : ''}>tick none</button>
       <button id="toggle-queue">${showQueue ? 'hide' : 'show'} the list</button>
     </div>
-    <div class="list"${showQueue ? '' : ' hidden'}>${queue
+    <div class="list"${showQueue ? '' : ' hidden'}>${visible
       .map(
         (o) => `<label class="${sel.has(o.orderId) ? '' : 'off'}">
           <input type="checkbox" data-order="${esc(o.orderId)}"${sel.has(o.orderId) ? ' checked' : ''}${locked ? ' disabled' : ''}>
           <span>${esc(o.orderId)}</span><span class="n">${o.photos} photo${o.photos > 1 ? 's' : ''}</span>
         </label>`,
       )
-      .join('')}</div>`;
+      .join('')}</div>
+    ${
+      showQueue && (capped || (queueAll && ordered.length > QUEUE_RECENT))
+        ? `<button id="show-all" class="more">${capped ? `show all ${queue.length} — ${olderHidden} older` : 'show only the recent'}</button>`
+        : ''
+    }`;
 }
 
 /** Look inside a folder. Spends nothing and starts nothing — it is how the operator finds out
  *  what is in there before committing the GPU to it. */
 async function scan(path) {
   queueOpen = null; // a new folder decides for itself whether its list is worth showing
+  queueAll = false; // and starts by showing only its most recent orders
   try {
     const res = await fetch('/api/_scan', {
       method: 'POST',
@@ -1020,6 +1044,13 @@ document.addEventListener('click', (e) => {
   if (q) {
     queueOpen = q.textContent.startsWith('show');
     lastQueueSig = null; // the list is part of the signature, so force it to repaint
+    refresh(true);
+    return;
+  }
+
+  if (e.target.closest('#show-all')) {
+    queueAll = !queueAll; // reveal every order in the archive, or fold back to the recent ones
+    lastQueueSig = null;
     refresh(true);
     return;
   }
