@@ -5,7 +5,8 @@ import { ingestOrders } from './ingest.js';
 import { generatePhoto } from './batch.js';
 import { outputPaths, photoBase } from './organize.js';
 import { assessOutputFiles } from './qcFiles.js';
-import { deriveDedication } from './dedication.js';
+import { deriveDedication, deriveSlug } from './dedication.js';
+import { recallDedication, learnDedication } from './dedications.js';
 import { applyEdits, EditError } from './editor.js';
 import {
   STATES,
@@ -79,6 +80,8 @@ export function reviewState({ inboxRoot, outboxRoot, only = null }) {
     const sources = new Map((order.photos ?? []).map((p) => [photoBase(p), p]));
     const bases = sources.size > 0 ? [...sources.keys()] : Object.keys(manifest.photos ?? {});
 
+    const remembered = recallDedication(outboxRoot, deriveSlug(bases));
+
     const photos = bases.map((base) => {
       const status = getStatus(manifest, base);
       const files = photoFiles(outboxRoot, orderId, base, sources.get(base) ?? getSource(manifest, base));
@@ -101,7 +104,11 @@ export function reviewState({ inboxRoot, outboxRoot, only = null }) {
       dedication: getDedication(manifest),
       // Only ever a *suggestion* for an untouched order. Once the operator has decided — even
       // by emptying the box — the grid must show their decision, not talk them out of it.
-      suggestedDedication: hasDedication(manifest) ? '' : deriveDedication(bases),
+      //
+      // A spelling they taught the tool beats the file name, because the file name lost its
+      // accents at the shop: "pro_jiricka" can only ever suggest "Pro Jiricka".
+      suggestedDedication: hasDedication(manifest) ? '' : remembered || deriveDedication(bases),
+      suggestionRemembered: Boolean(!hasDedication(manifest) && remembered),
       // What an empty box used to say, so a clear the operator did not mean is one click away.
       clearedDedication: manifest.dedicationWas ?? '',
       photos,
@@ -135,6 +142,13 @@ export function setOrderDedication(orderDir, text) {
   else if (after) delete manifest.dedicationWas;
 
   writeManifest(orderDir, manifest);
+
+  // Whatever they typed is the true spelling of this name. Remember it against the file name's
+  // slug so the next customer called Jiříček is not typed out again — and so nobody has to notice
+  // that the shop dropped the accents in the first place.
+  const slug = deriveSlug(Object.keys(manifest.photos ?? {}));
+  if (slug) learnDedication(dirname(orderDir), slug, after);
+
   return after;
 }
 

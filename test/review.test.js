@@ -409,6 +409,60 @@ test('clearing a dedication remembers what it was, and setting one forgets the u
   }
 });
 
+test('the operator spells a name once, and the next order with that name is spelled right', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-learn-'));
+  const outbox = join(root, 'outbox');
+  const inbox = join(root, 'inbox');
+  try {
+    // Two different customers, one shared name. The shop stripped the accents from both.
+    for (const [id, dir] of [['1366', '1366'], ['1400', '1400']]) {
+      mkdirSync(join(inbox, dir), { recursive: true });
+      writeFileSync(join(inbox, dir, `${id}_img0001_-_pro_jiricka.jpg`), 'x');
+      mkdirSync(join(outbox, id), { recursive: true });
+      writeManifest(join(outbox, id), setStatus(emptyManifest(id), `${id}_img0001_-_pro_jiricka`, STATES.OK, 'ok'));
+    }
+
+    const before = reviewState({ inboxRoot: inbox, outboxRoot: outbox });
+    const o1366 = before.find((o) => o.orderId === '1366');
+    assert.equal(o1366.suggestedDedication, 'Pro Jiricka', 'the file name has no accents to offer');
+    assert.equal(o1366.suggestionRemembered, false);
+
+    // The operator fixes the spelling on the first order.
+    setOrderDedication(join(outbox, '1366'), 'Pro Jiříčka');
+
+    const after = reviewState({ inboxRoot: inbox, outboxRoot: outbox });
+    const o1400 = after.find((o) => o.orderId === '1400');
+    assert.equal(o1400.dedication, '', 'the second order is still undecided');
+    assert.equal(o1400.suggestedDedication, 'Pro Jiříčka', 'and is offered the spelling they taught');
+    assert.equal(o1400.suggestionRemembered, true, 'and the grid can say where it came from');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a remembered spelling never overrules an order the operator already decided', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-learn2-'));
+  const outbox = join(root, 'outbox');
+  const inbox = join(root, 'inbox');
+  try {
+    mkdirSync(join(inbox, '1366'), { recursive: true });
+    writeFileSync(join(inbox, '1366', '1366_img0001_-_pro_jiricka.jpg'), 'x');
+    mkdirSync(join(outbox, '1366'), { recursive: true });
+    writeManifest(join(outbox, '1366'), setStatus(emptyManifest('1366'), '1366_img0001_-_pro_jiricka', STATES.OK, 'ok'));
+
+    setOrderDedication(join(outbox, '1366'), 'Pro Jiříčka'); // taught, and decided
+    setOrderDedication(join(outbox, '1366'), ''); // then deliberately made untitled
+
+    const state = reviewState({ inboxRoot: inbox, outboxRoot: outbox });
+    const order = state[0];
+    assert.equal(order.dedication, '');
+    assert.equal(order.suggestedDedication, '', 'a decided order is never nagged with a suggestion');
+    assert.equal(order.clearedDedication, 'Pro Jiříčka', 'and the clear is still undoable');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('clearing an already-empty dedication records nothing to undo', () => {
   const dir = mkdtempSync(join(tmpdir(), 'fma-undo2-'));
   try {

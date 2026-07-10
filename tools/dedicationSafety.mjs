@@ -6,7 +6,7 @@
 //
 // Not part of `npm test` — it needs a real Chromium, like gridSmoke.
 
-import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, readFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
@@ -219,6 +219,22 @@ try {
   await nowhere();
   await page.waitForTimeout(700);
   check('tabbing through a suggested title does not commit it', readManifest(dir1521).dedication === undefined);
+
+  // The shop strips the accents before it names the file, so a suggestion read off a file name is
+  // only ever spelling-shaped. Say so, then remember the operator's correction for every order after.
+  check(
+    'a suggestion from a file name asks to be checked',
+    /check the accents/.test(await page.locator('.ded[data-order="1521"]').textContent()),
+  );
+
+  const CORRECTED = 'Pro Maxinku a Estelku'; // what the customer actually meant
+  await ded(1521).fill(CORRECTED);
+  await nowhere();
+  await page.waitForTimeout(700);
+  check('a real correction is saved', dedOf(1521) === CORRECTED, JSON.stringify(dedOf(1521)));
+
+  const learned = JSON.parse(readFileSync(join(fx.outbox, '.dedications.json'), 'utf8'));
+  check('and remembered against the file name, for the next order', learned.pro_maxinnku_a_estellku === CORRECTED, JSON.stringify(learned));
 
   check('no page errors', errors.length === 0, errors.slice(0, 2).join(' | '));
 } finally {

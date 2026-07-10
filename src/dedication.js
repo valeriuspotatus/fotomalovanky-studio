@@ -51,24 +51,41 @@ export function dedicationFromBase(base) {
     .join(' ');
 }
 
-/** The order's title-page text, from the names of the photos in it.
+/** The raw suffix, lowercased and otherwise untouched: "1366_img0001_-_pro_jiricka" -> "pro_jiricka".
  *
- *  Every photo of an order repeats the same suffix, so they should all agree. When they do not
- *  — a stray file, a customer who renamed one photo — the majority wins rather than whichever
- *  file the filesystem happened to list first. */
-export function deriveDedication(bases = []) {
+ *  The shop folds away every diacritic before it names the file, so "Pro Jiříčka" arrives as
+ *  "pro_jiricka" and no rule can put the accents back — "jiricka" is Jiříčka, Jiřička or Jiricka
+ *  and the file cannot say which. The slug is what the operator's correction is remembered against:
+ *  spell it once, and every later order for the same name is spelled right. */
+export function slugFromBase(base) {
+  const at = String(base ?? '').indexOf(SEPARATOR);
+  if (at < 0) return '';
+  return base.slice(at + SEPARATOR.length).replace(/^_+|_+$/g, '').toLowerCase();
+}
+
+/** Majority vote over the photos of one order. Every photo repeats the same suffix, so they should
+ *  agree; when they do not — a stray file, a renamed photo — the majority wins rather than
+ *  whichever file the filesystem happened to list first. */
+const majority = (values) => {
   const votes = new Map();
-  for (const base of bases) {
-    const text = dedicationFromBase(base);
-    if (text) votes.set(text, (votes.get(text) ?? 0) + 1);
-  }
+  for (const v of values) if (v) votes.set(v, (votes.get(v) ?? 0) + 1);
   let best = '';
   let most = 0;
-  for (const [text, count] of votes) {
+  for (const [v, count] of votes) {
     if (count > most) {
-      best = text;
+      best = v;
       most = count;
     }
   }
   return best;
+};
+
+/** The order's title-page text, from the names of the photos in it. */
+export function deriveDedication(bases = []) {
+  return majority(bases.map(dedicationFromBase));
+}
+
+/** The order's slug — the key its remembered spelling is filed under. */
+export function deriveSlug(bases = []) {
+  return majority(bases.map(slugFromBase));
 }
