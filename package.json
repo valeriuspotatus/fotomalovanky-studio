@@ -19,7 +19,8 @@
     "picker-probe": "node tools/folderPickerProbe.mjs",
     "queue-smoke": "node tools/queueSmoke.mjs",
     "smoke": "npm run grid-smoke && npm run queue-smoke && npm run editor-smoke && npm run ded-safety",
-    "editor-smoke": "node tools/editorSmoke.mjs"
+    "editor-smoke": "node tools/editorSmoke.mjs",
+    "purge": "node src/purge.js"
   },
   "dependencies": {
     "playwright": "^1.48.0",

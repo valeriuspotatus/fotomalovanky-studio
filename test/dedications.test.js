@@ -94,7 +94,7 @@ test('a corrupt memory file loses the spellings, never the ability to print', ()
 });
 
 test('the memory lives with the tool, not in the outbox that gets emptied', () => {
-  assert.ok(dedicationsPath().endsWith(join('kokot', 'dedications.json')) || !dedicationsPath().includes('outbox'));
+  assert.ok(!dedicationsPath().includes('outbox'), 'never in the outbox');
   assert.equal(dedicationsPath(MEMORY_DIR), join(MEMORY_DIR, 'dedications.json'));
   assert.ok(existsSync(join(MEMORY_DIR, 'package.json')), 'MEMORY_DIR is the tool folder, beside config.json');
 });
