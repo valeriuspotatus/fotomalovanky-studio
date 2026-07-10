@@ -6,6 +6,7 @@ import { generatePhoto } from './batch.js';
 import { outputPaths, photoBase } from './organize.js';
 import { assessOutputFiles } from './qcFiles.js';
 import { deriveDedication, deriveSlug } from './dedication.js';
+import { shopDedication } from './orderInfo.js';
 import { recallDedication, learnDedication, MEMORY_DIR } from './dedications.js';
 import { applyEdits, EditError } from './editor.js';
 import {
@@ -80,7 +81,11 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
     const sources = new Map((order.photos ?? []).map((p) => [photoBase(p), p]));
     const bases = sources.size > 0 ? [...sources.keys()] : Object.keys(manifest.photos ?? {});
 
-    const remembered = recallDedication(memoryRoot, deriveSlug(bases));
+    // Best source first. The shop's own record is the only one that can spell "Pro Jiříčka"; the
+    // photo names lost the accents before this tool ever saw them.
+    const fromShop = order.dir ? shopDedication(order.dir) : '';
+    const remembered = fromShop ? '' : recallDedication(memoryRoot, deriveSlug(bases));
+    const suggestion = fromShop || remembered || deriveDedication(bases);
 
     const photos = bases.map((base) => {
       const status = getStatus(manifest, base);
@@ -104,11 +109,10 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
       dedication: getDedication(manifest),
       // Only ever a *suggestion* for an untouched order. Once the operator has decided — even
       // by emptying the box — the grid must show their decision, not talk them out of it.
-      //
-      // A spelling they taught the tool beats the file name, because the file name lost its
-      // accents at the shop: "pro_jiricka" can only ever suggest "Pro Jiricka".
-      suggestedDedication: hasDedication(manifest) ? '' : remembered || deriveDedication(bases),
+      suggestedDedication: hasDedication(manifest) ? '' : suggestion,
       suggestionRemembered: Boolean(!hasDedication(manifest) && remembered),
+      // Where the suggestion came from, so the grid can say whether it needs checking.
+      suggestionSource: hasDedication(manifest) || !suggestion ? '' : fromShop ? 'shop' : remembered ? 'memory' : 'filename',
       // What an empty box used to say, so a clear the operator did not mean is one click away.
       clearedDedication: manifest.dedicationWas ?? '',
       photos,

@@ -6,7 +6,25 @@
 // Spelling is copied verbatim. Only the case and the underscores are ours to change: a
 // customer who wrote "maxinnku" gets "Maxinnku", not a guess at what they meant.
 
-const SEPARATOR = '_-_';
+// Two extension versions, two ways of writing the same thing. The older one underscored every
+// space ("1523_img0001_-_hofbauerovi"); the newer one leaves them ("1523_img0001 - hofbauerovi").
+// Both mean: what follows is the dedication.
+const SEPARATORS = ['_-_', ' - '];
+
+/** The dedication's offset and length inside a base name, or null when it carries none. */
+function separatorAt(base) {
+  for (const separator of SEPARATORS) {
+    const at = base.indexOf(separator);
+    if (at >= 0) return { at, length: separator.length };
+  }
+  return null;
+}
+
+/** Everything after the separator: the customer's words, still in file-name form. */
+function suffixOf(base) {
+  const found = separatorAt(String(base ?? ''));
+  return found ? base.slice(found.at + found.length) : null;
+}
 
 // The shop's file names turn every space into "_" and drop the "+" between names outright, so
 // "Julka + Agnes" arrives as "julka__agnes". A doubled underscore is therefore a "+", not an
@@ -28,11 +46,10 @@ const capitalize = (word) => word.charAt(0).toUpperCase() + word.slice(1);
  *  A customer who wrote nothing leaves no "_-_" segment, and that is a real answer: their title
  *  page prints without a text line, and the book is otherwise identical. */
 export function dedicationFromBase(base) {
-  const at = String(base ?? '').indexOf(SEPARATOR);
-  if (at < 0) return '';
+  const suffix = suffixOf(base);
+  if (suffix === null) return '';
 
-  const words = base
-    .slice(at + SEPARATOR.length)
+  const words = suffix
     .replace(/^_+|_+$/g, '') // trim first, or a trailing run would leave a dangling "+"
     .replace(/_{2,}/g, ` ${PLUS} `)
     .replaceAll('_', ' ')
@@ -51,16 +68,26 @@ export function dedicationFromBase(base) {
     .join(' ');
 }
 
-/** The raw suffix, lowercased and otherwise untouched: "1366_img0001_-_pro_jiricka" -> "pro_jiricka".
+/** The key a remembered spelling is filed under: "1366_img0001_-_pro_jiricka" -> "pro_jiricka".
  *
- *  The shop folds away every diacritic before it names the file, so "Pro Jiříčka" arrives as
- *  "pro_jiricka" and no rule can put the accents back — "jiricka" is Jiříčka, Jiřička or Jiricka
- *  and the file cannot say which. The slug is what the operator's correction is remembered against:
- *  spell it once, and every later order for the same name is spelled right. */
+ *  Older photo names fold away every diacritic, so "Pro Jiříčka" arrives as "pro_jiricka" and no
+ *  rule can put the accents back — "jiricka" is Jiříčka, Jiřička or Jiricka and the file cannot
+ *  say which. The slug is what the operator's correction is remembered against: spell it once, and
+ *  every later order for the same name is spelled right.
+ *
+ *  It is deliberately blunt — accents folded, punctuation flattened — so that the two ways the
+ *  extension has named the same dedication ("julka__agnes" and "julka + agnes") ask the memory the
+ *  same question. Ambiguity is the point: "pro_jiricka" is exactly what we cannot tell apart, and
+ *  it is what the operator answered once. */
 export function slugFromBase(base) {
-  const at = String(base ?? '').indexOf(SEPARATOR);
-  if (at < 0) return '';
-  return base.slice(at + SEPARATOR.length).replace(/^_+|_+$/g, '').toLowerCase();
+  const suffix = suffixOf(base);
+  if (suffix === null) return '';
+  return suffix
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '') // the combining accents, now separated from their letters
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
 /** Majority vote over the photos of one order. Every photo repeats the same suffix, so they should

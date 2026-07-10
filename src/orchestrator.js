@@ -18,6 +18,7 @@ import {
   manifestPath,
 } from './manifest.js';
 import { deriveDedication, deriveSlug } from './dedication.js';
+import { shopDedication } from './orderInfo.js';
 import { recallDedication, migrateDedications, MEMORY_DIR } from './dedications.js';
 
 // U6: the single "Go" run. ingest -> generate -> QC -> [review gate] -> builder -> PDF.
@@ -148,18 +149,21 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
 
     let entry = { orderId, orderDir, summary, held, failed, pdfPath: null, reason: null, status: null, titled: false };
 
-    // The customer's own words are in the photo names. Recover them once, for an order nobody
-    // has decided the title of yet — never over an operator who has already answered, including
-    // one who answered by emptying the box.
+    // The customer's own words. Recover them once, for an order nobody has decided the title of
+    // yet — never over an operator who has already answered, including one who answered by
+    // emptying the box.
     if (!hasDedication(manifest)) {
-      // A spelling the operator taught the tool wins: the shop folded the accents out of the file
-      // name, so the name alone can only ever produce "Pro Jiricka".
-      const remembered = recallDedication(memoryRoot, deriveSlug(bases));
-      const derived = remembered || deriveDedication(bases);
+      // Three places the words can come from, best first:
+      //   the shop      — what the customer typed, accents and all, straight out of Shopify
+      //   the memory    — a spelling the operator corrected once, on an earlier order
+      //   the file name — the last resort, and the only one that cannot spell "Jiříčka"
+      const fromShop = shopDedication(order.dir);
+      const remembered = fromShop ? '' : recallDedication(memoryRoot, deriveSlug(bases));
+      const derived = fromShop || remembered || deriveDedication(bases);
       if (derived) {
         setDedication(manifest, derived);
         writeManifest(orderDir, manifest);
-        onEvent({ type: 'title-derived', orderId, dedication: derived, remembered: Boolean(remembered) });
+        onEvent({ type: 'title-derived', orderId, dedication: derived, source: fromShop ? 'shop' : remembered ? 'memory' : 'filename' });
       }
     }
 
@@ -217,7 +221,10 @@ export function formatEvent(e) {
     case 'photo-failed': return `  ${e.base}: FAILED — ${e.reason}`;
     case 'photo-skipped': return `  ${e.base}: skipped (${e.status})`;
     case 'memory-moved': return `Moved ${e.count} saved spelling${e.count > 1 ? 's' : ''} out of the outbox, into the tool's own folder.`;
-    case 'title-derived': return `  title page (${e.remembered ? 'spelling you taught it' : 'from the photo names'}): ${e.dedication}`;
+    case 'title-derived': {
+      const from = { shop: 'as the customer typed it', memory: 'spelling you taught it', filename: 'from the photo names' }[e.source] ?? 'from the photo names';
+      return `  title page (${from}): ${e.dedication}`;
+    }
     case 'no-title': return '  no dedication in the photo names — the title page prints without text';
     case 'build-start': return `  building the PDF from ${e.photos} photo(s)…`;
     case 'build-done': return `  PDF: ${e.pdfPath} (${e.pairs} pairs)`;

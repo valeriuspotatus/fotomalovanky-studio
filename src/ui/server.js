@@ -67,6 +67,7 @@ function forClient(orders, inFlight) {
     dedication: o.dedication,
     suggestedDedication: o.suggestedDedication,
     suggestionRemembered: o.suggestionRemembered,
+    suggestionSource: o.suggestionSource,
     clearedDedication: o.clearedDedication,
     summary: o.summary,
     photos: o.photos.map((p) => ({

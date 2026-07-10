@@ -8,10 +8,13 @@ import { slugFromBase, deriveSlug, dedicationFromBase } from '../src/dedication.
 
 const root = () => mkdtempSync(join(tmpdir(), 'fma-ded-'));
 
-test('the slug is the file name suffix, lowercased and otherwise untouched', () => {
+test('the slug is the file name suffix, flattened to one canonical key', () => {
   assert.equal(slugFromBase('1366_img0001_-_pro_jiricka'), 'pro_jiricka');
   assert.equal(slugFromBase('1523_img0001_-_Hofbauerovi_18.7.2026'), 'hofbauerovi_18.7.2026');
-  assert.equal(slugFromBase('1515_img0001_-_julka__agnes'), 'julka__agnes', 'the doubled underscore is a "+", and survives');
+  // The doubled underscore means "+", and dedicationFromBase keeps it. The slug does not need to:
+  // it is only the key a correction is filed under, and both ways the extension has written this
+  // dedication have to reach the same entry.
+  assert.equal(slugFromBase('1515_img0001_-_julka__agnes'), 'julka_agnes');
   assert.equal(slugFromBase('1479_img0001'), '', 'a customer who wrote nothing has no slug');
 });
 
@@ -144,4 +147,28 @@ test('junk entries are ignored rather than printed onto a title page', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('the newer download names the photos with spaces, and keeps the accents', () => {
+  // The extension writes "1366_img0001 - pro jiříčka.jpg" now; it used to write
+  // "1366_img0001_-_pro_jiricka.jpeg". Both must still mean the same order and the same name.
+  assert.equal(dedicationFromBase('1366_img0001 - pro jiříčka'), 'Pro Jiříčka');
+  assert.equal(slugFromBase('1366_img0001 - pro jiříčka'), 'pro_jiricka');
+  assert.equal(slugFromBase('1366_img0001_-_pro_jiricka'), 'pro_jiricka', 'and the old name asks the memory the same question');
+});
+
+test('a spelling taught from one download is found by the other', () => {
+  const dir = root();
+  try {
+    learnDedication(dir, deriveSlug(['1366_img0001_-_pro_jiricka']), 'Pro Jiříčka');
+    assert.equal(recallDedication(dir, deriveSlug(['1366_img0001 - pro jiříčka'])), 'Pro Jiříčka');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the "+" between two names survives both spellings of it', () => {
+  assert.equal(dedicationFromBase('1515_img0001_-_julka__agnes'), 'Julka + Agnes');
+  assert.equal(dedicationFromBase('1515_img0001 - julka + agnes'), 'Julka + Agnes');
+  assert.equal(slugFromBase('1515_img0001_-_julka__agnes'), slugFromBase('1515_img0001 - julka + agnes'));
 });

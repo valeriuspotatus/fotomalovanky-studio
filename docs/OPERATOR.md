@@ -170,9 +170,13 @@ Each book can open with a dedication — *"Pro Barču, s láskou od rodiny"*.
 **Title page** box in for you. Correct it if it looks wrong — what you type always wins, and it is
 saved when you press Tab or click away.
 
-### The accents, and why you only fix them once
+### The accents
 
-**The shop throws the accents away before the tool ever sees the file.** Order 1366's photos are
+**Usually there is nothing to do.** The Chrome extension writes a small `objednavka.json` next to
+the photographs, holding the dedication exactly as the customer typed it into the shop — accents
+and all. The tool reads that file, and the box says *from the shop — the customer's own spelling*.
+
+**Older orders have no such file, and their photo names lost the accents.** Order 1366's photos are
 named `1366_img0001_-_pro_jiricka`, and nothing in that name can say whether the boy is *Jiříček*,
 *Jiřiček* or *Jiricek*. So the tool does not guess. It suggests *"Pro Jiricka"* and says
 *from the photo names — check the accents, then it is remembered*.
@@ -181,8 +185,12 @@ Type it properly — **Pro Jiříčka** — and the tool remembers that spelling
 next order for a Jiříček arrives already spelled right, and the box says *the spelling you saved
 for this name*. Correct it again and the new spelling replaces the old one.
 
-The spellings live in `.dedications.json` beside your finished books. Emptying one order's title
-does not teach the tool that the name has no title — it just forgets that spelling.
+The spellings live in `dedications.json` beside `config.json`, in the tool's own folder. Emptying
+one order's title does not teach the tool that the name has no title — it just forgets that
+spelling.
+
+If the shop's file and your saved spelling disagree, the shop wins: the customer's own words are
+not a guess. Your saved spelling is left untouched for the orders that still need it.
 
 **A customer who wrote nothing still gets their book.** The box stays empty, the box says *no
 dedication*, and the run prints anyway: the title page and its four cover thumbnails are there,

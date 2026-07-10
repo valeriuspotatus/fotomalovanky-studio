@@ -817,10 +817,13 @@ function orderSection(o, locked) {
   const shown = o.dedication || o.suggestedDedication;
   let hint = '';
   if (!o.dedication) {
-    if (o.suggestionRemembered)
+    // Straight out of the shop, exactly as the customer typed it. Nothing to check.
+    if (o.suggestionSource === 'shop')
+      hint = '<span class="note">from the shop — the customer’s own spelling</span>';
+    else if (o.suggestionRemembered)
       hint = '<span class="note">the spelling you saved for this name</span>';
-    // The shop drops the accents before it names the file, so a name recovered from one is
-    // spelled the way the shop left it. Say so, rather than let a bare "Pro Jiricka" get printed.
+    // An older download names the photos without accents, so a name recovered from one is spelled
+    // the way the shop left it. Say so, rather than let a bare "Pro Jiricka" get printed.
     else if (o.suggestedDedication)
       hint = '<span class="note">from the photo names — check the accents, then it is remembered</span>';
     else if (o.clearedDedication)

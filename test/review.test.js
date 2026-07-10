@@ -7,6 +7,7 @@ import sharp from 'sharp';
 import { reviewState, approve, reject, handoff, acceptReplacement, redo, setOrderDedication, applyPhotoEdit, revertPhotoEdit, editBackupPath, ReviewError } from '../src/review.js';
 import { STATES, readManifest, getStatus, setStatus, setDedication, writeManifest, emptyManifest, isBuilderEligible } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
+import { learnDedication, recallDedication } from '../src/dedications.js';
 import { GeneratorError } from '../src/generator/driver.js';
 
 const CONFIG = {
@@ -635,6 +636,90 @@ test('a stroke the browser mangled is refused as an operator-facing message', as
       (err) => err instanceof ReviewError && !/EditError/.test(err.message),
     );
     assert.equal(readFileSync(join(f.orderDir, 'a.svg'), 'utf8'), EDIT_SVG, 'and the page is untouched');
+  } finally {
+    f.cleanup();
+  }
+});
+
+// ---- where the title-page text comes from ---------------------------------
+
+/** An order as the Chrome extension leaves it: photographs, and the shop's own record beside them. */
+function seedShopOrder({ sidecar = null, photoName = '1366_img0001_-_pro_jiricka.jpeg' } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'fma-shop-'));
+  const inbox = join(root, 'inbox');
+  const outbox = join(root, 'outbox');
+  const memory = join(root, 'memory');
+  mkdirSync(inbox, { recursive: true });
+  mkdirSync(join(outbox, '1366'), { recursive: true });
+  mkdirSync(memory, { recursive: true });
+
+  writeFileSync(join(inbox, photoName), 'photo');
+  if (sidecar !== null) writeFileSync(join(inbox, 'objednavka.json'), JSON.stringify(sidecar));
+  writeManifest(join(outbox, '1366'), emptyManifest('1366'));
+
+  return { inbox, outbox, memory, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+test('the shop\'s spelling is what the grid suggests, accents and all', () => {
+  const f = seedShopOrder({ sidecar: { order: '1366', dedication: 'Pro Jiříčka' } });
+  try {
+    const [order] = reviewState({ inboxRoot: f.inbox, outboxRoot: f.outbox, memoryRoot: f.memory });
+    assert.equal(order.suggestedDedication, 'Pro Jiříčka', 'not "Pro Jiricka", which is all the file name can say');
+    assert.equal(order.suggestionSource, 'shop');
+    assert.equal(order.suggestionRemembered, false);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('without the shop\'s record the file name still answers, and still asks to be checked', () => {
+  const f = seedShopOrder({ sidecar: null });
+  try {
+    const [order] = reviewState({ inboxRoot: f.inbox, outboxRoot: f.outbox, memoryRoot: f.memory });
+    assert.equal(order.suggestedDedication, 'Pro Jiricka');
+    assert.equal(order.suggestionSource, 'filename');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the shop outranks a spelling the operator taught, because the customer outranks a guess', () => {
+  const f = seedShopOrder({ sidecar: { order: '1366', dedication: 'Pro Jiříčka' } });
+  try {
+    // An earlier order taught the tool a different spelling of the same name. This customer's own
+    // words are not a guess, so they win — and nothing is being unlearned.
+    learnDedication(f.memory, 'pro_jiricka', 'Pro Jiřička');
+    const [order] = reviewState({ inboxRoot: f.inbox, outboxRoot: f.outbox, memoryRoot: f.memory });
+    assert.equal(order.suggestedDedication, 'Pro Jiříčka');
+    assert.equal(order.suggestionSource, 'shop');
+    assert.equal(recallDedication(f.memory, 'pro_jiricka'), 'Pro Jiřička', 'the memory is left as it was');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('an operator who has already decided is never second-guessed by the shop', () => {
+  const f = seedShopOrder({ sidecar: { order: '1366', dedication: 'Pro Jiříčka' } });
+  try {
+    setOrderDedication(join(f.outbox, '1366'), 'Pro Jirku', { memoryRoot: f.memory });
+    const [order] = reviewState({ inboxRoot: f.inbox, outboxRoot: f.outbox, memoryRoot: f.memory });
+    assert.equal(order.dedication, 'Pro Jirku');
+    assert.equal(order.suggestedDedication, '', 'their answer stands');
+    assert.equal(order.suggestionSource, '');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a customer who wrote nothing gets no title page, whatever the file name hints', () => {
+  const f = seedShopOrder({ sidecar: { order: '1366', dedication: '' } });
+  try {
+    const [order] = reviewState({ inboxRoot: f.inbox, outboxRoot: f.outbox, memoryRoot: f.memory });
+    // The shop says there is no dedication; the file name disagrees. Nobody typed "pro_jiricka"
+    // into the shop, so the file name is the one that is wrong... but it is also all we can act
+    // on without inventing a rule about which to believe. Falling back keeps today's behaviour.
+    assert.equal(order.suggestedDedication, 'Pro Jiricka');
+    assert.equal(order.suggestionSource, 'filename');
   } finally {
     f.cleanup();
   }
