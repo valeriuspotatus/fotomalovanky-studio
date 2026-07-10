@@ -92,8 +92,25 @@ const run = (f, opts = {}) =>
     builder: opts.builder ?? new StubBuilder(),
     qc: opts.qc ?? OK_QC,
     force: opts.force ?? false,
+    only: opts.only,
+    signal: opts.signal,
     onEvent: opts.onEvent,
   });
+
+/** A generator that trips the Stop button the moment it finishes a given photo, so a test can
+ *  make cancellation land at an exact boundary without real timing. */
+class StoppingGenerator extends StubGenerator {
+  constructor(controller, stopAfter) {
+    super();
+    this.controller = controller;
+    this.stopAfter = stopAfter;
+  }
+  async generate(photoPath) {
+    const result = await super.generate(photoPath);
+    if (photoBase(photoPath) === this.stopAfter) this.controller.abort();
+    return result;
+  }
+}
 
 test('one order runs ingest -> generate -> QC -> builder -> a real PDF path', async () => {
   const f = fixture({ 1510: ['a'] });
@@ -540,6 +557,88 @@ test('ticking nothing is not the same as ticking everything', async () => {
     });
     assert.deepEqual(counts, { done: 0, held: 0, failed: 0 });
     assert.equal(builder.calls.length, 0);
+  } finally {
+    f.cleanup();
+  }
+});
+
+// ---- Stop -----------------------------------------------------------------
+
+test('Stop between orders leaves the ones not yet started untouched, and says so', async () => {
+  const f = fixture({ 1510: ['a'], 1523: ['b'], 1540: ['c'] });
+  try {
+    const controller = new AbortController();
+    const generator = new StoppingGenerator(controller, 'a'); // stop the moment 1510 is done
+    const builder = new StubBuilder();
+    const events = [];
+    const { orders, counts, stopped } = await run(f, { generator, builder, signal: controller.signal, onEvent: (e) => events.push(e) });
+
+    assert.equal(stopped, true);
+    assert.deepEqual(orders.map((o) => o.orderId), ['1510'], 'only the order that had already run is in the report');
+    assert.equal(orders[0].status, ORDER_STATUS.DONE, 'and it finished cleanly — a stop is not a failure');
+    assert.deepEqual(generator.calls, ['a'], '1523 and 1540 were never generated');
+    assert.equal(builder.calls.length, 1, 'only the finished order reached the builder');
+    assert.equal(counts.done, 1);
+
+    const stop = events.find((e) => e.type === 'run-stopped');
+    assert.ok(stop, 'a run-stopped event is emitted');
+    assert.equal(stop.ran, 1);
+    assert.equal(stop.total, 3);
+    assert.match(formatEvent(stop), /Stopped — 1 of 3 order\(s\) done/);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('Stop mid-order keeps the photos already made and holds the rest for the next Go', async () => {
+  const f = fixture({ 1510: ['a', 'b', 'c'] });
+  try {
+    const controller = new AbortController();
+    const generator = new StoppingGenerator(controller, 'a'); // stop after the first of three photos
+    const builder = new StubBuilder();
+    const { orders, stopped } = await run(f, { generator, builder, signal: controller.signal });
+
+    assert.equal(stopped, true);
+    assert.deepEqual(generator.calls, ['a'], 'b and c were never started');
+    assert.equal(orders[0].status, ORDER_STATUS.HELD, 'a half-generated order is held, not shipped');
+    assert.equal(orders[0].pdfPath, null, 'and no partial book is built');
+    assert.equal(builder.calls.length, 0);
+
+    const m = readManifest(orders[0].orderDir);
+    assert.equal(getStatus(m, 'a'), STATES.OK, 'the photo that ran is kept');
+    assert.equal(getStatus(m, 'b'), null, 'the untouched photos stay pending');
+    assert.equal(getStatus(m, 'c'), null);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('Stop is resumable: a second Go with no signal finishes what was left', async () => {
+  const f = fixture({ 1510: ['a', 'b', 'c'] });
+  try {
+    const controller = new AbortController();
+    await run(f, { generator: new StoppingGenerator(controller, 'a'), builder: new StubBuilder(), signal: controller.signal });
+
+    // Nothing cancels this time.
+    const generator = new StubGenerator();
+    const builder = new StubBuilder();
+    const { orders, counts, stopped } = await run(f, { generator, builder });
+
+    assert.ok(!stopped, 'the resumed run was not itself stopped');
+    assert.deepEqual(generator.calls.sort(), ['b', 'c'], 'only the photos that had not run are generated');
+    assert.equal(orders[0].status, ORDER_STATUS.DONE);
+    assert.ok(existsSync(orders[0].pdfPath), 'and now the book is built');
+    assert.equal(counts.done, 1);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a run that is never stopped does not report itself stopped', async () => {
+  const f = fixture({ 1510: ['a'] });
+  try {
+    const { stopped } = await run(f, { signal: new AbortController().signal });
+    assert.ok(!stopped);
   } finally {
     f.cleanup();
   }

@@ -100,7 +100,7 @@ export async function generatePhoto({ config, photoPath, orderDir, manifest, ord
 /** Generate every photo of one order that still needs it, writing state.json after each photo
  *  so an interrupted run resumes exactly where it stopped. A single photo's failure is recorded
  *  and the batch moves on — one dead GPU job must not cost the other fifteen photos. */
-export async function generateOrder({ config, order, outboxRoot, driver, qc = assessOutputFiles, onEvent = noop }) {
+export async function generateOrder({ config, order, outboxRoot, driver, qc = assessOutputFiles, onEvent = noop, signal }) {
   const generator = driver ?? createGeneratorDriver(config);
   const orderDir = join(outboxRoot, order.orderId);
   mkdirSync(orderDir, { recursive: true });
@@ -110,6 +110,11 @@ export async function generateOrder({ config, order, outboxRoot, driver, qc = as
   const { orderId } = order;
 
   for (const photoPath of order.photos) {
+    // Stopping lands here, between photos: a generation already handed to the GPU cannot be
+    // pulled back, but the next one need never start. Photos already done keep their verdict;
+    // the untouched ones stay pending and the next Go picks them up.
+    if (signal?.aborted) break;
+
     const base = photoBase(photoPath);
     const status = getStatus(manifest, base);
 

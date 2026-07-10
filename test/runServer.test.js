@@ -214,3 +214,55 @@ test("the launcher opens the finished book's folder when the run is done", async
     cleanup();
   }
 });
+
+// ---- the Stop button --------------------------------------------------------
+
+test('Stop ends a run in flight, and the tool comes back to rest', async () => {
+  const r = mkdtempSync(join(tmpdir(), 'fma-stop-'));
+  const inb = join(r, 'inbox');
+  const outb = join(r, 'outbox');
+  // Two orders, so Stop has a second one to spare while the first is parked on the gate.
+  for (const id of ['1601', '1602']) {
+    mkdirSync(join(inb, id), { recursive: true });
+    mkdirSync(join(outb, id), { recursive: true });
+    await sharp({ create: { width: 20, height: 20, channels: 3, background: '#ccc' } }).jpeg().toFile(join(inb, id, 'a.jpeg'));
+    writeManifest(join(outb, id), setDedication(emptyManifest(id), 'Pro Barču'));
+  }
+
+  const gen = new GatedGenerator(); // parks on the first photo until released
+  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: inb, outboxRoot: outb, memoryRoot: outb, driver: gen, builder: stubBuilder });
+  await new Promise((done) => s.listen(0, '127.0.0.1', done));
+  const o = `http://127.0.0.1:${s.address().port}`;
+  const state = async () => (await fetch(`${o}/api/state`)).json();
+  const waitFor = async (fn, ms = 5000) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { if (fn(await state())) return; await new Promise((d) => setTimeout(d, 25)); }
+    throw new Error('timed out');
+  };
+
+  try {
+    await fetch(`${o}/api/_run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    await waitFor((st) => st.run.active && st.run.lines.some((l) => l.includes('order 1601')));
+
+    // Press Stop while the first order is still on the GPU.
+    const stopRes = await (await fetch(`${o}/api/_stop`, { method: 'POST' })).json();
+    assert.equal(stopRes.stopping, true);
+    assert.equal((await state()).run.stopping, true, 'the tool says it is stopping');
+
+    // Release the parked photo; the run should now wind down rather than start the second order.
+    gen.release();
+    await waitFor((st) => !st.run.active);
+
+    const st = await state();
+    assert.equal(st.run.stopping, false, 'it is no longer stopping — it has stopped');
+    assert.equal(st.run.report.counts.done, 1, 'the order that finished is done');
+    assert.ok(st.run.lines.some((l) => /Stopped — 1 of 2/.test(l)), 'the log says what it did');
+    assert.equal(gen.started, 1, 'the second order never reached the generator');
+
+    // And Stop with nothing running is a harmless no-op.
+    assert.deepEqual(await (await fetch(`${o}/api/_stop`, { method: 'POST' })).json(), { stopping: false });
+  } finally {
+    s.close();
+    rmSync(r, { recursive: true, force: true });
+  }
+});

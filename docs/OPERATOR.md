@@ -39,6 +39,12 @@ Now wait. Each photo takes a couple of minutes — the drawing is made on a grap
 somewhere else, and the tool shows you what it is doing. A whole order of 16 photos can
 take half an hour. You can leave it running and come back.
 
+**Changed your mind?** While a run is going, the **Go** button is joined by a red **Stop**.
+Press it and the tool finishes the drawing it is making right now — you can't pull a picture
+back off the graphics card once it has started — then stops, rather than beginning the next one.
+Everything already made is kept, and the orders it never reached are left exactly as they were.
+Press **Go** when you are ready and it carries on from where it stopped, skipping what is done.
+
 When it finishes you get a summary:
 
 ```

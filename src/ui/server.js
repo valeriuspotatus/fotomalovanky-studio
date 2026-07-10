@@ -241,7 +241,8 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
-  const run = { active: false, lines: [], report: null, error: null };
+  const run = { active: false, stopping: false, lines: [], report: null, error: null };
+  let runController = null; // the live run's AbortController, or null between runs
   let generator = driver ?? null;
   let builderDriver = builder ?? null;
 
@@ -294,9 +295,11 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     if (selected?.length === 0) throw new ReviewError('Tick at least one order to run.');
 
     run.active = true;
+    run.stopping = false;
     run.lines = [];
     run.report = null;
     run.error = null;
+    runController = new AbortController();
 
     generator ??= createGeneratorDriver(config);
     builderDriver ??= new BuilderDriver(config);
@@ -312,6 +315,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       force: Boolean(force),
       only: selected,
       memoryRoot,
+      signal: runController.signal,
       onEvent: (e) => {
         const line = formatEvent(e);
         if (line === null) return;
@@ -343,7 +347,18 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       })
       .finally(() => {
         run.active = false;
+        run.stopping = false;
+        runController = null;
       });
+  }
+
+  /** The Stop button. Cooperative: the photo on the GPU finishes, then the run winds down at the
+   *  next boundary. Idempotent, and a no-op when nothing is running. */
+  function stopRun() {
+    if (!run.active || !runController) return { stopping: false };
+    run.stopping = true;
+    runController.abort();
+    return { stopping: true };
   }
 
   async function startRedo(orderId, base) {
@@ -414,6 +429,11 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       if (req.method === 'POST' && url.pathname === '/api/_run') {
         startRun(await readJson(req));
         return json(res, 202, { started: true, inbox });
+      }
+
+      // POST /api/_stop — the Stop button. Winds the run down at the next photo boundary.
+      if (req.method === 'POST' && url.pathname === '/api/_stop') {
+        return json(res, 200, stopRun());
       }
 
       // POST /api/_pick-folder { startAt? } — a native folder dialog, so no path has to be typed.

@@ -164,6 +164,7 @@
   <input type="text" id="inbox" spellcheck="false" placeholder="the folder your Chrome extension downloads into">
   <button id="browse">Browse…</button>
   <button class="primary" id="run">Go</button>
+  <button class="danger" id="stop" hidden>Stop</button>
   <label class="chk"><input type="checkbox" id="force"> reprint finished PDFs</label>
 </div>
 
@@ -352,6 +353,19 @@ async function startRun() {
   await refresh(true);
 }
 
+async function stopRun() {
+  const btn = $('#stop');
+  btn.disabled = true;
+  btn.textContent = 'Stopping…';
+  try {
+    await fetch('/api/_stop', { method: 'POST' });
+    toast('Stopping — the photo being made now will finish, then it stops.');
+  } catch {
+    toast('Could not reach the tool to stop it.', true);
+  }
+  await refresh(true);
+}
+
 let picking = false;
 
 async function browse() {
@@ -414,8 +428,15 @@ function paintRun(run) {
 
 function paintGoBar(data) {
   const running = data.run.active;
+  const stopping = data.run.stopping;
   $('#run').disabled = running;
   $('#run').textContent = running ? 'Running…' : 'Go';
+  // Stop only exists while there is a run to stop. Once pressed, it stays disabled and says so —
+  // the run winds down on its own, and a second press would do nothing.
+  const stop = $('#stop');
+  stop.hidden = !running;
+  stop.disabled = stopping;
+  stop.textContent = stopping ? 'Stopping…' : 'Stop';
   // The poll repaints this bar every second. Without `picking` it would re-enable the button under
   // an open dialog — a second click, a second dialog — and leave the label stuck on "Choose a
   // folder…" once the first one closed.
@@ -1146,6 +1167,7 @@ addEventListener('resize', () => {
 });
 
 $('#run').addEventListener('click', startRun);
+$('#stop').addEventListener('click', stopRun);
 $('#browse').addEventListener('click', browse);
 $('#inbox').addEventListener('change', () => localStorage.setItem(INBOX_KEY, $('#inbox').value.trim()));
 // Enter looks inside the folder rather than starting a run. Typing a path and immediately

@@ -107,8 +107,13 @@ export function titleTextFor(config, dedication) {
   return dedication || fallback.dedication || fallback.title || '';
 }
 
-/** Run every order end to end. Never throws for a single order; returns a report. */
-export async function runPipeline({ config, inboxRoot, outboxRoot, generator, builder, qc, onEvent = noop, force = false, only = null, memoryRoot = MEMORY_DIR }) {
+/** Run every order end to end. Never throws for a single order; returns a report.
+ *
+ *  `signal` is how the operator's Stop button reaches the loop. Stopping is cooperative and lands
+ *  at an order or photo boundary: whatever is on the GPU finishes, then nothing new begins. Books
+ *  already built stay built; an order left half-generated simply has pending photos, and the next
+ *  Go continues it. */
+export async function runPipeline({ config, inboxRoot, outboxRoot, generator, builder, qc, onEvent = noop, force = false, only = null, memoryRoot = MEMORY_DIR, signal }) {
   const inbox = inboxRoot ?? config.paths.inbox;
   const outbox = outboxRoot ?? config.paths.outbox;
   // `only` is the operator ticking a few orders out of a folder that holds many. Orders still run
@@ -128,7 +133,13 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
   onEvent({ type: 'run-start', orders: orders.length, inbox, outbox, skipped: found.length - orders.length });
 
   const report = [];
+  let stopped = false;
   for (const order of orders) {
+    // The operator pressed Stop. Do not begin another order — the ones already done are the run.
+    if (signal?.aborted) {
+      stopped = true;
+      break;
+    }
     const { orderId } = order;
     onEvent({ type: 'order-start', orderId, dirName: order.dirName, photos: order.photos.length });
 
@@ -140,6 +151,7 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
       driver: gen,
       qc,
       onEvent,
+      signal,
     });
 
     const bases = order.photos.map(photoBase);
@@ -193,13 +205,17 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
     report.push(entry);
   }
 
+  // The signal can trip during the last order too, where the top-of-loop check never runs again.
+  stopped = stopped || Boolean(signal?.aborted);
+
   const counts = {
     done: report.filter((o) => o.status === ORDER_STATUS.DONE).length,
     held: report.filter((o) => o.status === ORDER_STATUS.HELD).length,
     failed: report.filter((o) => o.status === ORDER_STATUS.FAILED).length,
   };
+  if (stopped) onEvent({ type: 'run-stopped', counts, ran: report.length, total: orders.length });
   onEvent({ type: 'run-done', counts });
-  return { inbox, outbox, orders: report, counts };
+  return { inbox, outbox, orders: report, counts, stopped };
 }
 
 // ---- progress rendering ----------------------------------------------------
@@ -230,6 +246,8 @@ export function formatEvent(e) {
     case 'build-done': return `  PDF: ${e.pdfPath} (${e.pairs} pairs)`;
     case 'build-skipped': return `  PDF already up to date: ${e.pdfPath}`;
     case 'build-failed': return `  BUILD FAILED — ${e.reason}`;
+    case 'run-stopped':
+      return `\nStopped — ${e.ran} of ${e.total} order(s) done. The rest were left untouched; press Go to carry on.`;
     default: return null;
   }
 }

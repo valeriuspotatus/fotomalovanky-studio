@@ -107,6 +107,7 @@ try {
   check('it offers yesterday\'s folder', (await page.inputValue('#inbox')) === fx.inbox);
   check('but does not open it', await page.locator('#queue').isHidden());
   check('the finished books are counted, not shown', /Order history \(2\)/.test(await page.locator('#history').textContent()));
+  check('Go is offered, Stop is not — there is nothing to stop', (await page.locator('#run').isVisible()) && (await page.locator('#stop').isHidden()));
 
   // Point at the folder. Three orders is a handful, so they arrive ticked.
   await page.fill('#inbox', fx.inbox);
