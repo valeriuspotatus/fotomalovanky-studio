@@ -4,8 +4,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { reviewState, approve, reject, handoff, acceptReplacement, redo, ReviewError } from '../src/review.js';
-import { STATES, readManifest, getStatus, setStatus, writeManifest, emptyManifest, isBuilderEligible } from '../src/manifest.js';
+import { reviewState, approve, reject, handoff, acceptReplacement, redo, setOrderDedication, ReviewError } from '../src/review.js';
+import { STATES, readManifest, getStatus, setStatus, setDedication, writeManifest, emptyManifest, isBuilderEligible } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
 import { GeneratorError } from '../src/generator/driver.js';
 
@@ -389,5 +389,33 @@ test('an unknown photo is rejected rather than silently created', async () => {
     assert.throws(() => approve(f.orderDir, 'nope'), ReviewError);
   } finally {
     f.cleanup();
+  }
+});
+
+// ---- an emptied dedication is recoverable -----------------------------------
+
+test('clearing a dedication remembers what it was, and setting one forgets the undo', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fma-undo-'));
+  try {
+    writeManifest(dir, setDedication(emptyManifest('1523'), 'Hofbauerovi 18.7.2026'));
+
+    assert.equal(setOrderDedication(dir, ''), '');
+    assert.equal(readManifest(dir).dedicationWas, 'Hofbauerovi 18.7.2026', 'the customer text survives the clear');
+
+    assert.equal(setOrderDedication(dir, 'Hofbauerovi 18.7.2026'), 'Hofbauerovi 18.7.2026');
+    assert.equal(readManifest(dir).dedicationWas, undefined, 'restoring drops the undo');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('clearing an already-empty dedication records nothing to undo', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fma-undo2-'));
+  try {
+    writeManifest(dir, emptyManifest('1479'));
+    setOrderDedication(dir, '');
+    assert.equal(readManifest(dir).dedicationWas, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

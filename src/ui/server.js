@@ -53,6 +53,7 @@ function forClient(orders, inFlight) {
     orderDir: o.orderDir,
     dedication: o.dedication,
     suggestedDedication: o.suggestedDedication,
+    clearedDedication: o.clearedDedication,
     summary: o.summary,
     photos: o.photos.map((p) => ({
       base: p.base,

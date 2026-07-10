@@ -34,6 +34,9 @@
       background:var(--sunken);color:var(--text)}
  .ded input:focus{background:#171a20;outline:2px solid rgba(90,169,247,.45);border-color:var(--hold)}
  .ded .warn{font-size:11.5px;color:var(--manual);white-space:nowrap}
+ .ded .restore{font:inherit;font-size:11.5px;padding:3px 8px;border:1px solid var(--line);border-radius:5px;
+               background:var(--sunken);color:var(--text);cursor:pointer;white-space:nowrap}
+ .ded .restore:hover:not(:disabled){border-color:var(--hold)}
  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;padding:16px;align-items:start}
  .tile{border:1px solid var(--line);border-radius:8px;padding:11px;position:relative;background:var(--sunken)}
  .tile.flagged,.tile.failed{border-color:var(--bad);box-shadow:0 0 0 2px rgba(255,107,107,.16) inset}
@@ -364,7 +367,13 @@ function patchProgress(data) {
 function captureFocus() {
   const el = document.activeElement;
   if (!el?.matches?.('.ded input')) return null;
-  return { order: el.closest('.ded').dataset.order, value: el.value, start: el.selectionStart, end: el.selectionEnd };
+  return {
+    order: el.closest('.ded').dataset.order,
+    value: el.value,
+    entry: el.dataset.entry ?? el.value,
+    start: el.selectionStart,
+    end: el.selectionEnd,
+  };
 }
 
 function restoreFocus(snap) {
@@ -373,6 +382,9 @@ function restoreFocus(snap) {
   if (!el || el.disabled) return;
   el.value = snap.value; // the operator's text, never the server's
   el.focus();
+  // focus() fires focusin, which would reset the baseline to the text we just restored and so
+  // swallow the edit they were in the middle of. Put the original baseline back.
+  el.dataset.entry = snap.entry;
   try {
     el.setSelectionRange(snap.start, snap.end);
   } catch {}
@@ -422,14 +434,18 @@ function render(data, force) {
     // answer, once given, always wins. `data-saved` is what the server holds, and `data-decided`
     // marks an order they have already answered — clearing the box is one of the answers.
     const shown = o.dedication || o.suggestedDedication;
-    const hint = o.dedication
-      ? ''
-      : o.suggestedDedication
-        ? '<span class="note">from the photo names</span>'
-        : '<span class="note">no dedication — the title page prints without text</span>';
+    let hint = '';
+    if (!o.dedication) {
+      if (o.suggestedDedication) hint = '<span class="note">from the photo names</span>';
+      else if (o.clearedDedication)
+        hint =
+          `<span class="note">no dedication — was “${esc(o.clearedDedication)}”</span>` +
+          `<button class="restore" data-restore="${esc(o.clearedDedication)}"${locked ? ' disabled' : ''}>restore</button>`;
+      else hint = '<span class="note">no dedication — the title page prints without text</span>';
+    }
     const ded = `<div class="ded" data-order="${esc(o.orderId)}">
         <label for="ded-${esc(o.orderId)}">Title page</label>
-        <input id="ded-${esc(o.orderId)}" value="${esc(shown)}" data-saved="${esc(o.dedication)}"${o.suggestedDedication ? '' : ' data-decided="1"'}${locked ? ' disabled' : ''} placeholder="no dedication — the title page will have no text">
+        <input id="ded-${esc(o.orderId)}" value="${esc(shown)}"${locked ? ' disabled' : ''} placeholder="no dedication — the title page will have no text">
         ${hint}
       </div>`;
     return `<section class="order">
@@ -471,17 +487,24 @@ document.addEventListener('error', (e) => {
   fig.innerHTML = `<div class="ph">unreadable file</div><figcaption>${esc(cap)}</figcaption>`;
 }, true);
 
+// The baseline for "did they actually change it". Everything else — a repaint, the window losing
+// focus, a tab straight through the box, File Explorer opening over the page — leaves the value
+// untouched, and so must write nothing. Customer text is not regenerable; the safe default when
+// we are unsure whether the operator meant it is to do nothing.
+document.addEventListener('focusin', (e) => {
+  const input = e.target.closest?.('.ded input');
+  if (input) input.dataset.entry = input.value;
+});
+
 // Save when the operator is done typing, not per keystroke. Driven off focusout rather than
 // 'change': a repaint re-creates the input, which resets the browser's idea of "changed since
 // focus", so a 'change' listener would silently drop the edit that survived the repaint.
-// An order nobody has decided yet always saves — that is how the suggested text, and the
-// decision to have no title page at all, become real.
 document.addEventListener('focusout', (e) => {
   if (repainting) return;
   const input = e.target.closest?.('.ded input');
   if (!input) return;
-  const decided = input.dataset.decided === '1';
-  if (decided && input.value.trim() === input.dataset.saved) return;
+  const entry = input.dataset.entry;
+  if (entry === undefined || input.value === entry) return; // they looked; they did not touch
   pendingSave = saveDedication(input.closest('.ded').dataset.order, input.value);
 });
 document.addEventListener('keydown', (e) => {
@@ -492,6 +515,12 @@ document.addEventListener('click', (e) => {
   const img = e.target.closest('.imgs img');
   if (img) { $('#lbimg').src = img.src; $('#lb').showModal(); return; }
   if (e.target === $('#lbimg') || e.target === $('#lb')) { $('#lb').close(); return; }
+
+  const undo = e.target.closest('button[data-restore]');
+  if (undo) {
+    pendingSave = saveDedication(undo.closest('.ded').dataset.order, undo.dataset.restore);
+    return;
+  }
 
   const btn = e.target.closest('button[data-a],button[data-open]');
   if (!btn) return;

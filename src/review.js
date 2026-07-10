@@ -92,6 +92,8 @@ export function reviewState({ inboxRoot, outboxRoot }) {
       // Only ever a *suggestion* for an untouched order. Once the operator has decided — even
       // by emptying the box — the grid must show their decision, not talk them out of it.
       suggestedDedication: hasDedication(manifest) ? '' : deriveDedication(bases),
+      // What an empty box used to say, so a clear the operator did not mean is one click away.
+      clearedDedication: manifest.dedicationWas ?? '',
       photos,
       summary: summarizeOrder(manifest, bases),
     });
@@ -107,12 +109,23 @@ function outboxOrders(outboxRoot) {
 }
 
 /** Set the order's title-page text. Writing it also makes any already-printed PDF stale,
- *  because state.json is the order's "last decided" clock. */
+ *  because state.json is the order's "last decided" clock.
+ *
+ *  Customer text is the one thing here that cannot be regenerated: the photos can be re-run, the
+ *  PDF reprinted, but nobody remembers what a stranger wrote. So an emptied dedication is kept
+ *  under `dedicationWas`, and the grid offers it back. One real order lost its text to something
+ *  we could not reproduce; this is what makes the next one survivable. */
 export function setOrderDedication(orderDir, text) {
   const manifest = readManifest(orderDir);
+  const before = getDedication(manifest);
   setDedication(manifest, text);
+  const after = getDedication(manifest);
+
+  if (before && !after) manifest.dedicationWas = before;
+  else if (after) delete manifest.dedicationWas;
+
   writeManifest(orderDir, manifest);
-  return getDedication(manifest);
+  return after;
 }
 
 // ---- verdicts -------------------------------------------------------------
