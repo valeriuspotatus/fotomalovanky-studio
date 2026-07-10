@@ -262,3 +262,111 @@ test('there is no folder dialog off Windows, and asking for one is not an error'
   assert.deepEqual(await pickFolder('', 'darwin'), { path: null, available: false });
   assert.deepEqual(await pickFolder('', 'linux'), { path: null, available: false });
 });
+
+// ---- choosing which orders to work on ---------------------------------------
+
+async function pickServer() {
+  const r = mkdtempSync(join(tmpdir(), 'fma-pick-'));
+  const inb = join(r, 'inbox');
+  const outb = join(r, 'outbox');
+  for (const id of ['1510', '1523', '1479']) {
+    mkdirSync(join(inb, id), { recursive: true });
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).jpeg().toFile(join(inb, id, `${id}_img0001.jpeg`));
+  }
+  // An order that exists only in the outbox: finished earlier, photos long since purged.
+  mkdirSync(join(outb, '1400'), { recursive: true });
+  writeManifest(join(outb, '1400'), setStatus(emptyManifest('1400'), 'old', STATES.OK, 'ok'));
+
+  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: inb, outboxRoot: outb });
+  await new Promise((done) => s.listen(0, '127.0.0.1', done));
+  const o = `http://127.0.0.1:${s.address().port}`;
+  const post = (p, body) => fetch(o + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const state = async () => (await fetch(`${o}/api/state`)).json();
+  return { inb, outb, post, state, cleanup: () => { s.close(); rmSync(r, { recursive: true, force: true }); } };
+}
+
+test('scanning a folder lists its orders, spends nothing, and ticks a handful', async () => {
+  const f = await pickServer();
+  try {
+    const body = await (await f.post('/api/_scan', { path: f.inb })).json();
+    assert.deepEqual(body.orders.map((o) => o.orderId).sort(), ['1479', '1510', '1523']);
+    assert.equal(body.orders[0].photos, 1);
+    assert.deepEqual(body.selected.sort(), ['1479', '1510', '1523'], 'three is a handful, so tick them');
+
+    const { run } = await f.state();
+    assert.equal(run.active, false, 'a scan starts nothing');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a scan of a folder that is not there is a plain refusal, not a crash', async () => {
+  const f = await pickServer();
+  try {
+    const res = await f.post('/api/_scan', { path: join(f.inb, 'nope') });
+    assert.equal(res.status, 409);
+    assert.ok((await res.json()).error);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the grid shows only the ticked orders, and keeps the earlier ones apart', async () => {
+  const f = await pickServer();
+  try {
+    await f.post('/api/_scan', { path: f.inb });
+    await f.post('/api/_select', { orders: ['1510'] });
+
+    const { orders, selected } = await f.state();
+    assert.deepEqual(selected, ['1510']);
+    const here = orders.filter((o) => o.inInbox).map((o) => o.orderId);
+    const earlier = orders.filter((o) => !o.inInbox).map((o) => o.orderId);
+    assert.deepEqual(here, ['1510'], 'the unticked orders are not in the grid');
+    assert.deepEqual(earlier, ['1400'], 'a finished order is still reviewable, just set apart');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('pressing Go with nothing ticked is refused, not silently a no-op', async () => {
+  const f = await pickServer();
+  try {
+    await f.post('/api/_scan', { path: f.inb });
+    await f.post('/api/_select', { orders: [] });
+    const res = await f.post('/api/_run', {});
+    assert.equal(res.status, 409);
+    assert.match((await res.json()).error, /[Tt]ick at least one order/);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a folder holding an archive of orders arrives ticked by nobody', async () => {
+  const r = mkdtempSync(join(tmpdir(), 'fma-archive-'));
+  const inb = join(r, 'inbox');
+  // Nine is past the handful the operator meant to pick. Ticking them all would regenerate
+  // every order they have ever shipped.
+  for (let i = 0; i < 9; i++) {
+    mkdirSync(join(inb, `15${10 + i}`), { recursive: true });
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } })
+      .jpeg()
+      .toFile(join(inb, `15${10 + i}`, 'a.jpeg'));
+  }
+  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: inb, outboxRoot: join(r, 'outbox') });
+  await new Promise((done) => s.listen(0, '127.0.0.1', done));
+  try {
+    const origin2 = `http://127.0.0.1:${s.address().port}`;
+    const body = await (
+      await fetch(`${origin2}/api/_scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: inb }),
+      })
+    ).json();
+    assert.equal(body.orders.length, 9);
+    assert.deepEqual(body.selected, [], 'nine orders is an archive opened by mistake');
+  } finally {
+    s.close();
+    rmSync(r, { recursive: true, force: true });
+  }
+});

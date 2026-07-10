@@ -37,6 +37,20 @@
  .ded .restore{font:inherit;font-size:11.5px;padding:3px 8px;border:1px solid var(--line);border-radius:5px;
                background:var(--sunken);color:var(--text);cursor:pointer;white-space:nowrap}
  .ded .restore:hover:not(:disabled){border-color:var(--hold)}
+ #queue{margin:0 18px 10px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+ #queue .head{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted);margin-bottom:8px}
+ #queue .head .grow{flex:1}
+ #queue .head button{font:inherit;font-size:11.5px;padding:2px 8px;border:1px solid var(--line);
+                     border-radius:5px;background:var(--sunken);color:var(--text);cursor:pointer}
+ #queue .list{display:flex;flex-wrap:wrap;gap:6px 16px}
+ #queue label{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+ #queue label.off{color:var(--muted)}
+ #queue .n{font-size:11.5px;color:var(--muted)}
+ #earlier{margin:26px 0 40px}
+ #earlier .divider{display:flex;align-items:center;gap:10px;margin:0 0 14px;color:var(--muted);font-size:12.5px}
+ #earlier .divider hr{flex:1;border:0;border-top:1px solid var(--line)}
+ #earlier .divider button{font:inherit;font-size:11.5px;padding:3px 9px;border:1px solid var(--line);
+                          border-radius:5px;background:var(--sunken);color:var(--text);cursor:pointer}
  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;padding:16px;align-items:start}
  .tile{border:1px solid var(--line);border-radius:8px;padding:11px;position:relative;background:var(--sunken)}
  .tile.flagged,.tile.failed{border-color:var(--bad);box-shadow:0 0 0 2px rgba(255,107,107,.16) inset}
@@ -119,9 +133,11 @@
   <label class="chk"><input type="checkbox" id="force"> reprint finished PDFs</label>
 </div>
 
+<div id="queue" hidden></div>
+
 <div id="runpanel" hidden></div>
 
-<div class="wrap"><div id="root"></div></div>
+<div class="wrap"><div id="root"></div><div id="earlier"></div></div>
 
 <div id="toast"></div>
 <dialog id="lb"><img id="lbimg" alt=""></dialog>
@@ -174,11 +190,84 @@ async function open(what, orderId) {
 }
 
 const INBOX_KEY = 'fma:inbox';
+const EARLIER_KEY = 'fma:earlier';
+let showEarlier = localStorage.getItem(EARLIER_KEY) === '1';
 
 // Clicking Go blurs the title-page box, so its save is already in flight when the run starts.
 // The server refuses a dedication once a run is active, so let the save land first — otherwise
 // the click that starts the book is the click that throws its title page away.
 let pendingSave = Promise.resolve();
+
+/** The orders found in the chosen folder, and which of them the operator ticked. Repainted only
+ *  when something actually changed: a poll that redrew this would fight the tick under the mouse. */
+let lastQueueSig = null;
+function paintQueue(queue, selected, locked) {
+  const q = $('#queue');
+  if (!queue?.length) {
+    q.hidden = true;
+    lastQueueSig = null;
+    return;
+  }
+  const sel = new Set(selected ?? queue.map((o) => o.orderId));
+  const sig = JSON.stringify([queue, [...sel], locked]);
+  if (sig === lastQueueSig) return;
+  lastQueueSig = sig;
+
+  q.hidden = false;
+  q.innerHTML = `
+    <div class="head">
+      <b>${queue.length} order${queue.length > 1 ? 's' : ''} in this folder</b>
+      <span class="n">${sel.size} ticked${sel.size > 1 ? ' — they run one after another' : ''}</span>
+      <span class="grow"></span>
+      <button data-tick="all"${locked || sel.size === queue.length ? ' disabled' : ''}>tick all</button>
+      <button data-tick="none"${locked || sel.size === 0 ? ' disabled' : ''}>tick none</button>
+    </div>
+    <div class="list">${queue
+      .map(
+        (o) => `<label class="${sel.has(o.orderId) ? '' : 'off'}">
+          <input type="checkbox" data-order="${esc(o.orderId)}"${sel.has(o.orderId) ? ' checked' : ''}${locked ? ' disabled' : ''}>
+          <span>${esc(o.orderId)}</span><span class="n">${o.photos} photo${o.photos > 1 ? 's' : ''}</span>
+        </label>`,
+      )
+      .join('')}</div>`;
+}
+
+/** Look inside a folder. Spends nothing and starts nothing — it is how the operator finds out
+ *  what is in there before committing the GPU to it. */
+async function scan(path) {
+  try {
+    const res = await fetch('/api/_scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `could not read that folder (HTTP ${res.status})`);
+    $('#inbox').value = body.inbox;
+    localStorage.setItem(INBOX_KEY, body.inbox);
+    if (!body.orders.length) toast('No orders in that folder — it needs .jpg photos.', true);
+    else if (!body.selected.length) toast(`${body.orders.length} orders in there — tick the ones you want.`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+  await refresh(true);
+}
+
+async function select(orders) {
+  try {
+    const res = await fetch('/api/_select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orders }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'could not change the ticks');
+  } catch (err) {
+    toast(err.message, true);
+  }
+  await refresh(true);
+}
+
+const tickedOrders = () => [...document.querySelectorAll('#queue input[type=checkbox]')].filter((c) => c.checked).map((c) => c.dataset.order);
 
 async function startRun() {
   await pendingSave.catch(() => {});
@@ -214,6 +303,7 @@ async function browse() {
     if (path) {
       $('#inbox').value = path;
       localStorage.setItem(INBOX_KEY, path);
+      await scan(path); // show what is in there, ticked and ready, before they press Go
     } else if (!available) {
       // Cancelling gives no path either, and that is not worth a warning. Only a dialog that
       // never appeared is.
@@ -253,14 +343,17 @@ function paintRun(run) {
   if (pinned) panel.scrollTop = panel.scrollHeight;
 }
 
+let runActive = false;
+
 function paintGoBar(data) {
-  const running = data.run.active;
+  const running = (runActive = data.run.active);
   $('#run').disabled = running;
   $('#run').textContent = running ? 'Running…' : 'Go';
   $('#browse').disabled = running;
   $('#force').disabled = running;
   const inbox = $('#inbox');
   if (document.activeElement !== inbox && !inbox.value) inbox.value = localStorage.getItem(INBOX_KEY) || data.inbox || '';
+  paintQueue(data.queue, data.selected, running);
 }
 
 async function saveDedication(orderId, text) {
@@ -396,6 +489,36 @@ function restoreFocus(snap) {
   } catch {}
 }
 
+function orderSection(o, locked) {
+  const s = o.summary;
+  const note = o.dirName && o.dirName !== o.orderId ? `<span class="note">folder: ${esc(o.dirName)}</span>` : '';
+  const badge = s.ready
+    ? `<span class="chip ready">ready — ${s.total} photo${s.total > 1 ? 's' : ''}</span>`
+    : `<span class="chip hold">${s.eligible}/${s.total} ready</span>`;
+
+  // An untouched order shows the text recovered from the photo names; the operator's own answer,
+  // once given, always wins — including the answer of emptying the box, which is undoable.
+  const shown = o.dedication || o.suggestedDedication;
+  let hint = '';
+  if (!o.dedication) {
+    if (o.suggestedDedication) hint = '<span class="note">from the photo names</span>';
+    else if (o.clearedDedication)
+      hint =
+        `<span class="note">no dedication — was “${esc(o.clearedDedication)}”</span>` +
+        `<button class="restore" data-restore="${esc(o.clearedDedication)}"${locked ? ' disabled' : ''}>restore</button>`;
+    else hint = '<span class="note">no dedication — the title page prints without text</span>';
+  }
+  const ded = `<div class="ded" data-order="${esc(o.orderId)}">
+      <label for="ded-${esc(o.orderId)}">Title page</label>
+      <input id="ded-${esc(o.orderId)}" value="${esc(shown)}"${locked ? ' disabled' : ''} placeholder="no dedication — the title page will have no text">
+      ${hint}
+    </div>`;
+  return `<section class="order">
+    <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}${ded}</header>
+    <div class="grid">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
+  </section>`;
+}
+
 let lastSkeleton = null;
 let repainting = false;
 
@@ -411,60 +534,44 @@ function render(data, force) {
   if (!force && skeleton === lastSkeleton) return patchProgress(data);
   lastSkeleton = skeleton;
 
-  if (!orders.length) {
+  // Orders the operator is working on now, and orders that merely still exist in the outbox.
+  // Piling last week's finished books under the one generating is how the grid became unreadable.
+  const here = orders.filter((o) => o.inInbox);
+  const primary = here.length ? here : orders;
+  const earlier = here.length ? orders.filter((o) => !o.inInbox) : [];
+
+  if (!primary.length) {
     root.innerHTML = `<div class="empty">
       <p><b>${data.run.active ? 'Working…' : 'Nothing here yet.'}</b></p>
-      <p>${data.run.active ? 'Photos will appear as they finish.' : 'Choose the folder your order photos are in, then press <b>Go</b>.'}</p>
+      <p>${data.run.active ? 'Photos will appear as they finish.' : 'Choose the folder your order photos are in, tick the orders, then press <b>Go</b>.'}</p>
       <p style="font-size:13px;color:#888">Finished books go to <code>${esc(data.outbox)}</code></p></div>`;
+    $('#earlier').innerHTML = '';
     $('#c-orders').textContent = 'no orders';
+    $('#c-hold').hidden = true;
+    $('#c-ready').hidden = true;
     return;
   }
 
   let held = 0, ready = 0;
-  for (const o of orders) { held += o.summary.held + o.summary.failed; if (o.summary.ready) ready++; }
-  $('#c-orders').textContent = `${orders.length} order${orders.length > 1 ? 's' : ''}`;
+  for (const o of primary) { held += o.summary.held + o.summary.failed; if (o.summary.ready) ready++; }
+  $('#c-orders').textContent = `${primary.length} order${primary.length > 1 ? 's' : ''}`;
   $('#c-hold').hidden = !held;
   $('#c-hold').textContent = `${held} need${held === 1 ? 's' : ''} you`;
   $('#c-ready').hidden = !ready;
   $('#c-ready').textContent = `${ready} ready for the builder`;
 
   const locked = data.run.active;
-  const html = orders.map((o) => {
-    const s = o.summary;
-    const note = o.dirName && o.dirName !== o.orderId ? `<span class="note">folder: ${esc(o.dirName)}</span>` : '';
-    const badge = s.ready
-      ? `<span class="chip ready">ready — ${s.total} photo${s.total > 1 ? 's' : ''}</span>`
-      : `<span class="chip hold">${s.eligible}/${s.total} ready</span>`;
-
-    // An untouched order shows the text recovered from the photo names; the operator's own
-    // answer, once given, always wins. `data-saved` is what the server holds, and `data-decided`
-    // marks an order they have already answered — clearing the box is one of the answers.
-    const shown = o.dedication || o.suggestedDedication;
-    let hint = '';
-    if (!o.dedication) {
-      if (o.suggestedDedication) hint = '<span class="note">from the photo names</span>';
-      else if (o.clearedDedication)
-        hint =
-          `<span class="note">no dedication — was “${esc(o.clearedDedication)}”</span>` +
-          `<button class="restore" data-restore="${esc(o.clearedDedication)}"${locked ? ' disabled' : ''}>restore</button>`;
-      else hint = '<span class="note">no dedication — the title page prints without text</span>';
-    }
-    const ded = `<div class="ded" data-order="${esc(o.orderId)}">
-        <label for="ded-${esc(o.orderId)}">Title page</label>
-        <input id="ded-${esc(o.orderId)}" value="${esc(shown)}"${locked ? ' disabled' : ''} placeholder="no dedication — the title page will have no text">
-        ${hint}
-      </div>`;
-    return `<section class="order">
-      <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}${ded}</header>
-      <div class="grid">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
-    </section>`;
-  }).join('');
+  const divider = earlier.length
+    ? `<div class="divider"><hr><span>${earlier.length} earlier order${earlier.length > 1 ? 's' : ''}, not in this folder</span>
+         <button id="toggle-earlier">${showEarlier ? 'hide' : 'show'}</button><hr></div>`
+    : '';
 
   // Removing a focused, dirty input can fire focusout. Suppress the save it would trigger —
   // the text is restored a line later, and the operator has not finished with it.
   const focused = captureFocus();
   repainting = true;
-  root.innerHTML = html;
+  root.innerHTML = primary.map((o) => orderSection(o, locked)).join('');
+  $('#earlier').innerHTML = divider + (showEarlier ? earlier.map((o) => orderSection(o, locked)).join('') : '');
   repainting = false;
   restoreFocus(focused);
 }
@@ -528,6 +635,20 @@ document.addEventListener('click', (e) => {
     return;
   }
 
+  const tick = e.target.closest('#queue button[data-tick]');
+  if (tick) {
+    const all = [...document.querySelectorAll('#queue input[type=checkbox]')].map((c) => c.dataset.order);
+    select(tick.dataset.tick === 'all' ? all : []);
+    return;
+  }
+
+  if (e.target.closest('#toggle-earlier')) {
+    showEarlier = !showEarlier;
+    localStorage.setItem(EARLIER_KEY, showEarlier ? '1' : '0');
+    refresh(true);
+    return;
+  }
+
   const btn = e.target.closest('button[data-a],button[data-open]');
   if (!btn) return;
   const t = btn.closest('.tile');
@@ -535,15 +656,29 @@ document.addEventListener('click', (e) => {
   else open(btn.dataset.open, t.dataset.order);
 });
 
+// Ticking an order changes what Go will work through, and what the grid shows.
+document.addEventListener('change', (e) => {
+  if (e.target.closest('#queue input[type=checkbox]')) select(tickedOrders());
+});
+
 $('#run').addEventListener('click', startRun);
 $('#browse').addEventListener('click', browse);
 $('#inbox').addEventListener('change', () => localStorage.setItem(INBOX_KEY, $('#inbox').value.trim()));
+// Enter looks inside the folder rather than starting a run. Typing a path and immediately
+// spending the GPU on whatever happens to be in it is not a thing to do by accident.
 $('#inbox').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !$('#run').disabled) startRun();
+  if (e.key === 'Enter' && !$('#run').disabled) scan($('#inbox').value.trim());
 });
 
-$('#inbox').value = localStorage.getItem(INBOX_KEY) || '';
-refresh();
+// The server does not know the folder the operator chose last time; the browser does. Scan *that*
+// — never whatever ends up in the box, because paintGoBar seeds it with the server's configured
+// default, and scanning a default that does not exist greets them with a red error for doing
+// nothing but opening the page. And never mid-run, when a scan is rightly refused.
+const remembered = localStorage.getItem(INBOX_KEY) || '';
+$('#inbox').value = remembered;
+refresh().then(() => {
+  if (remembered && !runActive) scan(remembered);
+});
 setInterval(refresh, 1500);
 </script>
 </body>

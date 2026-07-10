@@ -52,17 +52,23 @@ export function photoFiles(outboxRoot, orderId, base, sourcePath = null) {
 /** Join what the inbox says an order contains with what the manifest says happened to it.
  *  Photos the batch has not reached yet appear with a null status — that is the grid's
  *  "generating…" placeholder, and it is why an order with a photo still to run is not ready. */
-export function reviewState({ inboxRoot, outboxRoot }) {
+export function reviewState({ inboxRoot, outboxRoot, only = null }) {
   let ingested = [];
   try {
     ingested = inboxRoot ? ingestOrders(inboxRoot) : [];
   } catch {
     ingested = []; // no inbox (photos purged, or the operator only kept the outputs)
   }
-  const byId = new Map(ingested.map((o) => [o.orderId, o]));
+  // The operator may have ticked a few orders out of a folder holding hundreds. Filtering here
+  // keeps the poll cheap: nothing else walks those folders or reads their manifests.
+  if (only) ingested = ingested.filter((o) => only.includes(o.orderId));
 
-  // Orders that exist only in the outbox still deserve a review page.
-  for (const order of outboxOrders(outboxRoot)) if (!byId.has(order.orderId)) byId.set(order.orderId, order);
+  const byId = new Map(ingested.map((o) => [o.orderId, { ...o, inInbox: true }]));
+
+  // Orders that exist only in the outbox still deserve a review page — a finished book whose
+  // photos have been purged, or one from a folder the operator has since moved on from. They are
+  // not what the operator is working on now, and the grid says so.
+  for (const order of outboxOrders(outboxRoot)) if (!byId.has(order.orderId)) byId.set(order.orderId, { ...order, inInbox: false });
 
   const orders = [];
   for (const [orderId, order] of byId) {
@@ -88,6 +94,7 @@ export function reviewState({ inboxRoot, outboxRoot }) {
       orderId,
       orderDir,
       dirName: order.dirName ?? orderId,
+      inInbox: Boolean(order.inInbox),
       dedication: getDedication(manifest),
       // Only ever a *suggestion* for an untouched order. Once the operator has decided — even
       // by emptying the box — the grid must show their decision, not talk them out of it.

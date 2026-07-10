@@ -96,6 +96,23 @@ done and just prints the books.
 
 ---
 
+## Choosing what to work on
+
+Press **Browse…** and pick the folder your orders are in. The dialog opens in front of the
+browser, at the folder you used last time.
+
+The tool then lists every order it found, with a tick beside each one. **Ticked orders are the
+ones Go will work through**, one after another — tick five and go make coffee. Unticking an order
+also takes it out of the grid below, so you only look at what you are actually working on.
+
+If the folder holds more than eight orders you have probably opened your whole archive by mistake,
+so nothing is ticked. Tick what you want yourself.
+
+Orders you finished earlier still live in the outbox, and the grid keeps them below a line that
+says *"N earlier orders, not in this folder"*. Press **show** if you need one of them back.
+
+---
+
 ## The title page
 
 Each book can open with a dedication — *"Pro Barču, s láskou od rodiny"*.

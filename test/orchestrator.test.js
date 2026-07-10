@@ -482,3 +482,65 @@ test('buildabilityProblem passes a folder holding exactly the order', async () =
     f.cleanup();
   }
 });
+
+// ---- running only the orders the operator ticked -----------------------------
+
+test('a run works through only the ticked orders, one after another', async () => {
+  const f = fixture({ 1510: ['a'], 1523: ['b'], 1479: ['c'] });
+  try {
+    const builder = new StubBuilder();
+    const generator = new StubGenerator();
+    const { orders, counts } = await runPipeline({
+      config: CONFIG,
+      inboxRoot: f.inbox,
+      outboxRoot: f.outbox,
+      generator,
+      builder,
+      qc: OK_QC,
+      only: ['1510', '1479'],
+    });
+
+    // The folder's own order, not the order they were ticked in — the run walks the inbox.
+    assert.deepEqual(orders.map((o) => o.orderId).sort(), ['1479', '1510']);
+    assert.deepEqual(counts, { done: 2, held: 0, failed: 0 });
+    assert.deepEqual(generator.calls.sort(), ['a', 'c'], "1523's photo never reached the GPU");
+    assert.equal(builder.calls.length, 2);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the run says how many orders it left alone', async () => {
+  const f = fixture({ 1510: ['a'], 1523: ['b'] });
+  try {
+    const lines = [];
+    await runPipeline({
+      config: CONFIG,
+      inboxRoot: f.inbox,
+      outboxRoot: f.outbox,
+      generator: new StubGenerator(),
+      builder: new StubBuilder(),
+      qc: OK_QC,
+      only: ['1510'],
+      onEvent: (e) => lines.push(formatEvent(e)),
+    });
+    assert.match(lines[0], /1 order\(s\).*1 more you did not tick/);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('ticking nothing is not the same as ticking everything', async () => {
+  const f = fixture({ 1510: ['a'] });
+  try {
+    const builder = new StubBuilder();
+    const { counts } = await runPipeline({
+      config: CONFIG, inboxRoot: f.inbox, outboxRoot: f.outbox,
+      generator: new StubGenerator(), builder, qc: OK_QC, only: [],
+    });
+    assert.deepEqual(counts, { done: 0, held: 0, failed: 0 });
+    assert.equal(builder.calls.length, 0);
+  } finally {
+    f.cleanup();
+  }
+});

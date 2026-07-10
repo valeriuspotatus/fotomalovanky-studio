@@ -51,6 +51,7 @@ function forClient(orders, inFlight) {
     orderId: o.orderId,
     dirName: o.dirName,
     orderDir: o.orderDir,
+    inInbox: o.inInbox,
     dedication: o.dedication,
     suggestedDedication: o.suggestedDedication,
     clearedDedication: o.clearedDedication,
@@ -91,6 +92,10 @@ async function thumbnail(path) {
 }
 
 const MAX_LOG_LINES = 400;
+
+// Above this many orders in one folder, the operator has opened their archive rather than a
+// batch. Ticking them all would generate every order they have ever shipped.
+const AUTO_TICK_LIMIT = 8;
 
 // Never ask PATH for a Windows binary. PATH is capped near 2047 characters and a machine that has
 // grown past it silently loses its tail — this operator's had dropped System32, so a bare "cmd"
@@ -224,7 +229,19 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   let generator = driver ?? null;
   let builderDriver = builder ?? null;
 
-  const state = () => reviewState({ inboxRoot: inbox, outboxRoot: outbox });
+  // Which orders in that folder the operator ticked. `null` means "all of them" — what a run
+  // has always meant. An empty array means they ticked none, which is not the same thing.
+  let selected = null;
+  let queue = []; // the orders the last scan found in `inbox`, so a page reload still shows them
+
+  const state = () => reviewState({ inboxRoot: inbox, outboxRoot: outbox, only: selected });
+
+  /** What is in this folder? Cheap, and it starts nothing. Throws IngestError for a bad path. */
+  const scanInbox = (path) => {
+    const found = ingestOrders(path);
+    queue = found.map((o) => ({ orderId: o.orderId, dirName: o.dirName, photos: o.photos.length }));
+    return found;
+  };
 
   const find = (orderId, base) => {
     const order = state().find((o) => o.orderId === orderId);
@@ -245,8 +262,15 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     if (inFlight.size) throw new ReviewError('A photo is still being regenerated — wait for it to finish.');
 
     const candidate = String(requested ?? '').trim() || inbox;
-    ingestOrders(candidate); // surfaces a missing folder before anything starts
-    inbox = candidate;
+    if (candidate !== inbox) {
+      scanInbox(candidate); // surfaces a missing folder before anything starts
+      selected = null; // a new folder's orders are not the old folder's
+      inbox = candidate;
+    } else {
+      ingestOrders(candidate);
+    }
+
+    if (selected?.length === 0) throw new ReviewError('Tick at least one order to run.');
 
     run.active = true;
     run.lines = [];
@@ -265,6 +289,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       builder: builderDriver,
       qc,
       force: Boolean(force),
+      only: selected,
       onEvent: (e) => {
         const line = formatEvent(e);
         if (line === null) return;
@@ -338,7 +363,29 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       }
 
       if (req.method === 'GET' && url.pathname === '/api/state') {
-        return json(res, 200, { orders: forClient(state(), inFlight), inbox, outbox, run });
+        return json(res, 200, { orders: forClient(state(), inFlight), inbox, outbox, run, selected, queue });
+      }
+
+      // POST /api/_scan { path } — what orders are in that folder? Spends nothing, starts nothing.
+      // Pointing at a folder is how the operator finds out what is in it.
+      if (req.method === 'POST' && url.pathname === '/api/_scan') {
+        requireIdle();
+        const { path } = await readJson(req);
+        const candidate = String(path ?? '').trim() || inbox;
+        const found = scanInbox(candidate); // a missing folder becomes a 409, not a crash
+        inbox = candidate;
+        // A handful is what the operator meant to pick, so tick them. A folder holding hundreds
+        // is the archive, opened by mistake — tick nothing rather than bill them for it.
+        selected = found.length <= AUTO_TICK_LIMIT ? found.map((o) => o.orderId) : [];
+        return json(res, 200, { inbox, selected, orders: queue });
+      }
+
+      // POST /api/_select { orders: [id] | null } — which of them to run. null means all.
+      if (req.method === 'POST' && url.pathname === '/api/_select') {
+        requireIdle();
+        const { orders } = await readJson(req);
+        selected = Array.isArray(orders) ? orders.map(String) : null;
+        return json(res, 200, { selected });
       }
 
       // POST /api/_run  { inbox?, force? } — the Go button.

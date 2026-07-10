@@ -106,17 +106,20 @@ export function titleTextFor(config, dedication) {
 }
 
 /** Run every order end to end. Never throws for a single order; returns a report. */
-export async function runPipeline({ config, inboxRoot, outboxRoot, generator, builder, qc, onEvent = noop, force = false }) {
+export async function runPipeline({ config, inboxRoot, outboxRoot, generator, builder, qc, onEvent = noop, force = false, only = null }) {
   const inbox = inboxRoot ?? config.paths.inbox;
   const outbox = outboxRoot ?? config.paths.outbox;
-  const orders = ingestOrders(inbox);
+  // `only` is the operator ticking a few orders out of a folder that holds many. Orders still run
+  // one at a time — the generator is one shared GPU queue, not something to fan out across.
+  const found = ingestOrders(inbox);
+  const orders = only ? found.filter((o) => only.includes(o.orderId)) : found;
 
   // Drivers are constructed once, lazily, so a generation-only run never needs Chromium and a
   // rebuild-only run never needs the generator token.
   let gen = generator ?? null;
   let build = builder ?? null;
 
-  onEvent({ type: 'run-start', orders: orders.length, inbox, outbox });
+  onEvent({ type: 'run-start', orders: orders.length, inbox, outbox, skipped: found.length - orders.length });
 
   const report = [];
   for (const order of orders) {
@@ -194,7 +197,7 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
 export function formatEvent(e) {
   switch (e.type) {
     case 'run-start':
-      return `${e.orders} order(s) in ${e.inbox}`;
+      return `${e.orders} order(s) in ${e.inbox}${e.skipped ? ` (${e.skipped} more you did not tick)` : ''}`;
     case 'order-start': {
       const from = e.dirName && e.dirName !== e.orderId ? ` (from the photo names; folder is "${e.dirName}")` : '';
       return `\norder ${e.orderId} — ${e.photos} photo(s)${from}`;
