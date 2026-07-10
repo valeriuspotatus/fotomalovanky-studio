@@ -96,13 +96,17 @@ const orderIds = () => page.$$eval('#root section.order h2', (hs) => hs.map((h) 
 const earlierIds = () => page.$$eval('#earlier section.order h2', (hs) => hs.map((h) => h.textContent.replace('Order ', '')));
 
 try {
+  // As if they had used this folder yesterday and shut the tool down.
+  await page.addInitScript((dir) => localStorage.setItem('fma:inbox', dir), fx.inbox);
   await page.goto(url);
   await page.waitForSelector('#root');
 
-  // Nothing chosen yet: the outbox-only orders are all there is, so they are the grid.
-  await page.waitForFunction(() => document.querySelectorAll('#root section.order').length === 2);
-  check('with no folder chosen, the earlier orders are the grid', (await orderIds()).sort().join() === '1400,1401');
-  check('and nothing is set apart', (await earlierIds()).length === 0);
+  // Nothing chosen yet. Reopening the tool must not put last week's finished books on the desk.
+  await page.waitForSelector('#root .empty');
+  check('a freshly opened tool shows a clean page', (await orderIds()).length === 0);
+  check('it offers yesterday\'s folder', (await page.inputValue('#inbox')) === fx.inbox);
+  check('but does not open it', await page.locator('#queue').isHidden());
+  check('the finished books are counted, not shown', /Order history \(2\)/.test(await page.locator('#history').textContent()));
 
   // Point at the folder. Three orders is a handful, so they arrive ticked.
   await page.fill('#inbox', fx.inbox);
@@ -111,17 +115,27 @@ try {
   const boxes = await page.$$eval('#queue input[type=checkbox]', (cs) => cs.map((c) => [c.dataset.order, c.checked]));
   check('the folder scan lists every order', boxes.map((b) => b[0]).sort().join() === IN_FOLDER.join());
   check('a handful arrives ticked', boxes.every((b) => b[1]));
+  check('and a handful is a list worth showing', await page.locator('#queue .list').isVisible());
   check('scanning spends nothing', ran.length === 0 && builtFor.length === 0);
+
+  // The list folds away on request — the archive folder is 488 rows and buried the page.
+  await page.click('#toggle-queue');
+  await page.waitForFunction(() => document.querySelector('#queue .list')?.hidden === true);
+  check('the folder list folds away', await page.locator('#queue .list').isHidden());
+  check('and the header still says what is ticked', /3 ticked/.test(await page.locator('#queue .head').textContent()));
+  await page.click('#toggle-queue');
+  await page.waitForFunction(() => document.querySelector('#queue .list')?.hidden === false);
 
   await page.waitForFunction(() => document.querySelectorAll('#root section.order').length === 3);
   check('the grid now shows this folder, not the archive', (await orderIds()).sort().join() === IN_FOLDER.join());
-  check('the finished orders are set apart, and hidden', (await earlierIds()).length === 0);
-  check('but the page says they exist', /2 earlier orders/.test(await page.locator('#earlier .divider').textContent()));
+  check('the finished orders are nowhere on the main page', (await earlierIds()).length === 0);
+  check('but a button says how many there are', /Order history \(2\)/.test(await page.locator('#history').textContent()));
 
-  await page.click('#toggle-earlier');
+  await page.click('#history');
   await page.waitForFunction(() => document.querySelectorAll('#earlier section.order').length === 2);
-  check('showing them brings them back', (await earlierIds()).sort().join() === '1400,1401');
-  await page.click('#toggle-earlier');
+  check('the history button brings them back', (await earlierIds()).sort().join() === '1400,1401');
+  check('and offers to put them away again', /Hide history/.test(await page.locator('#history').textContent()));
+  await page.click('#history');
   await page.waitForFunction(() => document.querySelectorAll('#earlier section.order').length === 0);
 
   // Untick one. It leaves both the queue and the grid.

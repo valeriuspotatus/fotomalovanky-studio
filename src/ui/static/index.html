@@ -43,6 +43,9 @@
  #queue .head button{font:inherit;font-size:11.5px;padding:2px 8px;border:1px solid var(--line);
                      border-radius:5px;background:var(--sunken);color:var(--text);cursor:pointer}
  #queue .list{display:flex;flex-wrap:wrap;gap:6px 16px}
+ /* An author `display` beats the browser's own rule for [hidden], so the folded list would still
+    be on screen — visible, and telling the operator its own `hidden` property was a lie. */
+ #queue .list[hidden]{display:none}
  #queue label{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
  #queue label.off{color:var(--muted)}
  #queue .n{font-size:11.5px;color:var(--muted)}
@@ -148,6 +151,7 @@
   <span class="chip hold" id="c-hold" hidden></span>
   <span class="chip ready" id="c-ready" hidden></span>
   <span class="grow"></span>
+  <button id="history" hidden></button>
   <span class="chip" id="c-live">live</span>
 </div>
 
@@ -234,8 +238,14 @@ async function open(what, orderId) {
 }
 
 const INBOX_KEY = 'fma:inbox';
-const EARLIER_KEY = 'fma:earlier';
-let showEarlier = localStorage.getItem(EARLIER_KEY) === '1';
+// Deliberately not remembered. Reopening the tool is meant to give a clean page, so history that
+// was left open last night must not be waiting on the desk this morning.
+let showEarlier = false;
+
+// `null` lets the folder's size decide: a handful of orders is a list worth reading, an archive
+// of hundreds is not. Once the operator says otherwise, their answer holds until the next scan.
+const QUEUE_OPEN_MAX = 8;
+let queueOpen = null;
 
 // Clicking Go blurs the title-page box, so its save is already in flight when the run starts.
 // The server refuses a dedication once a run is active, so let the save land first — otherwise
@@ -253,7 +263,9 @@ function paintQueue(queue, selected, locked) {
     return;
   }
   const sel = new Set(selected ?? queue.map((o) => o.orderId));
-  const sig = JSON.stringify([queue, [...sel], locked]);
+  // A handful of orders is a list worth reading. The 488-folder archive is not: it buried the page.
+  const showQueue = queueOpen ?? queue.length <= QUEUE_OPEN_MAX;
+  const sig = JSON.stringify([queue, [...sel], locked, showQueue]);
   if (sig === lastQueueSig) return;
   lastQueueSig = sig;
 
@@ -265,8 +277,9 @@ function paintQueue(queue, selected, locked) {
       <span class="grow"></span>
       <button data-tick="all"${locked || sel.size === queue.length ? ' disabled' : ''}>tick all</button>
       <button data-tick="none"${locked || sel.size === 0 ? ' disabled' : ''}>tick none</button>
+      <button id="toggle-queue">${showQueue ? 'hide' : 'show'} the list</button>
     </div>
-    <div class="list">${queue
+    <div class="list"${showQueue ? '' : ' hidden'}>${queue
       .map(
         (o) => `<label class="${sel.has(o.orderId) ? '' : 'off'}">
           <input type="checkbox" data-order="${esc(o.orderId)}"${sel.has(o.orderId) ? ' checked' : ''}${locked ? ' disabled' : ''}>
@@ -279,6 +292,7 @@ function paintQueue(queue, selected, locked) {
 /** Look inside a folder. Spends nothing and starts nothing — it is how the operator finds out
  *  what is in there before committing the GPU to it. */
 async function scan(path) {
+  queueOpen = null; // a new folder decides for itself whether its list is worth showing
   try {
     const res = await fetch('/api/_scan', {
       method: 'POST',
@@ -387,10 +401,8 @@ function paintRun(run) {
   if (pinned) panel.scrollTop = panel.scrollHeight;
 }
 
-let runActive = false;
-
 function paintGoBar(data) {
-  const running = (runActive = data.run.active);
+  const running = data.run.active;
   $('#run').disabled = running;
   $('#run').textContent = running ? 'Running…' : 'Go';
   $('#browse').disabled = running;
@@ -759,19 +771,21 @@ function render(data, force) {
   if (!force && skeleton === lastSkeleton) return patchProgress(data);
   lastSkeleton = skeleton;
 
-  // Orders the operator is working on now, and orders that merely still exist in the outbox.
-  // Piling last week's finished books under the one generating is how the grid became unreadable.
-  const here = orders.filter((o) => o.inInbox);
-  const primary = here.length ? here : orders;
-  const earlier = here.length ? orders.filter((o) => !o.inInbox) : [];
+  // The main page is the folder the operator opened, and nothing else. Every book finished before
+  // today is history: real, reachable, and out of the way. Piling last week's orders under the one
+  // generating is how this page became unreadable.
+  const primary = orders.filter((o) => o.inInbox);
+  const earlier = orders.filter((o) => !o.inInbox);
+
+  paintHistoryButton(earlier.length);
 
   if (!primary.length) {
     root.innerHTML = `<div class="empty">
-      <p><b>${data.run.active ? 'Working…' : 'Nothing here yet.'}</b></p>
+      <p><b>${data.run.active ? 'Working…' : 'Nothing open.'}</b></p>
       <p>${data.run.active ? 'Photos will appear as they finish.' : 'Choose the folder your order photos are in, tick the orders, then press <b>Go</b>.'}</p>
       <p style="font-size:13px;color:#888">Finished books go to <code>${esc(data.outbox)}</code></p></div>`;
-    $('#earlier').innerHTML = '';
-    $('#c-orders').textContent = 'no orders';
+    paintEarlier(earlier, data.run.active);
+    $('#c-orders').textContent = 'no orders open';
     $('#c-hold').hidden = true;
     $('#c-ready').hidden = true;
     return;
@@ -786,19 +800,33 @@ function render(data, force) {
   $('#c-ready').textContent = `${ready} ready for the builder`;
 
   const locked = data.run.active;
-  const divider = earlier.length
-    ? `<div class="divider"><hr><span>${earlier.length} earlier order${earlier.length > 1 ? 's' : ''}, not in this folder</span>
-         <button id="toggle-earlier">${showEarlier ? 'hide' : 'show'}</button><hr></div>`
-    : '';
 
   // Removing a focused, dirty input can fire focusout. Suppress the save it would trigger —
   // the text is restored a line later, and the operator has not finished with it.
   const focused = captureFocus();
   repainting = true;
   root.innerHTML = primary.map((o) => orderSection(o, locked)).join('');
-  $('#earlier').innerHTML = divider + (showEarlier ? earlier.map((o) => orderSection(o, locked)).join('') : '');
+  paintEarlier(earlier, locked);
   repainting = false;
   restoreFocus(focused);
+}
+
+/** Order history: everything already done, behind a button, never on the main page. */
+function paintHistoryButton(count) {
+  const btn = $('#history');
+  btn.hidden = count === 0;
+  btn.textContent = `${showEarlier ? 'Hide' : 'Order'} history (${count})`;
+}
+
+function paintEarlier(earlier, locked) {
+  const box = $('#earlier');
+  if (!showEarlier || !earlier.length) {
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML =
+    `<div class="divider"><hr><span>${earlier.length} order${earlier.length > 1 ? 's' : ''} already done, not in this folder</span><hr></div>` +
+    earlier.map((o) => orderSection(o, locked)).join('');
 }
 
 let inFlight = false;
@@ -874,9 +902,16 @@ document.addEventListener('click', (e) => {
     return;
   }
 
-  if (e.target.closest('#toggle-earlier')) {
+  if (e.target.closest('#history')) {
     showEarlier = !showEarlier;
-    localStorage.setItem(EARLIER_KEY, showEarlier ? '1' : '0');
+    refresh(true);
+    return;
+  }
+
+  const q = e.target.closest('#toggle-queue');
+  if (q) {
+    queueOpen = q.textContent.startsWith('show');
+    lastQueueSig = null; // the list is part of the signature, so force it to repaint
     refresh(true);
     return;
   }
@@ -978,11 +1013,10 @@ $('#inbox').addEventListener('keydown', (e) => {
 // — never whatever ends up in the box, because paintGoBar seeds it with the server's configured
 // default, and scanning a default that does not exist greets them with a red error for doing
 // nothing but opening the page. And never mid-run, when a scan is rightly refused.
-const remembered = localStorage.getItem(INBOX_KEY) || '';
-$('#inbox').value = remembered;
-refresh().then(() => {
-  if (remembered && !runActive) scan(remembered);
-});
+// The folder they used last is offered, not opened. Reopening the tool starts on a clean page:
+// last week's orders are in Order history, and nothing is ticked until they say so.
+$('#inbox').value = localStorage.getItem(INBOX_KEY) || '';
+refresh();
 setInterval(refresh, 1500);
 </script>
 </body>
