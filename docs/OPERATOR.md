@@ -106,6 +106,15 @@ done and just prints the books.
 - **Crop** — drag a box, and everything outside it is trimmed off. Use it to cut away a
   distracting background, or to centre someone in the frame.
 
+**To work on something small, zoom in.** Scroll the wheel to zoom towards wherever the
+cursor is. To move the page around, drag it with the **right** mouse button, or hold
+**Space** and drag. **Fit** puts the whole page back on screen. The left button always
+draws, so the pencil never turns into a drag by accident.
+
+The pencil is a size on the *page*, not on the screen: zooming in does not make it fatter,
+it makes it easier to aim. Zoomed right in, a single unit of the drawing is about ten
+screen pixels across, which is what you want for filling in a few stray dots.
+
 **Undo** takes back your last stroke or box. **Clear** takes back all of them. **Cancel**
 throws the whole lot away and changes nothing. Nothing is written until you press **Save**.
 
@@ -130,6 +139,9 @@ no second file to keep in step.
 
 ## Choosing what to work on
 
+The tool opens on a clean page every time. It remembers the folder you used last and puts it in
+the box, but it does not open it until you say so.
+
 Press **Browse…** and pick the folder your orders are in. The dialog opens in front of the
 browser, at the folder you used last time.
 
@@ -138,10 +150,14 @@ ones Go will work through**, one after another — tick five and go make coffee.
 also takes it out of the grid below, so you only look at what you are actually working on.
 
 If the folder holds more than eight orders you have probably opened your whole archive by mistake,
-so nothing is ticked. Tick what you want yourself.
+so nothing is ticked and the list arrives folded away — press **show the list** to open it. Tick
+what you want yourself. **tick all** and **tick none** are there for the rest.
 
-Orders you finished earlier still live in the outbox, and the grid keeps them below a line that
-says *"N earlier orders, not in this folder"*. Press **show** if you need one of them back.
+A photo that has not been made yet says *"not made yet — press Go to make it"*. Nothing is
+happening until you press Go: ticking an order queues it, it does not start it.
+
+Everything you finished before is in **Order history**, the button at the top right. It says how
+many there are. It is closed again every time you open the tool.
 
 ---
 
@@ -151,8 +167,22 @@ Each book can open with a dedication — *"Pro Barču, s láskou od rodiny"*.
 
 **You usually do not have to type it.** The customer's words are already in the photo names:
 `1523_img0001_-_hofbauerovi_18.7.2026` becomes *"Hofbauerovi 18.7.2026"*, and the tool fills the
-**Title page** box in for you, marked *from the photo names*. Correct it if it looks wrong — what
-you type always wins, and it is saved when you press Tab or click away.
+**Title page** box in for you. Correct it if it looks wrong — what you type always wins, and it is
+saved when you press Tab or click away.
+
+### The accents, and why you only fix them once
+
+**The shop throws the accents away before the tool ever sees the file.** Order 1366's photos are
+named `1366_img0001_-_pro_jiricka`, and nothing in that name can say whether the boy is *Jiříček*,
+*Jiřiček* or *Jiricek*. So the tool does not guess. It suggests *"Pro Jiricka"* and says
+*from the photo names — check the accents, then it is remembered*.
+
+Type it properly — **Pro Jiříčka** — and the tool remembers that spelling against that name. The
+next order for a Jiříček arrives already spelled right, and the box says *the spelling you saved
+for this name*. Correct it again and the new spelling replaces the old one.
+
+The spellings live in `.dedications.json` beside your finished books. Emptying one order's title
+does not teach the tool that the name has no title — it just forgets that spelling.
 
 **A customer who wrote nothing still gets their book.** The box stays empty, the box says *no
 dedication*, and the run prints anyway: the title page and its four cover thumbnails are there,

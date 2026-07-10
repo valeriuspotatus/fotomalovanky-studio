@@ -135,12 +135,16 @@
  #editor button.danger{color:var(--manual)}
  #editor button:disabled{opacity:.45;cursor:default}
  #editor label.size{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
- /* fitEditor() sizes this frame in pixels; the page fills it and the canvas is pinned to it, so a
-    stroke lands where it was drawn. Leave width and height to CSS and the page comes out squashed:
-    max-width and max-height clamp each axis on its own, and neither one preserves the other. */
+ /* fitEditor() sizes this frame in pixels: it is the viewport, and the page moves inside it.
+    Leave width and height to CSS and the page comes out squashed — max-width and max-height clamp
+    each axis on its own, and neither one preserves the other. */
  #editor .ewrap{position:relative;line-height:0;background:#fff;margin:0 auto;overflow:hidden}
- #editor .ewrap img{display:block;width:100%;height:100%;background:#fff}
- #editor .ewrap canvas{position:absolute;inset:0;width:100%;height:100%}
+ /* The page is placed by applyView(); the canvas stays the viewport, so it never has to hold a
+    zoomed-in page's worth of pixels. */
+ #editor .ewrap img{position:absolute;left:0;top:0;display:block;background:#fff}
+ #editor .ewrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+ #editor .ewrap canvas.grab{cursor:grab}
+ #editor .ewrap canvas.grabbing{cursor:grabbing}
  #editor .hint{padding:8px 12px;font-size:12px;color:var(--muted);border-top:1px solid var(--line)}
 </style>
 </head>
@@ -178,6 +182,8 @@
     <button id="e-draw" class="on">White pencil</button>
     <button id="e-crop">Crop</button>
     <label class="size">size <input type="range" id="e-size" min="3" max="60" value="14"></label>
+    <span class="n" id="e-zoom">100%</span>
+    <button id="e-fit" disabled>Fit</button>
     <button id="e-undo">Undo</button>
     <button id="e-clear">Clear</button>
     <span class="grow"></span>
@@ -187,7 +193,7 @@
     <button id="e-save" class="primary">Save</button>
   </div>
   <div class="ewrap"><img id="e-img" alt=""><canvas id="e-canvas"></canvas></div>
-  <div class="hint" id="e-hint">Paint over what you want gone — the pencil is white, like the paper. Drag a box in Crop mode to trim the page. This edits the vector page the book is printed from.</div>
+  <div class="hint" id="e-hint">Paint over what you want gone — the pencil is white, like the paper. Drag a box in Crop mode to trim the page. <b>Scroll to zoom in; drag with the right button or hold Space to move the page.</b> This edits the vector page the book is printed from.</div>
 </dialog>
 
 <script>
@@ -569,31 +575,92 @@ const ed = {
   mode: 'draw',
   drawing: null,
   url: null,
+  // The page is drawn inside a fixed viewport it can be bigger than. `fit` is the size at which
+  // the whole page just fits; `zoom` multiplies it; `pan` is the page's corner inside the viewport.
+  fit: null,
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  panning: null,
+  space: false,
 };
 
 const VIEWBOX_RE = /viewBox\s*=\s*"([^"]*)"/i;
+const MAX_ZOOM = 16;
 const eCanvas = () => $('#e-canvas');
+const eWrap = () => $('#editor .ewrap');
 
-/** Screen pixels on the displayed image -> user units in the file. */
+/** Displayed pixels per user unit. Everything else is derived from the page's own rectangle, so
+ *  zooming and panning need no separate bookkeeping: move the page, and the maths follows. */
+const pxPerUser = () => $('#e-img').getBoundingClientRect().width / ed.box.w;
+
+/** Screen pixels -> user units in the file. */
 function toUser(clientX, clientY) {
   const r = $('#e-img').getBoundingClientRect();
-  return [ed.box.x + ((clientX - r.left) / r.width) * ed.box.w, ed.box.y + ((clientY - r.top) / r.height) * ed.box.h];
+  const s = r.width / ed.box.w;
+  return [ed.box.x + (clientX - r.left) / s, ed.box.y + (clientY - r.top) / s];
 }
-const userPerPixel = () => ed.box.w / $('#e-img').getBoundingClientRect().width;
+
+/** The pencil is a size on the *page*, not on the screen: a stroke covers the same part of the
+ *  drawing whether the operator is zoomed out or in close to fill a few pixels. */
+const pencilWidth = () => Number($('#e-size').value) * (ed.box.w / ed.fit.w);
+
+/** Put the page where `zoom` and `pan` say, and keep enough of it inside the viewport to grab. */
+function applyView() {
+  const img = $('#e-img');
+  const w = ed.fit.w * ed.zoom;
+  const h = ed.fit.h * ed.zoom;
+  const margin = 40;
+  ed.panX = Math.min(ed.fit.w - margin, Math.max(margin - w, ed.panX));
+  ed.panY = Math.min(ed.fit.h - margin, Math.max(margin - h, ed.panY));
+  img.style.width = `${w}px`;
+  img.style.height = `${h}px`;
+  img.style.left = `${ed.panX}px`;
+  img.style.top = `${ed.panY}px`;
+  $('#e-zoom').textContent = `${Math.round(ed.zoom * 100)}%`;
+  $('#e-fit').disabled = ed.zoom === 1 && ed.panX === 0 && ed.panY === 0;
+}
+
+/** Zoom about a point on screen, so whatever is under the cursor stays under the cursor. */
+function zoomAt(clientX, clientY, factor) {
+  const next = Math.min(MAX_ZOOM, Math.max(1, ed.zoom * factor));
+  if (next === ed.zoom) return;
+  const vp = eWrap().getBoundingClientRect();
+  const [ux, uy] = toUser(clientX, clientY);
+  ed.zoom = next;
+  const s = (ed.fit.w * ed.zoom) / ed.box.w;
+  ed.panX = clientX - vp.left - (ux - ed.box.x) * s;
+  ed.panY = clientY - vp.top - (uy - ed.box.y) * s;
+  applyView();
+  redrawEditor();
+}
+
+function fitPage() {
+  ed.zoom = 1;
+  ed.panX = 0;
+  ed.panY = 0;
+  applyView();
+  redrawEditor();
+}
 
 function redrawEditor() {
   const c = eCanvas();
-  const r = $('#e-img').getBoundingClientRect();
-  if (c.width !== Math.round(r.width) || c.height !== Math.round(r.height)) {
-    c.width = Math.round(r.width);
-    c.height = Math.round(r.height);
+  const vp = eWrap().getBoundingClientRect();
+  // The canvas is the viewport, not the page: zoomed in eightfold, a page-sized canvas would be
+  // tens of millions of pixels of backing store for a picture nobody can see all of.
+  if (c.width !== Math.round(vp.width) || c.height !== Math.round(vp.height)) {
+    c.width = Math.round(vp.width);
+    c.height = Math.round(vp.height);
   }
   const g = c.getContext('2d');
   g.clearRect(0, 0, c.width, c.height);
 
-  const sx = c.width / ed.box.w;
-  const sy = c.height / ed.box.h;
-  const px = ([x, y]) => [(x - ed.box.x) * sx, (y - ed.box.y) * sy];
+  const r = $('#e-img').getBoundingClientRect();
+  const sx = r.width / ed.box.w;
+  const sy = r.height / ed.box.h;
+  const ox = r.left - vp.left;
+  const oy = r.top - vp.top;
+  const px = ([x, y]) => [ox + (x - ed.box.x) * sx, oy + (y - ed.box.y) * sy];
 
   g.strokeStyle = '#ffffff';
   g.lineCap = 'round';
@@ -610,11 +677,13 @@ function redrawEditor() {
     const [x, y] = px([ed.crop.x, ed.crop.y]);
     const w = ed.crop.w * sx;
     const h = ed.crop.h * sy;
+    g.save();
     g.fillStyle = 'rgba(0,0,0,.55)'; // everything outside the box is on its way to the bin
-    g.fillRect(0, 0, c.width, y);
-    g.fillRect(0, y + h, c.width, c.height - y - h);
-    g.fillRect(0, y, x, h);
-    g.fillRect(x + w, y, c.width - x - w, h);
+    g.beginPath();
+    g.rect(0, 0, c.width, c.height);
+    g.rect(x, y, w, h);
+    g.fill('evenodd'); // one dimmed region with the crop punched out, at any zoom or pan
+    g.restore();
     g.strokeStyle = '#5aa9f7';
     g.lineWidth = 2;
     g.strokeRect(x, y, w, h);
@@ -630,6 +699,10 @@ async function openEditor(orderId, base, edited) {
   ed.base = base;
   ed.strokes = [];
   ed.crop = null;
+  ed.zoom = 1; // a page never opens at the zoom the last one was left at
+  ed.panX = 0;
+  ed.panY = 0;
+  ed.panning = null;
   setEditorMode('draw');
 
   try {
@@ -671,11 +744,13 @@ async function openEditor(orderId, base, edited) {
  *  with the page's shape that fits the open dialog. */
 function fitEditor() {
   if (!ed.box) return;
-  const wrap = $('#editor .ewrap');
+  const wrap = eWrap();
   const room = wrap.parentElement.clientWidth; // the dialog is min(1200px, 96vw) and has no padding
   const scale = Math.min(room / ed.box.w, (window.innerHeight * 0.76) / ed.box.h);
-  wrap.style.width = `${Math.round(ed.box.w * scale)}px`;
-  wrap.style.height = `${Math.round(ed.box.h * scale)}px`;
+  ed.fit = { w: Math.round(ed.box.w * scale), h: Math.round(ed.box.h * scale) };
+  wrap.style.width = `${ed.fit.w}px`;
+  wrap.style.height = `${ed.fit.h}px`;
+  applyView();
 }
 
 window.addEventListener('resize', () => {
@@ -930,11 +1005,22 @@ document.addEventListener('change', (e) => {
 
 // ---- editor input -----------------------------------------------------------
 
+/** The right button, the middle button, or a held spacebar drag the page instead of drawing on it.
+ *  The left button always draws, so the pencil never becomes a pan by accident. */
+const wantsPan = (e) => e.button === 1 || e.button === 2 || ed.space;
+
 eCanvas().addEventListener('pointerdown', (e) => {
   eCanvas().setPointerCapture(e.pointerId);
+
+  if (wantsPan(e)) {
+    ed.panning = { x: e.clientX, y: e.clientY };
+    eCanvas().classList.add('grabbing');
+    return;
+  }
+
   const at = toUser(e.clientX, e.clientY);
   if (ed.mode === 'draw') {
-    ed.drawing = { width: Number($('#e-size').value) * userPerPixel(), points: [at] };
+    ed.drawing = { width: pencilWidth(), points: [at] };
     ed.strokes.push(ed.drawing);
   } else {
     ed.drawing = { anchor: at };
@@ -944,6 +1030,14 @@ eCanvas().addEventListener('pointerdown', (e) => {
 });
 
 eCanvas().addEventListener('pointermove', (e) => {
+  if (ed.panning) {
+    ed.panX += e.clientX - ed.panning.x;
+    ed.panY += e.clientY - ed.panning.y;
+    ed.panning = { x: e.clientX, y: e.clientY };
+    applyView();
+    redrawEditor();
+    return;
+  }
   if (!ed.drawing) return;
   const at = toUser(e.clientX, e.clientY);
   if (ed.mode === 'draw') {
@@ -956,13 +1050,52 @@ eCanvas().addEventListener('pointermove', (e) => {
 });
 
 const endStroke = () => {
-  // A crop nobody really dragged is a misclick, and it would trim the page to nothing.
-  if (ed.mode === 'crop' && ed.crop && (ed.crop.w < 8 || ed.crop.h < 8)) ed.crop = null;
+  if (ed.panning) {
+    ed.panning = null;
+    eCanvas().classList.remove('grabbing');
+    return;
+  }
+  // A crop nobody really dragged is a misclick, and it would trim the page to nothing. It is a
+  // size on the page, so zooming in does not turn a careful little crop into one.
+  const min = 8 * (ed.box.w / ed.fit.w);
+  if (ed.mode === 'crop' && ed.crop && (ed.crop.w < min || ed.crop.h < min)) ed.crop = null;
   ed.drawing = null;
   redrawEditor();
 };
 eCanvas().addEventListener('pointerup', endStroke);
 eCanvas().addEventListener('pointercancel', endStroke);
+
+// Zoom toward the cursor. Without preventDefault the dialog scrolls instead.
+//
+// The step follows how far the wheel actually turned, so a trackpad's dozens of tiny deltas zoom
+// as smoothly as one flick of a mouse wheel. A fixed step per event would make the two wildly
+// different. Clamped, so one violent scroll cannot jump from the whole page to a single pixel.
+eCanvas().addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const perLine = 16;
+  const raw = e.deltaMode === 1 ? e.deltaY * perLine : e.deltaMode === 2 ? e.deltaY * ed.fit.h : e.deltaY;
+  const delta = Math.max(-600, Math.min(600, raw));
+  zoomAt(e.clientX, e.clientY, Math.exp(-delta * 0.0015));
+}, { passive: false });
+
+// Dragging with the right button must not also open the browser's menu over the page.
+eCanvas().addEventListener('contextmenu', (e) => e.preventDefault());
+
+$('#e-fit').addEventListener('click', fitPage);
+
+document.addEventListener('keydown', (e) => {
+  if (!$('#editor').open) return;
+  if (e.code === 'Space' && !ed.space) {
+    ed.space = true;
+    eCanvas().classList.add('grab');
+    e.preventDefault(); // space would otherwise press whichever button has focus
+  }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.code !== 'Space') return;
+  ed.space = false;
+  eCanvas().classList.remove('grab');
+});
 
 $('#e-draw').addEventListener('click', () => setEditorMode('draw'));
 $('#e-crop').addEventListener('click', () => setEditorMode('crop'));
