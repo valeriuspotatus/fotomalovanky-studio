@@ -45,7 +45,7 @@ before(async () => {
   setStatus(m, 'manual', STATES.MANUAL_IN_PROGRESS);
   writeManifest(orderDir, m);
 
-  ({ server } = createReviewServer({ config: CONFIG, inboxRoot: inbox, outboxRoot: outbox, driver: { generate: async () => {} } }));
+  ({ server } = createReviewServer({ config: CONFIG, inboxRoot: inbox, outboxRoot: outbox, memoryRoot: outbox, driver: { generate: async () => {} } }));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   origin = `http://127.0.0.1:${server.address().port}`;
 });
@@ -226,7 +226,7 @@ test('the title-page text derived from the photo names reaches the browser', asy
   await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).jpeg().toFile(join(dir, `${base}.jpg`));
   writeManifest(dir, setStatus(emptyManifest('1521'), base, STATES.OK, 'ok'));
 
-  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: join(r, 'inbox'), outboxRoot: outb });
+  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: join(r, 'inbox'), outboxRoot: outb, memoryRoot: outb });
   await new Promise((done) => s.listen(0, '127.0.0.1', done));
   try {
     const { orders } = await (await fetch(`http://127.0.0.1:${s.address().port}/api/state`)).json();
@@ -277,7 +277,7 @@ async function pickServer() {
   mkdirSync(join(outb, '1400'), { recursive: true });
   writeManifest(join(outb, '1400'), setStatus(emptyManifest('1400'), 'old', STATES.OK, 'ok'));
 
-  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: inb, outboxRoot: outb });
+  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: inb, outboxRoot: outb, memoryRoot: outb });
   await new Promise((done) => s.listen(0, '127.0.0.1', done));
   const o = `http://127.0.0.1:${s.address().port}`;
   const post = (p, body) => fetch(o + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -352,7 +352,7 @@ test('a folder holding an archive of orders arrives ticked by nobody', async () 
       .jpeg()
       .toFile(join(inb, `15${10 + i}`, 'a.jpeg'));
   }
-  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: inb, outboxRoot: join(r, 'outbox') });
+  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: inb, outboxRoot: join(r, 'outbox'), memoryRoot: join(r, 'outbox') });
   await new Promise((done) => s.listen(0, '127.0.0.1', done));
   try {
     const origin2 = `http://127.0.0.1:${s.address().port}`;

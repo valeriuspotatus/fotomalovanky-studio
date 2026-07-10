@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readDedications, learnDedication, recallDedication, dedicationsPath } from '../src/dedications.js';
+import { readDedications, learnDedication, recallDedication, dedicationsPath, migrateDedications, MEMORY_DIR } from '../src/dedications.js';
 import { slugFromBase, deriveSlug, dedicationFromBase } from '../src/dedication.js';
 
 const root = () => mkdtempSync(join(tmpdir(), 'fma-ded-'));
@@ -90,6 +90,49 @@ test('a corrupt memory file loses the spellings, never the ability to print', ()
     assert.equal(recallDedication(dir, 'pro_jiricka'), 'Pro Jiříčka');
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the memory lives with the tool, not in the outbox that gets emptied', () => {
+  assert.ok(dedicationsPath().endsWith(join('kokot', 'dedications.json')) || !dedicationsPath().includes('outbox'));
+  assert.equal(dedicationsPath(MEMORY_DIR), join(MEMORY_DIR, 'dedications.json'));
+  assert.ok(existsSync(join(MEMORY_DIR, 'package.json')), 'MEMORY_DIR is the tool folder, beside config.json');
+});
+
+test('a memory left in the old place is carried across, not abandoned', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-mig-'));
+  const outbox = join(root, 'outbox');
+  const home = join(root, 'home');
+  mkdirSync(outbox, { recursive: true });
+  mkdirSync(home, { recursive: true });
+  try {
+    writeFileSync(join(outbox, '.dedications.json'), JSON.stringify({ pro_jiricka: 'Pro Jiříčka' }));
+
+    const moved = migrateDedications(outbox, home);
+    assert.deepEqual(moved, ['pro_jiricka']);
+    assert.equal(recallDedication(home, 'pro_jiricka'), 'Pro Jiříčka');
+    assert.ok(!existsSync(join(outbox, '.dedications.json')), 'one home, so the next correction cannot land in the wrong one');
+
+    assert.deepEqual(migrateDedications(outbox, home), [], 'and it is a no-op the second time');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('migrating never overwrites a spelling already taught in the new place', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-mig2-'));
+  const outbox = join(root, 'outbox');
+  const home = join(root, 'home');
+  mkdirSync(outbox, { recursive: true });
+  mkdirSync(home, { recursive: true });
+  try {
+    writeFileSync(join(outbox, '.dedications.json'), JSON.stringify({ pro_jiricka: 'Pro Jiricka' })); // the old, wrong one
+    learnDedication(home, 'pro_jiricka', 'Pro Jiříčka'); // the correction they have since made
+
+    migrateDedications(outbox, home);
+    assert.equal(recallDedication(home, 'pro_jiricka'), 'Pro Jiříčka', 'the newer answer wins');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

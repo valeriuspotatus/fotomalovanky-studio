@@ -21,6 +21,7 @@ import {
   revertPhotoEdit,
   ReviewError,
 } from '../review.js';
+import { migrateDedications, MEMORY_DIR } from '../dedications.js';
 
 // The U4 review grid: a local page over state.json. Bound to 127.0.0.1 only — it can approve
 // photos and spend GPU, and it serves customer faces.
@@ -235,7 +236,7 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
  *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
  *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
  *  double-click launcher, where a real operator is watching, turns it on. */
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, revealFinished = false, reveal = openExternally, log = () => {} } = {}) {
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR } = {}) {
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
@@ -243,12 +244,17 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   let generator = driver ?? null;
   let builderDriver = builder ?? null;
 
+  // The spellings used to live in the outbox, which is the one folder that gets emptied. Carry
+  // any that are still there across, once, before anything can read the wrong one.
+  const moved = migrateDedications(outbox, memoryRoot);
+  if (moved.length) log(`Moved ${moved.length} saved spelling${moved.length > 1 ? 's' : ''} out of the outbox, into the tool's own folder.`);
+
   // Which orders in that folder the operator ticked. `null` means "all of them" — what a run
   // has always meant. An empty array means they ticked none, which is not the same thing.
   let selected = null;
   let queue = []; // the orders the last scan found in `inbox`, so a page reload still shows them
 
-  const state = () => reviewState({ inboxRoot: inbox, outboxRoot: outbox, only: selected });
+  const state = () => reviewState({ inboxRoot: inbox, outboxRoot: outbox, only: selected, memoryRoot });
 
   /** What is in this folder? Cheap, and it starts nothing. Throws IngestError for a bad path. */
   const scanInbox = (path) => {
@@ -304,6 +310,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       qc,
       force: Boolean(force),
       only: selected,
+      memoryRoot,
       onEvent: (e) => {
         const line = formatEvent(e);
         if (line === null) return;
@@ -464,7 +471,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         const { text } = await readJson(req);
-        return json(res, 200, { dedication: setOrderDedication(order.orderDir, text) });
+        return json(res, 200, { dedication: setOrderDedication(order.orderDir, text, { memoryRoot }) });
       }
 
       // POST /api/<order>/<base>/<action>

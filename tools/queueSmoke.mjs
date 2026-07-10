@@ -80,7 +80,7 @@ const builder = {
 // line-art would trip the real QC tripwire, and a held order never reaches the builder — which is
 // correct, and not what this harness is about.
 const okQc = async () => ({ verdict: 'ok', reason: 'ok' });
-const { server } = createReviewServer({ config, inboxRoot: join(fx.root, 'unset'), outboxRoot: fx.outbox, driver: generator, builder, qc: okQc });
+const { server } = createReviewServer({ config, inboxRoot: join(fx.root, 'unset'), outboxRoot: fx.outbox, memoryRoot: fx.root, driver: generator, builder, qc: okQc });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 

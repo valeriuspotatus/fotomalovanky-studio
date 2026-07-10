@@ -422,15 +422,15 @@ test('the operator spells a name once, and the next order with that name is spel
       writeManifest(join(outbox, id), setStatus(emptyManifest(id), `${id}_img0001_-_pro_jiricka`, STATES.OK, 'ok'));
     }
 
-    const before = reviewState({ inboxRoot: inbox, outboxRoot: outbox });
+    const before = reviewState({ inboxRoot: inbox, outboxRoot: outbox, memoryRoot: root });
     const o1366 = before.find((o) => o.orderId === '1366');
     assert.equal(o1366.suggestedDedication, 'Pro Jiricka', 'the file name has no accents to offer');
     assert.equal(o1366.suggestionRemembered, false);
 
     // The operator fixes the spelling on the first order.
-    setOrderDedication(join(outbox, '1366'), 'Pro Jiříčka');
+    setOrderDedication(join(outbox, '1366'), 'Pro Jiříčka', { memoryRoot: root });
 
-    const after = reviewState({ inboxRoot: inbox, outboxRoot: outbox });
+    const after = reviewState({ inboxRoot: inbox, outboxRoot: outbox, memoryRoot: root });
     const o1400 = after.find((o) => o.orderId === '1400');
     assert.equal(o1400.dedication, '', 'the second order is still undecided');
     assert.equal(o1400.suggestedDedication, 'Pro Jiříčka', 'and is offered the spelling they taught');
@@ -450,10 +450,10 @@ test('a remembered spelling never overrules an order the operator already decide
     mkdirSync(join(outbox, '1366'), { recursive: true });
     writeManifest(join(outbox, '1366'), setStatus(emptyManifest('1366'), '1366_img0001_-_pro_jiricka', STATES.OK, 'ok'));
 
-    setOrderDedication(join(outbox, '1366'), 'Pro Jiříčka'); // taught, and decided
-    setOrderDedication(join(outbox, '1366'), ''); // then deliberately made untitled
+    setOrderDedication(join(outbox, '1366'), 'Pro Jiříčka', { memoryRoot: root }); // taught, and decided
+    setOrderDedication(join(outbox, '1366'), '', { memoryRoot: root }); // then deliberately made untitled
 
-    const state = reviewState({ inboxRoot: inbox, outboxRoot: outbox });
+    const state = reviewState({ inboxRoot: inbox, outboxRoot: outbox, memoryRoot: root });
     const order = state[0];
     assert.equal(order.dedication, '');
     assert.equal(order.suggestedDedication, '', 'a decided order is never nagged with a suggestion');

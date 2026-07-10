@@ -18,7 +18,7 @@ import {
   manifestPath,
 } from './manifest.js';
 import { deriveDedication, deriveSlug } from './dedication.js';
-import { recallDedication } from './dedications.js';
+import { recallDedication, migrateDedications, MEMORY_DIR } from './dedications.js';
 
 // U6: the single "Go" run. ingest -> generate -> QC -> [review gate] -> builder -> PDF.
 //
@@ -107,13 +107,17 @@ export function titleTextFor(config, dedication) {
 }
 
 /** Run every order end to end. Never throws for a single order; returns a report. */
-export async function runPipeline({ config, inboxRoot, outboxRoot, generator, builder, qc, onEvent = noop, force = false, only = null }) {
+export async function runPipeline({ config, inboxRoot, outboxRoot, generator, builder, qc, onEvent = noop, force = false, only = null, memoryRoot = MEMORY_DIR }) {
   const inbox = inboxRoot ?? config.paths.inbox;
   const outbox = outboxRoot ?? config.paths.outbox;
   // `only` is the operator ticking a few orders out of a folder that holds many. Orders still run
   // one at a time — the generator is one shared GPU queue, not something to fan out across.
   const found = ingestOrders(inbox);
   const orders = only ? found.filter((o) => only.includes(o.orderId)) : found;
+
+  // The spellings used to be kept in the outbox, which is the one folder that gets emptied.
+  const moved = migrateDedications(outbox, memoryRoot);
+  if (moved.length) onEvent({ type: 'memory-moved', count: moved.length });
 
   // Drivers are constructed once, lazily, so a generation-only run never needs Chromium and a
   // rebuild-only run never needs the generator token.
@@ -150,7 +154,7 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
     if (!hasDedication(manifest)) {
       // A spelling the operator taught the tool wins: the shop folded the accents out of the file
       // name, so the name alone can only ever produce "Pro Jiricka".
-      const remembered = recallDedication(outbox, deriveSlug(bases));
+      const remembered = recallDedication(memoryRoot, deriveSlug(bases));
       const derived = remembered || deriveDedication(bases);
       if (derived) {
         setDedication(manifest, derived);
@@ -212,6 +216,7 @@ export function formatEvent(e) {
     case 'photo-flagged': return `  ${e.base}: FLAGGED (${e.reason}) — needs review`;
     case 'photo-failed': return `  ${e.base}: FAILED — ${e.reason}`;
     case 'photo-skipped': return `  ${e.base}: skipped (${e.status})`;
+    case 'memory-moved': return `Moved ${e.count} saved spelling${e.count > 1 ? 's' : ''} out of the outbox, into the tool's own folder.`;
     case 'title-derived': return `  title page (${e.remembered ? 'spelling you taught it' : 'from the photo names'}): ${e.dedication}`;
     case 'no-title': return '  no dedication in the photo names — the title page prints without text';
     case 'build-start': return `  building the PDF from ${e.photos} photo(s)…`;

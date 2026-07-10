@@ -104,7 +104,7 @@ const builder = {
   },
 };
 
-const { server } = createReviewServer({ config, inboxRoot: fx.inbox, outboxRoot: fx.outbox, driver: generator, builder });
+const { server } = createReviewServer({ config, inboxRoot: fx.inbox, outboxRoot: fx.outbox, memoryRoot: fx.root, driver: generator, builder });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 

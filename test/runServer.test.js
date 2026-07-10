@@ -64,7 +64,7 @@ before(async () => {
   writeManifest(orderDir, setDedication(emptyManifest('1510'), 'Pro Barču'));
 
   generator = new GatedGenerator();
-  ({ server } = createReviewServer({ config: CONFIG, inboxRoot: inbox, outboxRoot: outbox, driver: generator, builder: stubBuilder }));
+  ({ server } = createReviewServer({ config: CONFIG, inboxRoot: inbox, outboxRoot: outbox, memoryRoot: outbox, driver: generator, builder: stubBuilder }));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   origin = `http://127.0.0.1:${server.address().port}`;
 });

@@ -6,7 +6,7 @@ import { generatePhoto } from './batch.js';
 import { outputPaths, photoBase } from './organize.js';
 import { assessOutputFiles } from './qcFiles.js';
 import { deriveDedication, deriveSlug } from './dedication.js';
-import { recallDedication, learnDedication } from './dedications.js';
+import { recallDedication, learnDedication, MEMORY_DIR } from './dedications.js';
 import { applyEdits, EditError } from './editor.js';
 import {
   STATES,
@@ -55,7 +55,7 @@ export function photoFiles(outboxRoot, orderId, base, sourcePath = null) {
 /** Join what the inbox says an order contains with what the manifest says happened to it.
  *  Photos the batch has not reached yet appear with a null status — that is the grid's
  *  "generating…" placeholder, and it is why an order with a photo still to run is not ready. */
-export function reviewState({ inboxRoot, outboxRoot, only = null }) {
+export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = MEMORY_DIR }) {
   let ingested = [];
   try {
     ingested = inboxRoot ? ingestOrders(inboxRoot) : [];
@@ -80,7 +80,7 @@ export function reviewState({ inboxRoot, outboxRoot, only = null }) {
     const sources = new Map((order.photos ?? []).map((p) => [photoBase(p), p]));
     const bases = sources.size > 0 ? [...sources.keys()] : Object.keys(manifest.photos ?? {});
 
-    const remembered = recallDedication(outboxRoot, deriveSlug(bases));
+    const remembered = recallDedication(memoryRoot, deriveSlug(bases));
 
     const photos = bases.map((base) => {
       const status = getStatus(manifest, base);
@@ -132,7 +132,7 @@ function outboxOrders(outboxRoot) {
  *  PDF reprinted, but nobody remembers what a stranger wrote. So an emptied dedication is kept
  *  under `dedicationWas`, and the grid offers it back. One real order lost its text to something
  *  we could not reproduce; this is what makes the next one survivable. */
-export function setOrderDedication(orderDir, text) {
+export function setOrderDedication(orderDir, text, { memoryRoot = MEMORY_DIR } = {}) {
   const manifest = readManifest(orderDir);
   const before = getDedication(manifest);
   setDedication(manifest, text);
@@ -147,7 +147,7 @@ export function setOrderDedication(orderDir, text) {
   // slug so the next customer called Jiříček is not typed out again — and so nobody has to notice
   // that the shop dropped the accents in the first place.
   const slug = deriveSlug(Object.keys(manifest.photos ?? {}));
-  if (slug) learnDedication(dirname(orderDir), slug, after);
+  if (slug) learnDedication(memoryRoot, slug, after);
 
   return after;
 }

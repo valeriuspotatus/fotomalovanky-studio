@@ -76,7 +76,7 @@ const builder = {
   },
 };
 
-const { server } = createReviewServer({ config, inboxRoot: fx.inbox, outboxRoot: fx.outbox, driver: generator, builder });
+const { server } = createReviewServer({ config, inboxRoot: fx.inbox, outboxRoot: fx.outbox, memoryRoot: fx.root, driver: generator, builder });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 
@@ -93,7 +93,7 @@ const settle = () => page.waitForTimeout(2200); // two poll cycles
 async function survives(name, sequence) {
   await page.goto(url);
   await page.waitForSelector('.tile');
-  setOrderDedication(join(fx.outbox, '1523'), KEPT); // reset before each
+  setOrderDedication(join(fx.outbox, '1523'), KEPT, { memoryRoot: fx.root }); // reset before each
   await page.reload();
   await page.waitForSelector('.ded input');
   try {
@@ -140,7 +140,7 @@ try {
     await page.waitForTimeout(900);
     // Their half-typed text may legitimately be saved here, but it must never be *empty*.
     const after = dedOf(1523);
-    if (after && after !== KEPT) setOrderDedication(join(fx.outbox, '1523'), KEPT);
+    if (after && after !== KEPT) setOrderDedication(join(fx.outbox, '1523'), KEPT, { memoryRoot: fx.root });
   });
 
   await survives('pressing Go while the box has focus', async () => {
@@ -185,7 +185,7 @@ try {
   // …and a deliberate clear must still work, or the operator cannot say "no dedication".
   await page.goto(url);
   await page.waitForSelector('.ded input');
-  setOrderDedication(join(fx.outbox, '1523'), KEPT);
+  setOrderDedication(join(fx.outbox, '1523'), KEPT, { memoryRoot: fx.root });
   await page.reload();
   await page.waitForSelector('.ded input');
   await ded(1523).focus();
@@ -233,7 +233,7 @@ try {
   await page.waitForTimeout(700);
   check('a real correction is saved', dedOf(1521) === CORRECTED, JSON.stringify(dedOf(1521)));
 
-  const learned = JSON.parse(readFileSync(join(fx.outbox, '.dedications.json'), 'utf8'));
+  const learned = JSON.parse(readFileSync(join(fx.root, 'dedications.json'), 'utf8'));
   check('and remembered against the file name, for the next order', learned.pro_maxinnku_a_estellku === CORRECTED, JSON.stringify(learned));
 
   check('no page errors', errors.length === 0, errors.slice(0, 2).join(' | '));

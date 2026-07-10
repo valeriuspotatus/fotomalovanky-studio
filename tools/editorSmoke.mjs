@@ -68,7 +68,7 @@ const config = {
   paths: { inbox: fx.inbox, outbox: fx.outbox },
 };
 const okQc = async () => ({ verdict: 'ok', reason: 'ok' });
-const { server } = createReviewServer({ config, inboxRoot: fx.inbox, outboxRoot: fx.outbox, qc: okQc });
+const { server } = createReviewServer({ config, inboxRoot: fx.inbox, outboxRoot: fx.outbox, memoryRoot: fx.root, qc: okQc });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 
