@@ -1,10 +1,12 @@
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
+import sharp from 'sharp';
 import { ingestOrders } from './ingest.js';
 import { generatePhoto } from './batch.js';
 import { outputPaths, photoBase } from './organize.js';
 import { assessOutputFiles } from './qcFiles.js';
 import { deriveDedication } from './dedication.js';
+import { applyEdits, EditError } from './editor.js';
 import {
   STATES,
   getStatus,
@@ -86,6 +88,7 @@ export function reviewState({ inboxRoot, outboxRoot, only = null }) {
         reason: manifest.photos?.[base]?.reason ?? null,
         builderEligible: isBuilderEligible(status),
         holdsForReview: holdsForReview(status),
+        edited: existsSync(editBackupPath(orderDir, base)), // the generated page is still recoverable
         files,
       };
     });
@@ -198,6 +201,89 @@ export async function acceptReplacement({ orderDir, base, qc = assessOutputFiles
   setStatus(manifest, base, STATES.PENDING_REVIEW, verdict.reason);
   writeManifest(orderDir, manifest);
   return { status: STATES.PENDING_REVIEW, verdict };
+}
+
+// ---- fixing a page by hand --------------------------------------------------
+
+/** Where the page looked like before the operator first drew on it.
+ *
+ *  Kept *outside* the order folder: the builder is handed that whole directory, and a spare SVG
+ *  sitting in it is one more thing for it to pair up and print. */
+export function editBackupPath(orderDir, base) {
+  return join(dirname(orderDir), '.originals', basename(orderDir), `${base}.svg`);
+}
+
+/** Render the coloring page's SVG to the raster the grid and QC look at.
+ *
+ *  Decoded from bytes rather than a path: handed a path, libvips keeps the file mapped while it
+ *  works, and on Windows the very next line cannot then overwrite it. */
+async function rasterize(svgText, width) {
+  let img = sharp(Buffer.from(svgText), { density: 96 });
+  if (width) img = img.resize({ width }); // keep the resolution the generator gave us
+  return img.flatten({ background: '#ffffff' }).png().toBuffer();
+}
+
+/** The operator's white pencil and crop, applied to the page the book actually prints.
+ *
+ *  The SVG is the truth and the PNG is made from it, never the other way round — the builder
+ *  ignores `_bw.png` entirely, so a raster-only fix would look right in the grid and print wrong.
+ *  Lands in pending_review by the same path a hand-repaired file does: an edit is a repair, not a
+ *  shortcut past the review gate. */
+export async function applyPhotoEdit({ orderDir, base, edits, qc = assessOutputFiles }) {
+  const manifest = readManifest(orderDir);
+  const status = getStatus(manifest, base);
+  if (status == null) throw new ReviewError(`No photo "${base}" in ${orderDir}.`);
+
+  const out = outputPaths(`${base}.jpg`, orderDir);
+  if (!existsSync(out.coloringSvg)) throw new ReviewError(`"${base}" has no coloring page to fix yet — generate it first.`);
+
+  const before = readFileSync(out.coloringSvg, 'utf8');
+  let after;
+  try {
+    after = applyEdits(before, edits);
+  } catch (err) {
+    if (err instanceof EditError) throw new ReviewError(err.message);
+    throw err;
+  }
+
+  // Render before writing anything: an SVG that will not rasterize must not reach the order
+  // folder, where the next run would hand it straight to the builder.
+  const width = (await sharp(readFileSync(out.coloringPng)).metadata()).width;
+  const png = await rasterize(after, width);
+
+  const backup = editBackupPath(orderDir, base);
+  if (!existsSync(backup)) {
+    mkdirSync(dirname(backup), { recursive: true });
+    writeFileSync(backup, before); // the generated page, before anyone drew on it
+  }
+
+  writeFileSync(out.coloringSvg, after);
+  writeFileSync(out.coloringPng, png);
+
+  if (status !== STATES.MANUAL_IN_PROGRESS && status !== STATES.PENDING_REVIEW) handoff(orderDir, base);
+  return acceptReplacement({ orderDir, base, qc });
+}
+
+/** Throw away every edit and put the generated page back. */
+export async function revertPhotoEdit({ orderDir, base, qc = assessOutputFiles }) {
+  const backup = editBackupPath(orderDir, base);
+  if (!existsSync(backup)) throw new ReviewError(`"${base}" has never been edited, so there is nothing to undo.`);
+
+  const out = outputPaths(`${base}.jpg`, orderDir);
+  const original = readFileSync(backup, 'utf8');
+  // At its own size, not the current PNG's: a crop changed the page's shape, and matching the
+  // cropped raster's width would stretch the page we are putting back.
+  const png = await rasterize(original);
+
+  writeFileSync(out.coloringSvg, original);
+  writeFileSync(out.coloringPng, png);
+  // Only once both files are back: the page is the generated one again, so it must stop calling
+  // itself hand-fixed and stop offering to undo an edit that no longer exists.
+  rmSync(backup, { force: true });
+
+  const status = getStatus(readManifest(orderDir), base);
+  if (status !== STATES.MANUAL_IN_PROGRESS && status !== STATES.PENDING_REVIEW) handoff(orderDir, base);
+  return acceptReplacement({ orderDir, base, qc });
 }
 
 /** Re-generate one photo. A redo always starts from flagged, so it runs the identical code path

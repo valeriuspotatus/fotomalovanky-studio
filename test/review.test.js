@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { reviewState, approve, reject, handoff, acceptReplacement, redo, setOrderDedication, ReviewError } from '../src/review.js';
+import { reviewState, approve, reject, handoff, acceptReplacement, redo, setOrderDedication, applyPhotoEdit, revertPhotoEdit, editBackupPath, ReviewError } from '../src/review.js';
 import { STATES, readManifest, getStatus, setStatus, setDedication, writeManifest, emptyManifest, isBuilderEligible } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
 import { GeneratorError } from '../src/generator/driver.js';
@@ -417,5 +417,171 @@ test('clearing an already-empty dedication records nothing to undo', () => {
     assert.equal(readManifest(dir).dedicationWas, undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- fixing a page by hand --------------------------------------------------
+
+const EDIT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80">
+<rect x="0" y="0" width="100" height="80" fill="#FFFFFF"/>
+<rect x="10" y="30" width="80" height="20" fill="#010101"/>
+</svg>`;
+
+async function editableOrder() {
+  const dir = mkdtempSync(join(tmpdir(), 'fma-edit-'));
+  const orderDir = join(dir, '1510');
+  mkdirSync(orderDir, { recursive: true });
+  writeFileSync(join(orderDir, 'a.svg'), EDIT_SVG);
+  await sharp(Buffer.from(EDIT_SVG)).png().toFile(join(orderDir, 'a_bw.png'));
+  await sharp({ create: { width: 100, height: 80, channels: 3, background: '#ccc' } }).jpeg().toFile(join(orderDir, 'a.jpg'));
+  writeManifest(orderDir, setStatus(emptyManifest('1510'), 'a', STATES.OK, 'ok'));
+  return { dir, orderDir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+const okQc = async () => ({ verdict: 'ok', reason: 'ok' });
+const inkOf = async (png) => {
+  const { data } = await sharp(png).flatten({ background: '#ffffff' }).greyscale().raw().toBuffer({ resolveWithObject: true });
+  return data.reduce((n, v) => n + (v < 128 ? 1 : 0), 0) / data.length;
+};
+
+test('the white pencil edits the SVG the book prints, and the PNG is remade from it', async () => {
+  const f = await editableOrder();
+  try {
+    const before = await inkOf(join(f.orderDir, 'a_bw.png'));
+    assert.ok(before > 0.1, 'the fixture starts with a black bar');
+
+    // Paint straight across the black bar.
+    await applyPhotoEdit({
+      orderDir: f.orderDir,
+      base: 'a',
+      edits: { strokes: [{ width: 30, points: [[0, 40], [100, 40]] }] },
+      qc: okQc,
+    });
+
+    const svg = readFileSync(join(f.orderDir, 'a.svg'), 'utf8');
+    assert.match(svg, /fma-edit/, 'the vector page carries the fix');
+
+    const after = await inkOf(join(f.orderDir, 'a_bw.png'));
+    assert.ok(after < before / 2, `the raster was remade from it (${before.toFixed(3)} -> ${after.toFixed(3)})`);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('an edit lands in the review queue, never straight into the book', async () => {
+  const f = await editableOrder();
+  try {
+    const { status } = await applyPhotoEdit({
+      orderDir: f.orderDir, base: 'a', edits: { strokes: [{ width: 5, points: [[1, 1], [2, 2]] }] }, qc: okQc,
+    });
+    assert.equal(status, STATES.PENDING_REVIEW);
+    assert.equal(isBuilderEligible(status), false, 'a hand-fixed page still has to be approved');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('cropping changes the page shape, and the raster follows it', async () => {
+  const f = await editableOrder();
+  try {
+    await applyPhotoEdit({ orderDir: f.orderDir, base: 'a', edits: { crop: { x: 0, y: 0, w: 50, h: 80 } }, qc: okQc });
+    const meta = await sharp(readFileSync(join(f.orderDir, 'a_bw.png'))).metadata();
+    // A rasteriser rounds to whole pixels, so 100x159 is the cropped shape, not a bug.
+    assert.ok(Math.abs(meta.width / meta.height - 50 / 80) < 0.01, `aspect ${meta.width}x${meta.height}`);
+    assert.match(readFileSync(join(f.orderDir, 'a.svg'), 'utf8'), /viewBox="0 0 50 80"/);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the generated page is kept, outside the folder the builder is handed', async () => {
+  const f = await editableOrder();
+  try {
+    await applyPhotoEdit({ orderDir: f.orderDir, base: 'a', edits: { strokes: [{ width: 9, points: [[5, 40]] }] }, qc: okQc });
+    const backup = editBackupPath(f.orderDir, 'a');
+    assert.ok(existsSync(backup));
+    assert.equal(readFileSync(backup, 'utf8'), EDIT_SVG, 'byte for byte, as the generator made it');
+    assert.ok(!backup.startsWith(f.orderDir), 'a spare SVG in the order folder is one the builder would try to print');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('reverting puts the generated page back and re-renders its raster', async () => {
+  const f = await editableOrder();
+  try {
+    await applyPhotoEdit({ orderDir: f.orderDir, base: 'a', edits: { crop: { x: 0, y: 0, w: 50, h: 80 } }, qc: okQc });
+    const { status } = await revertPhotoEdit({ orderDir: f.orderDir, base: 'a', qc: okQc });
+
+    assert.equal(status, STATES.PENDING_REVIEW);
+    assert.equal(readFileSync(join(f.orderDir, 'a.svg'), 'utf8'), EDIT_SVG);
+    const meta = await sharp(readFileSync(join(f.orderDir, 'a_bw.png'))).metadata();
+    assert.ok(Math.abs(meta.width / meta.height - 100 / 80) < 0.01, `the raster is the whole page again, not the crop stretched (${meta.width}x${meta.height})`);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('reverting a page nobody edited says so, rather than inventing an original', async () => {
+  const f = await editableOrder();
+  try {
+    await assert.rejects(() => revertPhotoEdit({ orderDir: f.orderDir, base: 'a', qc: okQc }), ReviewError);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a reverted page is no longer an edited page', async () => {
+  const f = await editableOrder();
+  try {
+    await applyPhotoEdit({ orderDir: f.orderDir, base: 'a', edits: { strokes: [{ width: 5, points: [[1, 1]] }] }, qc: okQc });
+    assert.ok(existsSync(editBackupPath(f.orderDir, 'a')), 'the generated page was kept');
+
+    await revertPhotoEdit({ orderDir: f.orderDir, base: 'a', qc: okQc });
+    // reviewState reads `edited` straight off this file. Left behind, it makes the grid go on
+    // calling the page hand-fixed and go on offering to undo an edit that is already undone.
+    assert.ok(!existsSync(editBackupPath(f.orderDir, 'a')), 'and cleaned up once it was put back');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a page edited twice can still be taken back to the generated one', async () => {
+  const f = await editableOrder();
+  try {
+    await applyPhotoEdit({ orderDir: f.orderDir, base: 'a', edits: { strokes: [{ width: 5, points: [[1, 1]] }] }, qc: okQc });
+    await applyPhotoEdit({ orderDir: f.orderDir, base: 'a', edits: { crop: { x: 0, y: 0, w: 50, h: 40 } }, qc: okQc });
+    // The second edit must not overwrite the backup with the first edit's output.
+    await revertPhotoEdit({ orderDir: f.orderDir, base: 'a', qc: okQc });
+
+    assert.equal(readFileSync(join(f.orderDir, 'a.svg'), 'utf8'), EDIT_SVG);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('an edit to a photo with no coloring page is refused, not written', async () => {
+  const f = await editableOrder();
+  try {
+    rmSync(join(f.orderDir, 'a.svg'));
+    await assert.rejects(
+      () => applyPhotoEdit({ orderDir: f.orderDir, base: 'a', edits: { strokes: [{ width: 5, points: [[1, 1]] }] }, qc: okQc }),
+      ReviewError,
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a stroke the browser mangled is refused as an operator-facing message', async () => {
+  const f = await editableOrder();
+  try {
+    await assert.rejects(
+      () => applyPhotoEdit({ orderDir: f.orderDir, base: 'a', edits: { strokes: [{ width: 'fat', points: [[1, 1]] }] }, qc: okQc }),
+      (err) => err instanceof ReviewError && !/EditError/.test(err.message),
+    );
+    assert.equal(readFileSync(join(f.orderDir, 'a.svg'), 'utf8'), EDIT_SVG, 'and the page is untouched');
+  } finally {
+    f.cleanup();
   }
 });

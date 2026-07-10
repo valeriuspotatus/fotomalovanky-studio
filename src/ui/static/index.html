@@ -113,6 +113,29 @@
  dialog{border:none;border-radius:8px;padding:0;max-width:96vw;max-height:96vh;background:var(--panel)}
  dialog img{max-width:96vw;max-height:96vh;cursor:zoom-out;display:block;background:#fff}
  dialog::backdrop{background:rgba(0,0,0,.86)}
+
+ /* the fix-by-hand editor */
+ #editor{width:min(1200px,96vw);max-width:96vw}
+ #editor img,#editor canvas{max-width:none;max-height:none;cursor:crosshair}
+ #editor .etop{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+ #editor .etop .grow{flex:1}
+ #editor .etop b{font-size:13px}
+ #editor .etop .n{font-size:11.5px;color:var(--muted)}
+ #editor button{font:inherit;font-size:12.5px;padding:5px 10px;border:1px solid var(--line);border-radius:6px;
+                background:var(--sunken);color:var(--text);cursor:pointer}
+ #editor button:hover:not(:disabled){border-color:var(--hold)}
+ #editor button.on{background:var(--hold);color:var(--on-accent);border-color:var(--hold)}
+ #editor button.primary{background:var(--good);color:var(--on-accent);border-color:var(--good)}
+ #editor button.danger{color:var(--manual)}
+ #editor button:disabled{opacity:.45;cursor:default}
+ #editor label.size{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+ /* fitEditor() sizes this frame in pixels; the page fills it and the canvas is pinned to it, so a
+    stroke lands where it was drawn. Leave width and height to CSS and the page comes out squashed:
+    max-width and max-height clamp each axis on its own, and neither one preserves the other. */
+ #editor .ewrap{position:relative;line-height:0;background:#fff;margin:0 auto;overflow:hidden}
+ #editor .ewrap img{display:block;width:100%;height:100%;background:#fff}
+ #editor .ewrap canvas{position:absolute;inset:0;width:100%;height:100%}
+ #editor .hint{padding:8px 12px;font-size:12px;color:var(--muted);border-top:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -141,6 +164,24 @@
 
 <div id="toast"></div>
 <dialog id="lb"><img id="lbimg" alt=""></dialog>
+
+<dialog id="editor">
+  <div class="etop">
+    <b id="e-name"></b>
+    <button id="e-draw" class="on">White pencil</button>
+    <button id="e-crop">Crop</button>
+    <label class="size">size <input type="range" id="e-size" min="3" max="60" value="14"></label>
+    <button id="e-undo">Undo</button>
+    <button id="e-clear">Clear</button>
+    <span class="grow"></span>
+    <button id="e-elsewhere">Repair elsewhere…</button>
+    <button id="e-revert" class="danger" hidden>Revert to the generated page</button>
+    <button id="e-cancel">Cancel</button>
+    <button id="e-save" class="primary">Save</button>
+  </div>
+  <div class="ewrap"><img id="e-img" alt=""><canvas id="e-canvas"></canvas></div>
+  <div class="hint" id="e-hint">Paint over what you want gone — the pencil is white, like the paper. Drag a box in Crop mode to trim the page. This edits the vector page the book is printed from.</div>
+</dialog>
 
 <script>
 const $ = (s) => document.querySelector(s);
@@ -388,6 +429,7 @@ function tile(orderId, orderDir, p, locked) {
   if (status === 'failed') why = `<p class="why err">${esc(p.reason)}</p>`;
   else if (status === 'flagged' && p.reason && p.reason !== 'ok') why = `<p class="why">auto-flagged: ${esc(p.reason)}</p>`;
   else if (p.reason && p.reason !== 'ok') why = `<p class="why">${esc(p.reason)}</p>`;
+  if (p.edited) why += '<p class="why">fixed by hand — the generated page can still be restored</p>';
 
   let acts = '';
   if (busy) {
@@ -413,22 +455,26 @@ function tile(orderId, orderDir, p, locked) {
     acts = `<div class="acts">
         <button class="danger" data-a="reject">Mark bad</button>
         <button data-a="redo">Redo</button>
-        <button data-a="handoff">Fix by hand</button>
+        <button data-edit>Fix by hand</button>
       </div>`;
   } else {
     // flagged / pending_review — the two states that hold the order back.
     acts = `<div class="acts">
         <button class="primary" data-a="approve">Approve</button>
         <button data-a="redo">Redo</button>
-        <button data-a="handoff">Fix by hand</button>
+        <button data-edit>Fix by hand</button>
       </div>`;
   }
+
+  // The editor draws on the SVG, because the SVG is what the book prints. A photo that has none
+  // yet has nothing to fix.
+  if (!p.hasSvg) acts = acts.replaceAll('<button data-edit>', '<button data-edit disabled title="no coloring page yet">');
 
   // A run rewrites each order's state.json as it goes; a verdict saved meanwhile would be
   // overwritten. The server refuses them, so don't offer them.
   if (locked) acts = acts.replaceAll('<button ', '<button disabled ');
 
-  return `<div class="tile ${status}" data-key="${esc(key)}" data-order="${esc(orderId)}" data-base="${esc(p.base)}">
+  return `<div class="tile ${status}" data-key="${esc(key)}" data-order="${esc(orderId)}" data-base="${esc(p.base)}"${p.edited ? ' data-edited="1"' : ''}>
     <div class="imgs">${shot('original', 'original photo')}${shot('coloring', 'coloring page')}</div>
     <p class="name">${esc(p.base)}</p>
     <span class="pill ${status}">${LABEL[status]}</span>
@@ -487,6 +533,173 @@ function restoreFocus(snap) {
   try {
     el.setSelectionRange(snap.start, snap.end);
   } catch {}
+}
+
+// ---- the fix-by-hand editor -------------------------------------------------
+//
+// The operator paints white over what they want gone, and drags a box to trim the page. Both are
+// recorded in the SVG's own coordinates and applied to the SVG on the server, because the SVG is
+// what the book prints — the raster beside it is only a picture of it.
+
+const ed = {
+  order: null,
+  base: null,
+  box: null, // the SVG's viewBox: what a pixel here means in the file
+  strokes: [], // in SVG user units
+  crop: null,
+  mode: 'draw',
+  drawing: null,
+  url: null,
+};
+
+const VIEWBOX_RE = /viewBox\s*=\s*"([^"]*)"/i;
+const eCanvas = () => $('#e-canvas');
+
+/** Screen pixels on the displayed image -> user units in the file. */
+function toUser(clientX, clientY) {
+  const r = $('#e-img').getBoundingClientRect();
+  return [ed.box.x + ((clientX - r.left) / r.width) * ed.box.w, ed.box.y + ((clientY - r.top) / r.height) * ed.box.h];
+}
+const userPerPixel = () => ed.box.w / $('#e-img').getBoundingClientRect().width;
+
+function redrawEditor() {
+  const c = eCanvas();
+  const r = $('#e-img').getBoundingClientRect();
+  if (c.width !== Math.round(r.width) || c.height !== Math.round(r.height)) {
+    c.width = Math.round(r.width);
+    c.height = Math.round(r.height);
+  }
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, c.width, c.height);
+
+  const sx = c.width / ed.box.w;
+  const sy = c.height / ed.box.h;
+  const px = ([x, y]) => [(x - ed.box.x) * sx, (y - ed.box.y) * sy];
+
+  g.strokeStyle = '#ffffff';
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  for (const s of ed.strokes) {
+    g.lineWidth = Math.max(1, s.width * sx);
+    g.beginPath();
+    s.points.forEach((p, i) => (i ? g.lineTo(...px(p)) : g.moveTo(...px(p))));
+    if (s.points.length === 1) g.lineTo(...px(s.points[0]));
+    g.stroke();
+  }
+
+  if (ed.crop) {
+    const [x, y] = px([ed.crop.x, ed.crop.y]);
+    const w = ed.crop.w * sx;
+    const h = ed.crop.h * sy;
+    g.fillStyle = 'rgba(0,0,0,.55)'; // everything outside the box is on its way to the bin
+    g.fillRect(0, 0, c.width, y);
+    g.fillRect(0, y + h, c.width, c.height - y - h);
+    g.fillRect(0, y, x, h);
+    g.fillRect(x + w, y, c.width - x - w, h);
+    g.strokeStyle = '#5aa9f7';
+    g.lineWidth = 2;
+    g.strokeRect(x, y, w, h);
+  }
+
+  $('#e-undo').disabled = !ed.strokes.length && !ed.crop;
+  $('#e-clear').disabled = !ed.strokes.length && !ed.crop;
+  $('#e-save').disabled = !ed.strokes.length && !ed.crop;
+}
+
+async function openEditor(orderId, base, edited) {
+  ed.order = orderId;
+  ed.base = base;
+  ed.strokes = [];
+  ed.crop = null;
+  setEditorMode('draw');
+
+  try {
+    const res = await fetch(`/svg/${enc(orderId)}/${enc(base)}`);
+    if (!res.ok) throw new Error('that photo has no coloring page yet');
+    const text = await res.text();
+    const vb = text.match(VIEWBOX_RE);
+    if (!vb) throw new Error('that coloring page has no viewBox');
+    const [x, y, w, h] = vb[1].trim().split(/[\s,]+/).map(Number);
+    if (!(w > 0 && h > 0)) throw new Error('that coloring page has no size');
+    ed.box = { x, y, w, h };
+
+    if (ed.url) URL.revokeObjectURL(ed.url);
+    ed.url = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' }));
+  } catch (err) {
+    toast(err.message, true);
+    return;
+  }
+
+  $('#e-name').textContent = base;
+  $('#e-revert').hidden = !edited;
+  const img = $('#e-img');
+  const loaded = await new Promise((done) => {
+    img.onload = () => done(true);
+    img.onerror = () => done(false); // a page that will not render must not open an editor over it
+    img.src = ed.url;
+  });
+  if (!loaded) {
+    toast('That coloring page will not display, so it cannot be edited here.', true);
+    return;
+  }
+  $('#editor').showModal();
+  fitEditor(); // the dialog has no width until it is open, so the page cannot be measured before now
+  redrawEditor();
+}
+
+/** The generator writes a viewBox and no width/height, so a coloring page has no size of its own:
+ *  left alone it lays out at zero and there is nothing to draw on. Give the frame the largest box
+ *  with the page's shape that fits the open dialog. */
+function fitEditor() {
+  if (!ed.box) return;
+  const wrap = $('#editor .ewrap');
+  const room = wrap.parentElement.clientWidth; // the dialog is min(1200px, 96vw) and has no padding
+  const scale = Math.min(room / ed.box.w, (window.innerHeight * 0.76) / ed.box.h);
+  wrap.style.width = `${Math.round(ed.box.w * scale)}px`;
+  wrap.style.height = `${Math.round(ed.box.h * scale)}px`;
+}
+
+window.addEventListener('resize', () => {
+  if (!$('#editor').open) return;
+  fitEditor();
+  redrawEditor(); // the canvas' pixel grid follows the frame, and the strokes are redrawn to match
+});
+
+function setEditorMode(mode) {
+  ed.mode = mode;
+  $('#e-draw').classList.toggle('on', mode === 'draw');
+  $('#e-crop').classList.toggle('on', mode === 'crop');
+  $('#e-size').disabled = mode !== 'draw';
+}
+
+function closeEditor() {
+  $('#editor').close();
+  if (ed.url) URL.revokeObjectURL(ed.url);
+  ed.url = null;
+  ed.strokes = [];
+  ed.crop = null;
+}
+
+async function saveEdit() {
+  const btn = $('#e-save');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`/api/${enc(ed.order)}/${enc(ed.base)}/edit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ strokes: ed.strokes, crop: ed.crop }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `could not save the fix (HTTP ${res.status})`);
+    toast('Fixed. Look it over, then approve it.');
+    closeEditor();
+  } catch (err) {
+    toast(err.message, true);
+  }
+  btn.textContent = 'Save';
+  btn.disabled = false;
+  await refresh(true);
 }
 
 function orderSection(o, locked) {
@@ -635,6 +848,13 @@ document.addEventListener('click', (e) => {
     return;
   }
 
+  const fix = e.target.closest('button[data-edit]');
+  if (fix) {
+    const t = fix.closest('.tile');
+    openEditor(t.dataset.order, t.dataset.base, t.dataset.edited === '1');
+    return;
+  }
+
   const tick = e.target.closest('#queue button[data-tick]');
   if (tick) {
     const all = [...document.querySelectorAll('#queue input[type=checkbox]')].map((c) => c.dataset.order);
@@ -659,6 +879,78 @@ document.addEventListener('click', (e) => {
 // Ticking an order changes what Go will work through, and what the grid shows.
 document.addEventListener('change', (e) => {
   if (e.target.closest('#queue input[type=checkbox]')) select(tickedOrders());
+});
+
+// ---- editor input -----------------------------------------------------------
+
+eCanvas().addEventListener('pointerdown', (e) => {
+  eCanvas().setPointerCapture(e.pointerId);
+  const at = toUser(e.clientX, e.clientY);
+  if (ed.mode === 'draw') {
+    ed.drawing = { width: Number($('#e-size').value) * userPerPixel(), points: [at] };
+    ed.strokes.push(ed.drawing);
+  } else {
+    ed.drawing = { anchor: at };
+    ed.crop = { x: at[0], y: at[1], w: 0, h: 0 };
+  }
+  redrawEditor();
+});
+
+eCanvas().addEventListener('pointermove', (e) => {
+  if (!ed.drawing) return;
+  const at = toUser(e.clientX, e.clientY);
+  if (ed.mode === 'draw') {
+    ed.drawing.points.push(at);
+  } else {
+    const [ax, ay] = ed.drawing.anchor;
+    ed.crop = { x: Math.min(ax, at[0]), y: Math.min(ay, at[1]), w: Math.abs(at[0] - ax), h: Math.abs(at[1] - ay) };
+  }
+  redrawEditor();
+});
+
+const endStroke = () => {
+  // A crop nobody really dragged is a misclick, and it would trim the page to nothing.
+  if (ed.mode === 'crop' && ed.crop && (ed.crop.w < 8 || ed.crop.h < 8)) ed.crop = null;
+  ed.drawing = null;
+  redrawEditor();
+};
+eCanvas().addEventListener('pointerup', endStroke);
+eCanvas().addEventListener('pointercancel', endStroke);
+
+$('#e-draw').addEventListener('click', () => setEditorMode('draw'));
+$('#e-crop').addEventListener('click', () => setEditorMode('crop'));
+$('#e-undo').addEventListener('click', () => {
+  if (ed.crop) ed.crop = null;
+  else ed.strokes.pop();
+  redrawEditor();
+});
+$('#e-clear').addEventListener('click', () => {
+  ed.strokes = [];
+  ed.crop = null;
+  redrawEditor();
+});
+$('#e-cancel').addEventListener('click', closeEditor);
+$('#e-save').addEventListener('click', saveEdit);
+$('#e-revert').addEventListener('click', async () => {
+  closeEditor();
+  await act(ed.order, ed.base, 'revert');
+});
+// The pencil cannot fix everything. Hand the page over to be redrawn in another program: the tile
+// then names the folder to drop the replacement into, and waits for "I've replaced it".
+$('#e-elsewhere').addEventListener('click', async () => {
+  const { order, base } = ed;
+  closeEditor();
+  await act(order, base, 'handoff');
+});
+// Escape closes <dialog> on its own; make sure the unsaved strokes go with it.
+$('#editor').addEventListener('close', () => {
+  if (ed.url) URL.revokeObjectURL(ed.url);
+  ed.url = null;
+  ed.strokes = [];
+  ed.crop = null;
+});
+addEventListener('resize', () => {
+  if ($('#editor').open) redrawEditor();
 });
 
 $('#run').addEventListener('click', startRun);

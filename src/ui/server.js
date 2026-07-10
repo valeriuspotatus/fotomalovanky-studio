@@ -9,7 +9,18 @@ import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent } from '../orchestrator.js';
 import { ingestOrders, IngestError } from '../ingest.js';
-import { reviewState, approve, reject, handoff, acceptReplacement, redo, setOrderDedication, ReviewError } from '../review.js';
+import {
+  reviewState,
+  approve,
+  reject,
+  handoff,
+  acceptReplacement,
+  redo,
+  setOrderDedication,
+  applyPhotoEdit,
+  revertPhotoEdit,
+  ReviewError,
+} from '../review.js';
 
 // The U4 review grid: a local page over state.json. Bound to 127.0.0.1 only — it can approve
 // photos and spend GPU, and it serves customer faces.
@@ -64,6 +75,8 @@ function forClient(orders, inFlight) {
       holdsForReview: p.holdsForReview,
       hasOriginal: Boolean(p.files.original),
       hasColoring: Boolean(p.files.coloring),
+      hasSvg: Boolean(p.files.svg),
+      edited: p.edited,
       // The render's mtime versions its <img> URL, so a completed redo repaints the tile
       // instead of the browser showing the render the operator just rejected.
       coloringVersion: p.files.coloring ? statSync(p.files.coloring).mtimeMs : 0,
@@ -418,6 +431,15 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return res.end(buf);
       }
 
+      // GET /svg/<order>/<base> — the vector page itself, for the editor to draw on. Addressed
+      // by (order, base) like the images, so no path from the page can reach the filesystem.
+      if (req.method === 'GET' && parts[0] === 'svg' && parts.length === 3) {
+        const { photo } = find(parts[1], parts[2]);
+        if (!photo.files.svg) return json(res, 404, { error: 'not generated yet' });
+        res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end(readFileSync(photo.files.svg));
+      }
+
       // POST /api/_open/<generator|folder>[/<order>] — the server opens it, so no path or token
       // is ever handed to the page. Reserved prefix, so an order can never shadow this route.
       if (req.method === 'POST' && parts[0] === 'api' && parts[1] === '_open') {
@@ -454,6 +476,17 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         if (action === 'redo') {
           await startRedo(orderId, base);
           return json(res, 202, { started: true });
+        }
+        // The operator's own white pencil and crop. The SVG is what the book prints, so that is
+        // what gets edited; the raster the grid shows is re-made from it.
+        if (action === 'edit') {
+          const { strokes, crop } = await readJson(req, 4 * 1024 * 1024);
+          const { status } = await applyPhotoEdit({ orderDir: order.orderDir, base, edits: { strokes, crop }, qc });
+          return json(res, 200, { status });
+        }
+        if (action === 'revert') {
+          const { status } = await revertPhotoEdit({ orderDir: order.orderDir, base, qc });
+          return json(res, 200, { status });
         }
         return json(res, 404, { error: `Unknown action "${action}".` });
       }

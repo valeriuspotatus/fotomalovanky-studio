@@ -81,9 +81,8 @@ For each one:
   differently. This is the first thing to try. Each redo takes a bit longer than the last,
   and after four of them the tool stops and says so — at that point, approve it, fix it by
   hand, or ask whoever set this up.
-- **Fix by hand** — repair it yourself. The tool shows you which folder to save into.
-  Repair the drawing (in the generator, or in Figma), save the new `.svg` and `_bw.png`
-  files with **exactly the same names** into that folder, then press **I've replaced it**.
+- **Fix by hand** — repair it yourself, here, with a white pencil and a crop tool. See
+  [Fixing a page by hand](#fixing-a-page-by-hand) below.
 
 A photo you repaired by hand comes back as *needs approval* — it never sneaks into the
 book without you saying yes.
@@ -93,6 +92,39 @@ holds back only its own order; the others still print.
 
 When you have approved everything, press **Go** again. The tool skips everything already
 done and just prints the books.
+
+---
+
+## Fixing a page by hand
+
+**Fix by hand** opens the colouring page full size, with two tools:
+
+- **White pencil** — paint over anything you want gone. The pencil is white, the same white
+  as the paper, so a stroke rubs the drawing out. Drag the **size** slider for a fatter or
+  finer pencil. This is the fix for hair or clothes that came out as a solid black blob:
+  paint the blob away and leave the outline around it.
+- **Crop** — drag a box, and everything outside it is trimmed off. Use it to cut away a
+  distracting background, or to centre someone in the frame.
+
+**Undo** takes back your last stroke or box. **Clear** takes back all of them. **Cancel**
+throws the whole lot away and changes nothing. Nothing is written until you press **Save**.
+
+When you save, the page goes back to *needs approval* and is marked **fixed by hand**. Look
+it over and approve it like any other page.
+
+Changed your mind, even days later? Open it again and press **Revert to the generated
+page**. The page the machine drew is kept safe the first time you edit, so this always
+works — right up until you revert, which throws the edit away for good.
+
+You are editing the vector drawing itself, which is the file the book is printed from. What
+you see is what gets printed. You never have to open the `.svg` anywhere else, and there is
+no second file to keep in step.
+
+> Some pages need more than a pencil. Press **Repair elsewhere…** in the editor and the tool
+> hands the page over: it names the folder, and there are buttons to open that folder and the
+> generator. Repair the drawing, save the new `.svg` and `_bw.png` into it under **exactly the
+> same names**, then press **I've replaced it**. It comes back as *needs approval*, same as
+> everything else.
 
 ---
 

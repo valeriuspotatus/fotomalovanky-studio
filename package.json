@@ -18,7 +18,8 @@
     "ded-safety": "node tools/dedicationSafety.mjs",
     "picker-probe": "node tools/folderPickerProbe.mjs",
     "queue-smoke": "node tools/queueSmoke.mjs",
-    "smoke": "npm run grid-smoke && npm run queue-smoke && npm run ded-safety"
+    "smoke": "npm run grid-smoke && npm run queue-smoke && npm run editor-smoke && npm run ded-safety",
+    "editor-smoke": "node tools/editorSmoke.mjs"
   },
   "dependencies": {
     "playwright": "^1.48.0",
