@@ -352,8 +352,12 @@ async function startRun() {
   await refresh(true);
 }
 
+let picking = false;
+
 async function browse() {
+  if (picking) return; // one dialog at a time; a second would open behind the first
   const btn = $('#browse');
+  picking = true;
   btn.disabled = true;
   btn.textContent = 'Choose a folder…';
   try {
@@ -376,6 +380,7 @@ async function browse() {
   } catch {
     toast('Could not open the folder picker — type or paste the path into the box instead.', true);
   }
+  picking = false;
   btn.disabled = false;
   btn.textContent = 'Browse…';
 }
@@ -411,7 +416,11 @@ function paintGoBar(data) {
   const running = data.run.active;
   $('#run').disabled = running;
   $('#run').textContent = running ? 'Running…' : 'Go';
-  $('#browse').disabled = running;
+  // The poll repaints this bar every second. Without `picking` it would re-enable the button under
+  // an open dialog — a second click, a second dialog — and leave the label stuck on "Choose a
+  // folder…" once the first one closed.
+  $('#browse').disabled = running || picking;
+  $('#browse').textContent = picking ? 'Choose a folder…' : 'Browse…';
   $('#force').disabled = running;
   const inbox = $('#inbox');
   if (document.activeElement !== inbox && !inbox.value) inbox.value = localStorage.getItem(INBOX_KEY) || data.inbox || '';

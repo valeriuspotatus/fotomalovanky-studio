@@ -235,7 +235,7 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
  *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
  *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
  *  double-click launcher, where a real operator is watching, turns it on. */
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, revealFinished = false, reveal = openExternally } = {}) {
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, revealFinished = false, reveal = openExternally, log = () => {} } = {}) {
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
@@ -411,7 +411,12 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       // POST /api/_pick-folder { startAt? } — a native folder dialog, so no path has to be typed.
       if (req.method === 'POST' && url.pathname === '/api/_pick-folder') {
         const { startAt } = await readJson(req);
-        return json(res, 200, await pickFolder(String(startAt ?? '')));
+        // Said out loud in the operator's window. A folder dialog that fails to appear is
+        // otherwise indistinguishable from a button that never did anything at all.
+        log('Opening the folder picker… (it may be behind this window)');
+        const picked = await pickFolder(String(startAt ?? ''));
+        log(picked.path ? `Folder chosen: ${picked.path}` : picked.available ? 'Folder picker closed without choosing.' : 'The folder picker could not be opened.');
+        return json(res, 200, picked);
       }
 
       // GET /img/<order>/<base>/<original|coloring>
@@ -520,7 +525,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(1);
   }
 
-  const { server } = createReviewServer({ config, inboxRoot, outboxRoot, revealFinished: true });
+  const { server } = createReviewServer({ config, inboxRoot, outboxRoot, revealFinished: true, log: (m) => console.log(`  ${m}`) });
   server.on('error', (err) => {
     const why =
       err.code === 'EADDRINUSE'

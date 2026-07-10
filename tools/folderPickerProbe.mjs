@@ -78,6 +78,17 @@ await page.waitForTimeout(1200);
 const before = foreground();
 check('the browser holds the foreground before we start', /Chrome_WidgetWin/.test(before.cls), `${before.cls} "${before.title}"`);
 
+// Windows only refuses to let another process take the foreground when the one that has it
+// *recently received real user input*. The operator clicking "Browse…" is exactly that, and it
+// arms the lock against the picker. Playwright's clicks go into Chromium over the debug protocol
+// and never touch the OS input queue, so a probe without this line tests the easy case and passes
+// while the real thing fails silently behind the browser.
+execFileSync(ps, [
+  '-NoProfile',
+  '-Command',
+  `Add-Type -Namespace I -Name K -MemberDefinition '[DllImport("user32.dll")] public static extern void keybd_event(byte a, byte b, uint c, IntPtr d);'; [I.K]::keybd_event(0x10,0,0,[IntPtr]::Zero); [I.K]::keybd_event(0x10,0,2,[IntPtr]::Zero)`,
+]);
+
 // Exactly how the server spawns it: no console, no click, no input of its own.
 const encoded = Buffer.from(pickFolderScript('C:\\Users'), 'utf16le').toString('base64');
 const child = spawn(ps, ['-NoProfile', '-STA', '-EncodedCommand', encoded], { windowsHide: true });
@@ -89,6 +100,31 @@ await new Promise((r) => setTimeout(r, 4500));
 const after = foreground();
 check('a folder dialog is now the foreground window', after.cls === '#32770', `${after.cls} "${after.title}"`);
 check('and it belongs to the picker process', after.pid === child.pid, `dialog pid ${after.pid}, picker pid ${child.pid}`);
+
+// Belt and braces: if Windows ever does refuse to raise it, the operator must still be able to
+// find it. A dialog with no taskbar button and no Alt-Tab entry is a dialog that never opened.
+const inTaskbar = execFileSync(ps, [
+  '-NoProfile',
+  '-Command',
+  `Add-Type -Namespace T -Name W -MemberDefinition '
+     [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i);
+     [DllImport("user32.dll")] public static extern bool EnumWindows(P cb, IntPtr p);
+     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+     public delegate bool P(IntPtr h, IntPtr p);';
+   $found = $false
+   $cb = [T.W+P]{ param($h,$p)
+     $pid2 = 0; [void][T.W]::GetWindowThreadProcessId($h, [ref]$pid2)
+     if ($pid2 -eq ${child.pid} -and [T.W]::IsWindowVisible($h)) {
+       $ex = [T.W]::GetWindowLong($h, -20)
+       if (($ex -band 0x40000) -ne 0 -or ($ex -band 0x80) -eq 0) { $script:found = $true }
+     }
+     return $true
+   }
+   [void][T.W]::EnumWindows($cb, [IntPtr]::Zero)
+   $found`,
+]).toString().trim();
+check('and it can be found in the taskbar or Alt-Tab', inTaskbar === 'True', `WS_EX_APPWINDOW/non-toolwindow: ${inTaskbar}`);
 
 // Cancelling is not a failure. If it exited non-zero the grid would cry "could not open the
 // folder picker" at an operator who simply changed their mind.
