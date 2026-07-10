@@ -132,6 +132,10 @@ again, and the book prints — title page, four cover thumbnails and all.
 **"Port 4173 is already in use"** — the tool is already running in another window. Look for
 the black window, or close it and start again.
 
+**The browser didn't open by itself.** The black window always prints the address. Open Chrome
+and go to <http://127.0.0.1:4173/>. Everything you do — Browse, Go, reviewing photos — happens
+on that page; there is nothing to click in the black window.
+
 **"Could not launch the headless browser"** — run `Setup.cmd` again; it installs the
 browser that makes the PDFs.
 

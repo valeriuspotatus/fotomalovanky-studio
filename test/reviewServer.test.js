@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { createReviewServer } from '../src/ui/server.js';
+import { createReviewServer, openCommand, powershellPath, openExternally } from '../src/ui/server.js';
 import { STATES, readManifest, getStatus, setStatus, writeManifest, emptyManifest } from '../src/manifest.js';
 
 const TOKEN = 'sup3r-s3cret-t0ken-abc123';
@@ -175,4 +175,42 @@ test('marking a clean photo bad pulls it back out of the builder gate', async ()
   const { orders } = await (await get('/api/state')).json();
   assert.equal(orders[0].photos.find((p) => p.base === 'clean').builderEligible, false);
   assert.equal(orders[0].summary.ready, false);
+});
+
+// ---- opening things on the desktop ------------------------------------------
+// PATH is capped near 2047 chars on Windows and silently loses its tail. On the operator's
+// machine System32 had fallen off it, so a bare "cmd" resolved to nothing, spawn raised ENOENT
+// on an async 'error' event, and the unhandled event killed the server as it started.
+
+test('on Windows the desktop is opened through an absolute cmd.exe, never a bare "cmd"', () => {
+  const [bin, args] = openCommand('http://127.0.0.1:4173/', 'win32', { ComSpec: 'C:\\WINDOWS\\system32\\cmd.exe' });
+  assert.equal(bin, 'C:\\WINDOWS\\system32\\cmd.exe');
+  assert.deepEqual(args, ['/c', 'start', '', 'http://127.0.0.1:4173/']);
+});
+
+test('without ComSpec it is still absolute, derived from SystemRoot', () => {
+  const [bin] = openCommand('x', 'win32', { SystemRoot: 'D:\\Windows' });
+  assert.equal(bin, join('D:\\Windows', 'System32', 'cmd.exe'));
+  const [fallback] = openCommand('x', 'win32', {});
+  assert.match(fallback, /System32[\\/]cmd\.exe$/);
+  assert.notEqual(fallback, 'cmd');
+});
+
+test('the folder picker resolves PowerShell absolutely too', () => {
+  assert.equal(
+    powershellPath({ SystemRoot: 'D:\\Windows' }),
+    join('D:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+  );
+});
+
+test('macOS and Linux keep their PATH-resolved openers', () => {
+  assert.deepEqual(openCommand('x', 'darwin', {}), ['open', ['x']]);
+  assert.deepEqual(openCommand('x', 'linux', {}), ['xdg-open', ['x']]);
+});
+
+test('a browser that cannot be launched resolves false instead of killing the tool', async () => {
+  // spawn reports a missing binary on an asynchronous 'error' event. If nothing listens for it,
+  // Node treats it as an unhandled error and tears the process down — which is exactly how the
+  // server died at startup. If that regressed, this test would not fail; it would crash the run.
+  assert.equal(await openExternally('http://127.0.0.1:4173/', ['C:\\NoSuchDir\\nope.exe', []]), false);
 });

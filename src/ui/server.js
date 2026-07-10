@@ -90,6 +90,26 @@ async function thumbnail(path) {
 
 const MAX_LOG_LINES = 400;
 
+// Never ask PATH for a Windows binary. PATH is capped near 2047 characters and a machine that has
+// grown past it silently loses its tail — this operator's had dropped System32, so a bare "cmd"
+// resolved to nothing. ComSpec and SystemRoot are set by Windows itself and say where the real
+// binaries are, so use those.
+const systemRoot = (env) => env.SystemRoot ?? env.windir ?? 'C:\\Windows';
+
+/** The command that hands `target` to the desktop. Absolute on Windows, by design. */
+export function openCommand(target, platform = process.platform, env = process.env) {
+  if (platform === 'win32') {
+    return [env.ComSpec ?? join(systemRoot(env), 'System32', 'cmd.exe'), ['/c', 'start', '', target]];
+  }
+  if (platform === 'darwin') return ['open', [target]];
+  return ['xdg-open', [target]];
+}
+
+/** Absolute path to Windows PowerShell, for the same reason. */
+export function powershellPath(env = process.env) {
+  return join(systemRoot(env), 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+}
+
 /** Ask Windows for a folder. A non-technical operator should not have to paste a path.
  *  Any failure (wrong platform, no PowerShell, cancelled) resolves to null — never throws. */
 async function pickFolder() {
@@ -102,7 +122,7 @@ async function pickFolder() {
   ].join('; ');
   return new Promise((resolve) => {
     let out = '';
-    const ps = spawn('powershell', ['-NoProfile', '-STA', '-Command', script], { windowsHide: false });
+    const ps = spawn(powershellPath(), ['-NoProfile', '-STA', '-Command', script], { windowsHide: false });
     const timer = setTimeout(() => { ps.kill(); resolve(null); }, 120_000);
     ps.stdout.on('data', (d) => (out += d));
     ps.on('error', () => { clearTimeout(timer); resolve(null); });
@@ -110,20 +130,24 @@ async function pickFolder() {
   });
 }
 
-/** Best-effort "open this in the operator's desktop". Never throws into a request. */
-function openExternally(target) {
-  const cmd =
-    process.platform === 'win32'
-      ? ['cmd', ['/c', 'start', '', target]]
-      : process.platform === 'darwin'
-        ? ['open', [target]]
-        : ['xdg-open', [target]];
-  try {
-    spawn(cmd[0], cmd[1], { detached: true, stdio: 'ignore' }).unref();
-    return true;
-  } catch {
-    return false;
-  }
+/** Best-effort "open this in the operator's desktop". Resolves false rather than throwing, and
+ *  above all never lets a failure escape: spawn reports ENOENT on an asynchronous 'error' event,
+ *  and an unhandled one takes the whole process down — the tool must not die because a browser
+ *  would not open. */
+export function openExternally(target, [bin, args] = openCommand(target)) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(bin, args, { detached: true, stdio: 'ignore' });
+    } catch {
+      return resolve(false);
+    }
+    child.once('error', () => resolve(false));
+    child.once('spawn', () => {
+      child.unref();
+      resolve(true);
+    });
+  });
 }
 
 export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc } = {}) {
@@ -275,11 +299,11 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       // POST /api/_open/<generator|folder>[/<order>] — the server opens it, so no path or token
       // is ever handed to the page. Reserved prefix, so an order can never shadow this route.
       if (req.method === 'POST' && parts[0] === 'api' && parts[1] === '_open') {
-        if (parts[2] === 'generator') return json(res, 200, { opened: openExternally(config.generator.baseUrl) });
+        if (parts[2] === 'generator') return json(res, 200, { opened: await openExternally(config.generator.baseUrl) });
         if (parts[2] === 'folder' && parts[3]) {
           const order = state().find((o) => o.orderId === parts[3]);
           if (!order) return json(res, 404, { error: 'Unknown order.' });
-          return json(res, 200, { opened: openExternally(order.orderDir) });
+          return json(res, 200, { opened: await openExternally(order.orderDir) });
         }
         return json(res, 404, { error: 'Not found.' });
       }
@@ -352,6 +376,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   server.listen(port, '127.0.0.1', () => {
     const url = `http://127.0.0.1:${port}/`;
     console.log(`\n  Fotomalovánky is running.\n\n  ${url}\n\n  Leave this window open. Close it (or press Ctrl-C) to stop.\n`);
-    if (!argv.includes('--no-open')) openExternally(url);
+    if (!argv.includes('--no-open')) {
+      openExternally(url).then((opened) => {
+        if (!opened) console.log(`  Could not open your browser by itself. Open it and go to  ${url}\n`);
+      });
+    }
   });
 }
