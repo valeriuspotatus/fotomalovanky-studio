@@ -34,6 +34,10 @@ Objedn*/
 # the screen recording shows it on camera; plus ~211MB of images. Local only.
 Fotomalovanky Automation/
 
+# A copy of the Shopify Chrome extension, kept here only to read. It belongs to someone else
+# and is not part of this tool. The one Brave loads lives on the Desktop.
+Shopify chrome extention/
+
 # Node
 node_modules/
 npm-debug.log*
