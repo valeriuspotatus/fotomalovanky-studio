@@ -80,7 +80,10 @@ const builder = {
 // line-art would trip the real QC tripwire, and a held order never reaches the builder — which is
 // correct, and not what this harness is about.
 const okQc = async () => ({ verdict: 'ok', reason: 'ok' });
-const { server } = createReviewServer({ config, inboxRoot: join(fx.root, 'unset'), outboxRoot: fx.outbox, memoryRoot: fx.root, driver: generator, builder, qc: okQc });
+// The folder the tool is configured to open at. Empty, like a real "new orders" folder before
+// anything has been downloaded into it — so a freshly opened tool shows a clean page.
+const CONFIGURED = join(fx.root, 'new-orders');
+const { server } = createReviewServer({ config, inboxRoot: CONFIGURED, outboxRoot: fx.outbox, memoryRoot: fx.root, driver: generator, builder, qc: okQc });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 
@@ -96,15 +99,17 @@ const orderIds = () => page.$$eval('#root section.order h2', (hs) => hs.map((h) 
 const earlierIds = () => page.$$eval('#earlier section.order h2', (hs) => hs.map((h) => h.textContent.replace('Order ', '')));
 
 try {
-  // As if they had used this folder yesterday and shut the tool down.
-  await page.addInitScript((dir) => localStorage.setItem('fma:inbox', dir), fx.inbox);
+  // A different folder was opened once, weeks ago, and its path is still in localStorage. That
+  // stale value is exactly what pointed this operator at their 439-order archive, so it must not
+  // outrank the folder the tool is configured for.
+  await page.addInitScript((dir) => localStorage.setItem('fma:inbox', dir), join(fx.root, 'used-once-weeks-ago'));
   await page.goto(url);
   await page.waitForSelector('#root');
 
   // Nothing chosen yet. Reopening the tool must not put last week's finished books on the desk.
   await page.waitForSelector('#root .empty');
   check('a freshly opened tool shows a clean page', (await orderIds()).length === 0);
-  check('it offers yesterday\'s folder', (await page.inputValue('#inbox')) === fx.inbox);
+  check('it opens at the configured folder, not a stale one used once', (await page.inputValue('#inbox')) === CONFIGURED);
   check('but does not open it', await page.locator('#queue').isHidden());
   check('the finished books are counted, not shown', /Order history \(2\)/.test(await page.locator('#history').textContent()));
   check('Go is offered, Stop is not — there is nothing to stop', (await page.locator('#run').isVisible()) && (await page.locator('#stop').isHidden()));

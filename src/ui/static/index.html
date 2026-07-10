@@ -468,7 +468,10 @@ function paintGoBar(data) {
   $('#browse').textContent = picking ? 'Choose a folder…' : 'Browse…';
   $('#force').disabled = running;
   const inbox = $('#inbox');
-  if (document.activeElement !== inbox && !inbox.value) inbox.value = localStorage.getItem(INBOX_KEY) || data.inbox || '';
+  // The box opens at the folder the tool is configured for (config.json paths.inbox), which the
+  // server reports as data.inbox and updates to whatever the operator Browses to this session.
+  // That is the one the downloads go into; a folder used once weeks ago should not outrank it.
+  if (document.activeElement !== inbox && !inbox.value) inbox.value = data.inbox || localStorage.getItem(INBOX_KEY) || '';
   paintQueue(data.queue, data.selected, running);
 }
 
@@ -1211,9 +1214,10 @@ $('#inbox').addEventListener('keydown', (e) => {
 // — never whatever ends up in the box, because paintGoBar seeds it with the server's configured
 // default, and scanning a default that does not exist greets them with a red error for doing
 // nothing but opening the page. And never mid-run, when a scan is rightly refused.
-// The folder they used last is offered, not opened. Reopening the tool starts on a clean page:
+// The configured folder is offered, not opened. Reopening the tool starts on a clean page:
 // last week's orders are in Order history, and nothing is ticked until they say so.
-$('#inbox').value = localStorage.getItem(INBOX_KEY) || '';
+// Left empty here so the first paint fills it from the server's configured folder (data.inbox).
+$('#inbox').value = '';
 refresh();
 setInterval(refresh, 1500);
 </script>
