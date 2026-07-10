@@ -86,6 +86,9 @@
  button.danger:hover:not(:disabled){background:rgba(255,107,107,.18)}
  .busy{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line);
        font-size:12px;color:var(--muted);font-family:ui-monospace,monospace}
+ /* Same shape as .busy, deliberately without a wheel: this photo is queued, not working. */
+ .idle{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line);
+       font-size:12px;color:var(--faint);font-family:ui-monospace,monospace}
  .spin{width:13px;height:13px;border:2px solid #3d434d;border-top-color:var(--hold);border-radius:50%;animation:s .8s linear infinite;flex:none}
  @keyframes s{to{transform:rotate(360deg)}}
  .manualbox{background:rgba(224,163,62,.10);border:1px solid rgba(224,163,62,.35);border-radius:6px;
@@ -435,7 +438,11 @@ function tile(orderId, orderDir, p, locked) {
   if (busy) {
     acts = `<div class="busy"><div class="spin"></div><span>${esc(busy.message)}</span></div>`;
   } else if (status === 'pending') {
-    acts = `<div class="busy"><div class="spin"></div><span>waiting for the batch to reach this photo</span></div>`;
+    // A spinning wheel means "something is happening". Nothing is happening until a run is on:
+    // ticking an order queues it, it does not start it. Say which of the two this is.
+    acts = locked
+      ? `<div class="busy"><div class="spin"></div><span>waiting for the batch to reach this photo</span></div>`
+      : `<div class="idle"><span>not made yet — press Go to make it</span></div>`;
   } else if (status === 'manual_in_progress') {
     acts = `<div class="manualbox">
         Repair it, then save <code>${esc(p.base)}.svg</code> and <code>${esc(p.base)}_bw.png</code> into<br>

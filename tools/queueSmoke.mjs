@@ -129,6 +129,12 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('#root section.order').length === 2);
   check('unticking an order takes it out of the grid', (await orderIds()).sort().join() === '1479,1510');
 
+  // Ticking queues an order; it does not start it. A spinning wheel here would tell the operator
+  // the tool was working, and they would sit and wait for a batch nobody started.
+  const idleSpinners = await page.locator('.tile .spin').count();
+  check('a ticked order does not pretend to be working', idleSpinners === 0, `${idleSpinners} wheels spinning with no run`);
+  check('it says what it is waiting for instead', /press Go to make it/.test(await page.locator('#root').textContent()));
+
   await page.click('#queue button[data-tick="none"]');
   await page.waitForFunction(() => document.querySelectorAll('#queue input:checked').length === 0);
   // Wipe any toast still on screen: waiting for ".err" would otherwise match an older one and
