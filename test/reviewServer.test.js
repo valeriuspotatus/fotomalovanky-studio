@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { createReviewServer, openCommand, powershellPath, openExternally } from '../src/ui/server.js';
+import { createReviewServer, openCommand, powershellPath, openExternally, pickFolder, pickFolderScript } from '../src/ui/server.js';
 import { STATES, readManifest, getStatus, setStatus, writeManifest, emptyManifest } from '../src/manifest.js';
 
 const TOKEN = 'sup3r-s3cret-t0ken-abc123';
@@ -236,4 +236,29 @@ test('the title-page text derived from the photo names reaches the browser', asy
     s.close();
     rmSync(r, { recursive: true, force: true });
   }
+});
+
+// ---- the folder dialog ------------------------------------------------------
+
+test('the picker script shows a real owner window and forces itself forward', () => {
+  const s = pickFolderScript('');
+  // An unshown TopMost form is on top of nothing; the dialog it owns opens behind the browser.
+  assert.match(s, /\$owner\.Show\(\)/);
+  // Windows refuses the foreground to a process that got no click. Borrow the input queue.
+  assert.match(s, /AttachThreadInput/);
+  assert.match(s, /SetForegroundWindow/);
+  assert.match(s, /FolderBrowserDialog/);
+});
+
+test("the picker opens where the operator left off, and a quote in the path cannot break out", () => {
+  assert.match(pickFolderScript('C:\Orders'), /\$d\.SelectedPath = 'C:\Orders'/);
+  // PowerShell escapes a single quote by doubling it; anything else ends the string early and
+  // the rest of the operator's folder name becomes code.
+  assert.match(pickFolderScript("C:\it's here"), /'C:\it''s here'/);
+  assert.doesNotMatch(pickFolderScript(''), /\$d\.SelectedPath =/);
+});
+
+test('there is no folder dialog off Windows, and asking for one is not an error', async () => {
+  assert.deepEqual(await pickFolder('', 'darwin'), { path: null, available: false });
+  assert.deepEqual(await pickFolder('', 'linux'), { path: null, available: false });
 });

@@ -204,7 +204,13 @@ async function browse() {
   btn.disabled = true;
   btn.textContent = 'Choose a folder…';
   try {
-    const { path, available } = await (await fetch('/api/_pick-folder', { method: 'POST' })).json();
+    const { path, available } = await (
+      await fetch('/api/_pick-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startAt: $('#inbox').value.trim() }), // open where they left off
+      })
+    ).json();
     if (path) {
       $('#inbox').value = path;
       localStorage.setItem(INBOX_KEY, path);

@@ -112,29 +112,76 @@ export function powershellPath(env = process.env) {
   return join(systemRoot(env), 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 }
 
-/** Ask Windows for a folder. A non-technical operator should not have to paste a path.
+/** The PowerShell that shows the folder dialog, and shows it *in front*.
  *
- *  `ShowDialog()` with no owner opens *behind* the browser: a background process cannot take the
- *  foreground in Windows, and a dialog with no owner has nothing to be on top of. An unshown
- *  TopMost form is a valid owner and drags the dialog to the front with it.
+ *  An unshown TopMost form does not work: it has no window, so it is on top of nothing, and the
+ *  dialog it owns opens behind the browser where the operator never finds it. Windows also
+ *  refuses SetForegroundWindow to a process that neither owns the foreground nor received the
+ *  last input — and the one that gets the click is Chrome, not this background server. So: show
+ *  a real (1x1, transparent, taskbar-less) topmost owner, borrow the foreground thread's input
+ *  queue long enough to be allowed forward, and open the dialog owned by it.
+ *
+ *  Exported so the probe in tools/ can drive the very script the server runs. */
+export function pickFolderScript(startAt = '') {
+  // PowerShell escapes a single quote by doubling it. Without this, a folder named "it's here"
+  // closes the string and the rest of the operator's path is executed as code.
+  const start = String(startAt).trim().replace(/'/g, "''");
+  const openWhereTheyLeftOff = start ? `$d.SelectedPath = '${start}'` : '';
+  return `
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class Fg {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool attach);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+}
+"@
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.Opacity = 0
+$owner.Width = 1
+$owner.Height = 1
+$owner.Show()
+
+$fg = [Fg]::GetForegroundWindow()
+$theirs = [Fg]::GetWindowThreadProcessId($fg, [IntPtr]::Zero)
+$mine = [Fg]::GetCurrentThreadId()
+if ($theirs -ne $mine) { [void][Fg]::AttachThreadInput($theirs, $mine, $true) }
+[void][Fg]::BringWindowToTop($owner.Handle)
+[void][Fg]::SetForegroundWindow($owner.Handle)
+if ($theirs -ne $mine) { [void][Fg]::AttachThreadInput($theirs, $mine, $false) }
+$owner.Activate()
+
+$d = New-Object System.Windows.Forms.FolderBrowserDialog
+$d.Description = 'Choose the folder your Chrome extension downloads orders into'
+$d.ShowNewFolderButton = $false
+${openWhereTheyLeftOff}
+if ($d.ShowDialog($owner) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }
+$owner.Close()
+$owner.Dispose()
+`;
+}
+
+/** Ask Windows for a folder. A non-technical operator should not have to paste a path.
  *
  *  Resolves `{ path, available }`. `path` is null when the operator cancels — which is not a
  *  failure — so `available` says whether the dialog ever appeared, and only that earns a warning.
  *  Never throws. */
-async function pickFolder() {
-  if (process.platform !== 'win32') return { path: null, available: false };
-  const script = [
-    'Add-Type -AssemblyName System.Windows.Forms',
-    '$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true}',
-    '$d = New-Object System.Windows.Forms.FolderBrowserDialog',
-    "$d.Description = 'Choose the folder your Chrome extension downloads orders into'",
-    '$d.ShowNewFolderButton = $false',
-    "if ($d.ShowDialog($owner) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }",
-    '$owner.Dispose()',
-  ].join('; ');
+export function pickFolder(startAt = '', platform = process.platform) {
+  if (platform !== 'win32') return Promise.resolve({ path: null, available: false });
+  // -EncodedCommand, not -Command: the script has newlines, quotes and a here-string, and every
+  // one of them is a way for Node's Windows argument escaping to mangle it.
+  const encoded = Buffer.from(pickFolderScript(startAt), 'utf16le').toString('base64');
   return new Promise((resolve) => {
     let out = '';
-    const ps = spawn(powershellPath(), ['-NoProfile', '-STA', '-Command', script], { windowsHide: false });
+    const ps = spawn(powershellPath(), ['-NoProfile', '-STA', '-EncodedCommand', encoded], { windowsHide: true });
     const timer = setTimeout(() => { ps.kill(); resolve({ path: null, available: false }); }, 120_000);
     ps.stdout.on('data', (d) => (out += d));
     ps.on('error', () => { clearTimeout(timer); resolve({ path: null, available: false }); });
@@ -300,9 +347,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 202, { started: true, inbox });
       }
 
-      // POST /api/_pick-folder — a native folder dialog, so no path has to be typed.
+      // POST /api/_pick-folder { startAt? } — a native folder dialog, so no path has to be typed.
       if (req.method === 'POST' && url.pathname === '/api/_pick-folder') {
-        return json(res, 200, await pickFolder());
+        const { startAt } = await readJson(req);
+        return json(res, 200, await pickFolder(String(startAt ?? '')));
       }
 
       // GET /img/<order>/<base>/<original|coloring>
