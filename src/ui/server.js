@@ -163,7 +163,11 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
   });
 }
 
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc } = {}) {
+/** `revealFinished` opens the finished book's folder on the desktop. It defaults to off: a test
+ *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
+ *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
+ *  double-click launcher, where a real operator is watching, turns it on. */
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, revealFinished = false, reveal = openExternally } = {}) {
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
@@ -227,8 +231,16 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
             status: o.status,
             reason: o.reason,
             pdf: Boolean(o.pdfPath),
+            titled: o.titled,
           })),
         };
+
+        // The book is the point of the run, and it lands in a folder the operator never chose.
+        // Show it to them. One order opens its own folder; a batch opens the one that holds
+        // them all, rather than throwing a window per order at the screen.
+        const built = result.orders.filter((o) => o.pdfPath);
+        if (!revealFinished || !built.length) return;
+        reveal(built.length === 1 ? built[0].orderDir : outbox);
       })
       .catch((err) => {
         run.error = `${err.seam ?? 'unknown'} seam: ${err.message}`;
@@ -377,7 +389,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(1);
   }
 
-  const { server } = createReviewServer({ config, inboxRoot, outboxRoot });
+  const { server } = createReviewServer({ config, inboxRoot, outboxRoot, revealFinished: true });
   server.on('error', (err) => {
     const why =
       err.code === 'EADDRINUSE'

@@ -98,13 +98,20 @@ export function getStatus(manifest, base) {
   return manifest.photos?.[base]?.status ?? null;
 }
 
-/** The book's title-page text, an order-level operator input. The builder renders a title page
- *  only when this is non-empty, and the operator's current books have one — so an order without
- *  a dedication prints a structurally different (2 pages shorter) book. */
+/** The book's title-page text, an order-level operator input, usually recovered from the photo
+ *  names (see dedication.js). Empty is a legitimate answer: the customer wrote nothing, and their
+ *  title page prints without a text line. See `titleTextFor` for what the page count does. */
 const MAX_DEDICATION = 500;
 
 export function getDedication(manifest) {
   return manifest.dedication ?? '';
+}
+
+/** Has anyone decided this order's title page yet? Distinguishes "never set" — where a text
+ *  derived from the photo names is a helpful guess — from "the operator deliberately emptied
+ *  it", where re-deriving it would overwrite their decision on every poll. */
+export function hasDedication(manifest) {
+  return manifest.dedication !== undefined;
 }
 
 export function setDedication(manifest, text) {

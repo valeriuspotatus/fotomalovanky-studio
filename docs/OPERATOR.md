@@ -98,12 +98,19 @@ done and just prints the books.
 
 ## The title page
 
-Each book can open with a dedication — *"Pro Barču, s láskou od rodiny"*. Type it into the
-**Title page** box at the top of the order, then press Tab or click away.
+Each book can open with a dedication — *"Pro Barču, s láskou od rodiny"*.
 
-Every book you make has one, so **the tool will not print an order until you type it.** The
-order waits in the review grid and the run report says `no title text`. Fill it in, press Go
-again, and the book prints — title page, four cover thumbnails and all.
+**You usually do not have to type it.** The customer's words are already in the photo names:
+`1523_img0001_-_hofbauerovi_18.7.2026` becomes *"Hofbauerovi 18.7.2026"*, and the tool fills the
+**Title page** box in for you, marked *from the photo names*. Correct it if it looks wrong — what
+you type always wins, and it is saved when you press Tab or click away.
+
+**A customer who wrote nothing still gets their book.** The box stays empty, the box says *no
+dedication*, and the run prints anyway: the title page and its four cover thumbnails are there,
+just with no words on them. The run report ends that order's line with `(no dedication)` so you
+can tell an empty title page apart from one you meant to fill in.
+
+Emptying the box on purpose is an answer too — the tool takes it and stops suggesting.
 
 ---
 

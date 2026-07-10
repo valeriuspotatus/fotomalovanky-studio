@@ -7,7 +7,17 @@ import { generateOrder, describeFailure } from './batch.js';
 import { createGeneratorDriver } from './generator/factory.js';
 import { BuilderDriver, collectPairs } from './builder/builderDriver.js';
 import { photoBase } from './organize.js';
-import { STATES, getStatus, getDedication, isBuilderEligible, manifestPath } from './manifest.js';
+import {
+  STATES,
+  getStatus,
+  getDedication,
+  hasDedication,
+  setDedication,
+  writeManifest,
+  isBuilderEligible,
+  manifestPath,
+} from './manifest.js';
+import { deriveDedication } from './dedication.js';
 
 // U6: the single "Go" run. ingest -> generate -> QC -> [review gate] -> builder -> PDF.
 //
@@ -83,8 +93,13 @@ async function buildOrder({ orderId, orderDir, bases, dedication, builder, confi
 }
 
 /** The text the builder will print on the title page: the customer's dedication, or a configured
- *  default if the operator set one. The builder renders a title page only when this is non-empty,
- *  so without it the order prints a structurally different (2 pages shorter) book. */
+ *  default if the operator set one.
+ *
+ *  The builder gives a book a title page when it has anything to put on it — the cover thumbnails
+ *  or this text. Measured against the live builder with 8 pairs (2026-07-10): coverCount 4 prints
+ *  20 pages with or without this text, and only `coverCount: 0` *and* no text drops the title page
+ *  and prints 18. So under the operator's config an order with no dedication is the same book with
+ *  an empty title line — not a structurally different one. */
 export function titleTextFor(config, dedication) {
   const fallback = config.builder?.pdf ?? {};
   return dedication || fallback.dedication || fallback.title || '';
@@ -123,24 +138,40 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
     const failed = notEligible.filter((b) => getStatus(manifest, b) === STATES.FAILED);
     const held = notEligible.filter((b) => getStatus(manifest, b) !== STATES.FAILED);
 
-    let entry = { orderId, orderDir, summary, held, failed, pdfPath: null, reason: null, status: null };
+    let entry = { orderId, orderDir, summary, held, failed, pdfPath: null, reason: null, status: null, titled: false };
+
+    // The customer's own words are in the photo names. Recover them once, for an order nobody
+    // has decided the title of yet — never over an operator who has already answered, including
+    // one who answered by emptying the box.
+    if (!hasDedication(manifest)) {
+      const derived = deriveDedication(bases);
+      if (derived) {
+        setDedication(manifest, derived);
+        writeManifest(orderDir, manifest);
+        onEvent({ type: 'title-derived', orderId, dedication: derived });
+      }
+    }
+
     const dedication = getDedication(manifest);
+    const titleText = titleTextFor(config, dedication);
 
     if (failed.length) {
       entry.status = ORDER_STATUS.FAILED;
       entry.reason = `${failed.length} photo(s) failed to generate: ${failed.map((b) => `${b} — ${manifest.photos[b].reason}`).join('; ')}`;
-    } else if (held.length) {
-      entry.status = ORDER_STATUS.HELD;
-      entry.reason = `${held.length} photo(s) waiting for you in the review grid`;
-    } else if (!titleTextFor(config, dedication)) {
-      // Every book the operator ships has a title page. Printing one without it is a different
-      // book, so the run holds the order rather than quietly handing over a 2-pages-shorter PDF.
-      entry.status = ORDER_STATUS.HELD;
-      entry.reason = "no title text — set the order's title in the review grid";
     } else {
-      build ??= new BuilderDriver(config);
-      const result = await buildOrder({ orderId, orderDir, bases, dedication, builder: build, config, force, onEvent });
-      entry = { ...entry, ...result };
+      if (held.length) {
+        entry.status = ORDER_STATUS.HELD;
+        entry.reason = `${held.length} photo(s) waiting for you in the review grid`;
+      } else {
+        // Plenty of customers write nothing. Their book is the same book with an empty title
+        // line, so it prints rather than waiting for an operator to invent words for them.
+        // Said out loud all the same: a dedication that was meant to be there and one that was
+        // never written look identical once the PDF exists.
+        if (!titleText) onEvent({ type: 'no-title', orderId });
+        build ??= new BuilderDriver(config);
+        const result = await buildOrder({ orderId, orderDir, bases, dedication, builder: build, config, force, onEvent });
+        entry = { ...entry, ...result, titled: Boolean(titleText) };
+      }
     }
 
     onEvent({ type: 'order-done', orderId, status: entry.status, pdfPath: entry.pdfPath, reason: entry.reason });
@@ -174,6 +205,8 @@ export function formatEvent(e) {
     case 'photo-flagged': return `  ${e.base}: FLAGGED (${e.reason}) — needs review`;
     case 'photo-failed': return `  ${e.base}: FAILED — ${e.reason}`;
     case 'photo-skipped': return `  ${e.base}: skipped (${e.status})`;
+    case 'title-derived': return `  title page (from the photo names): ${e.dedication}`;
+    case 'no-title': return '  no dedication in the photo names — the title page prints without text';
     case 'build-start': return `  building the PDF from ${e.photos} photo(s)…`;
     case 'build-done': return `  PDF: ${e.pdfPath} (${e.pairs} pairs)`;
     case 'build-skipped': return `  PDF already up to date: ${e.pdfPath}`;
@@ -233,7 +266,7 @@ function printReport({ orders, counts }) {
   const width = Math.max(...orders.map((o) => o.orderId.length));
   for (const o of orders) {
     const id = o.orderId.padEnd(width);
-    if (o.status === ORDER_STATUS.DONE) console.log(`  ${id}  done    ${o.pdfPath}`);
+    if (o.status === ORDER_STATUS.DONE) console.log(`  ${id}  done    ${o.pdfPath}${o.titled ? '' : '  (no dedication)'}`);
     else if (o.status === ORDER_STATUS.HELD) console.log(`  ${id}  held    ${o.reason}`);
     else console.log(`  ${id}  FAILED  ${o.reason}`);
   }

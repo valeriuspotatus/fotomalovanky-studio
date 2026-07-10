@@ -151,17 +151,19 @@ try {
   check('a refused action leaves the tile usable', (await tile('photo_manual').locator('button:disabled').count()) === 0);
   check('the photo stays out for manual repair', getStatus(readManifest(fx.orderDir), 'photo_manual') === STATES.MANUAL_IN_PROGRESS);
 
-  // The title page only prints when this is set, so it has to survive a blur and a repaint.
+  // These photo names carry no "_-_" text, so nothing is suggested and the title page has no words.
+  check('an order with nothing to suggest says so', (await page.locator('.ded .note').textContent()).includes('no dedication'));
+
+  // This text is what the customer reads first, so it has to survive a blur and a repaint.
   const ded = page.locator('.ded input');
   await ded.fill('Pro Barču, s láskou');
-  await ded.blur(); // `change` fires on blur — that is what saves it, not the typing
-  await page.waitForFunction(() => !document.querySelector('.ded .warn'));
+  await ded.blur(); // focusout is what saves it, not the typing
+  await page.waitForFunction(() => !document.querySelector('.ded .note'));
   check('the title-page text reaches state.json', readManifest(fx.orderDir).dedication === 'Pro Barču, s láskou');
 
-  // A background poll must not repaint the field the operator is typing into. Repainting
-  // *removes* a focused, dirty input, which fires blur -> change -> save: the poll would
-  // silently commit half-typed text as the dedication. Type key by key (pressSequentially
-  // fires `input` only, so nothing is saved yet) and change the state underneath them.
+  // A background poll must not commit half-typed text as the dedication — but it must not freeze
+  // the grid either. Type key by key (pressSequentially fires `input` only, so nothing is saved
+  // yet), change the state underneath, and demand that the tile repaints *while* they type.
   await ded.focus();
   await page.keyboard.press('End');
   await ded.pressSequentially(' od rodiny');
@@ -171,11 +173,21 @@ try {
 
   check('a poll does not commit half-typed text', readManifest(fx.orderDir).dedication === 'Pro Barču, s láskou');
   check('the operator keeps focus while typing', await page.evaluate(() => !!document.activeElement?.matches?.('.ded input')));
+  // The regression this exists for: a cursor resting in a title-page box used to freeze every
+  // tile in every order, so a finished redo sat on screen reading "vectorize: tracing to svg".
+  check(
+    'the grid keeps repainting while the operator types',
+    await page.evaluate(() => document.querySelector('[data-key="1510/photo_ok"] .pill')?.textContent === 'approved'),
+  );
+  check('their text survives the repaint', (await ded.inputValue()) === typed, typed);
+  check(
+    'their caret survives the repaint',
+    await page.evaluate(() => document.activeElement.selectionStart === document.activeElement.value.length),
+  );
 
-  // …and the deferred repaint lands as soon as the operator leaves the field.
   await ded.blur();
-  await page.waitForFunction(() => document.querySelector('[data-key="1510/photo_ok"] .pill')?.textContent === 'approved');
-  check('the deferred repaint arrives on blur', readManifest(fx.orderDir).dedication === typed, typed);
+  await page.waitForFunction(() => !document.querySelector('.ded .note'));
+  check('the text they typed through a repaint is saved on blur', readManifest(fx.orderDir).dedication === typed, typed);
 
   // ---- the Go button. Last, because a run mutates every order's state.json.
   await page.fill('#inbox', fx.inbox);

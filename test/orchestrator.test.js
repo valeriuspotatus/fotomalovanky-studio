@@ -4,11 +4,11 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, statSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { runPipeline, buildabilityProblem, ORDER_STATUS } from '../src/orchestrator.js';
+import { runPipeline, buildabilityProblem, formatEvent, ORDER_STATUS } from '../src/orchestrator.js';
 import { approve, setOrderDedication } from '../src/review.js';
 import { GeneratorError } from '../src/generator/driver.js';
 import { BuilderError } from '../src/builder/builderDriver.js';
-import { STATES, readManifest, getStatus, emptyManifest, setDedication, writeManifest } from '../src/manifest.js';
+import { STATES, readManifest, getStatus, getDedication, emptyManifest, setDedication, writeManifest } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
 
 /** A stand-in coloring raster: 1px lines with white paper between them. Half ink, but nothing
@@ -64,8 +64,8 @@ class StubBuilder {
 
 const DEDICATION = 'Pro Barču, s láskou';
 
-/** Seeds each order with a dedication, because a real one has one and the run holds an order
- *  that does not. Pass `{ dedication: null }` to exercise that hold. */
+/** Seeds each order with a dedication, because most real ones have one. Pass `{ dedication: null }`
+ *  for a customer who wrote nothing — their book prints too, with an empty title line. */
 function fixture(orders, { dedication = DEDICATION } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'fma-orch-'));
   const inbox = join(root, 'inbox');
@@ -274,40 +274,84 @@ test('the builder is handed the configured layout options and the order-named ou
 
 // ---- the title page --------------------------------------------------------
 
-test('an order with no dedication is held, not printed without a title page', async () => {
-  const f = fixture({ 1510: ['a'] }, { dedication: null });
+test('a customer who wrote no dedication still gets their book, with an untexted title page', async () => {
+  const f = fixture({ 1510: ['a'] }, { dedication: null }); // "a" carries no "_-_" text to recover
   try {
     const builder = new StubBuilder();
     const { orders, counts } = await run(f, { builder });
 
-    assert.equal(orders[0].status, ORDER_STATUS.HELD);
-    assert.match(orders[0].reason, /no title text/);
-    assert.equal(builder.calls.length, 0, 'the builder is never reached');
-    assert.equal(orders[0].pdfPath, null);
-    assert.deepEqual(counts, { done: 0, held: 1, failed: 0 });
+    assert.equal(orders[0].status, ORDER_STATUS.DONE);
+    assert.equal(orders[0].titled, false, 'the report says the book carries no dedication');
+    assert.equal(builder.calls.length, 1, 'the builder is reached');
+    assert.equal(builder.calls[0].options.dedication, undefined, 'no title text is sent');
+    assert.ok(orders[0].pdfPath);
+    assert.deepEqual(counts, { done: 1, held: 0, failed: 0 });
   } finally {
     f.cleanup();
   }
 });
 
-test("the operator's dedication releases the hold and reaches the builder", async () => {
+test('the run says out loud that a book printed with no dedication', async () => {
+  const f = fixture({ 1510: ['a'] }, { dedication: null });
+  try {
+    const lines = [];
+    await run(f, { builder: new StubBuilder(), onEvent: (e) => lines.push(formatEvent(e)) });
+    assert.ok(lines.some((l) => l && /no dedication/.test(l)), `expected a spoken warning, got: ${lines.filter(Boolean).join(' | ')}`);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("the operator's dedication reaches the builder and reprints the book", async () => {
   const f = fixture({ 1510: ['a'] }, { dedication: null });
   try {
     const first = await run(f);
-    assert.equal(first.orders[0].status, ORDER_STATUS.HELD);
+    assert.equal(first.orders[0].titled, false);
     setOrderDedication(first.orders[0].orderDir, '  Pro Barču, s láskou  ');
 
     const builder = new StubBuilder();
     const { orders } = await run(f, { builder });
 
     assert.equal(orders[0].status, ORDER_STATUS.DONE);
+    assert.equal(orders[0].titled, true);
     assert.equal(builder.calls[0].options.dedication, 'Pro Barču, s láskou', 'trimmed, and it is the title-page text');
   } finally {
     f.cleanup();
   }
 });
 
-test('a configured default title releases the hold when the order has no dedication', async () => {
+test('the title page is recovered from the photo names, and only for an undecided order', async () => {
+  const f = fixture({ 1521: ['1521_img0001_-_pro_maxinnku_a_estellku'] }, { dedication: null });
+  try {
+    const builder = new StubBuilder();
+    const { orders } = await run(f, { builder });
+
+    assert.equal(orders[0].titled, true);
+    assert.equal(builder.calls[0].options.dedication, 'Pro Maxinnku a Estellku');
+    assert.equal(getDedication(readManifest(orders[0].orderDir)), 'Pro Maxinnku a Estellku', 'persisted, so the grid shows it');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('an operator who empties the title page is not overruled by the photo names', async () => {
+  const f = fixture({ 1521: ['1521_img0001_-_pro_maxinnku_a_estellku'] }, { dedication: null });
+  try {
+    const first = await run(f);
+    setOrderDedication(first.orders[0].orderDir, ''); // 'this book gets no dedication'
+
+    const builder = new StubBuilder();
+    const { orders } = await run(f, { builder, force: true });
+
+    assert.equal(orders[0].status, ORDER_STATUS.DONE, 'it still prints');
+    assert.equal(orders[0].titled, false);
+    assert.equal(builder.calls[0].options.dedication, undefined, 'the derived text does not come back');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a configured default title is used when the order has no dedication', async () => {
   const f = fixture({ 1510: ['a'] }, { dedication: null });
   try {
     const builder = new StubBuilder();

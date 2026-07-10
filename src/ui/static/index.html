@@ -172,7 +172,13 @@ async function open(what, orderId) {
 
 const INBOX_KEY = 'fma:inbox';
 
+// Clicking Go blurs the title-page box, so its save is already in flight when the run starts.
+// The server refuses a dedication once a run is active, so let the save land first — otherwise
+// the click that starts the book is the click that throws its title page away.
+let pendingSave = Promise.resolve();
+
 async function startRun() {
+  await pendingSave.catch(() => {});
   const inbox = $('#inbox').value.trim();
   try {
     const res = await fetch('/api/_run', {
@@ -227,7 +233,7 @@ function paintRun(run) {
     for (const o of run.report.orders) {
       if (o.status === 'failed') parts.push(`<span class="err">  ${esc(o.orderId)}  FAILED  ${esc(o.reason)}</span>`);
       else if (o.status === 'held') parts.push(`  ${esc(o.orderId)}  held    ${esc(o.reason)}`);
-      else parts.push(`  ${esc(o.orderId)}  done    PDF written`);
+      else parts.push(`  ${esc(o.orderId)}  done    PDF written${o.titled ? '' : ' (no dedication)'}`);
     }
   }
   const html = parts.join('\n');
@@ -257,7 +263,7 @@ async function saveDedication(orderId, text) {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'could not save the title page text');
-    toast(body.dedication ? 'Title page saved.' : 'Title page removed — this order will not print until it has one.');
+    toast(body.dedication ? 'Title page saved.' : 'Title page cleared — this book will print without a dedication.');
   } catch (err) {
     toast(err.message, true);
   }
@@ -344,14 +350,36 @@ const skeletonOf = (data) =>
 function patchProgress(data) {
   for (const o of data.orders) {
     for (const p of o.photos) {
-      if (!p.busy) continue;
       const span = document.querySelector(`[data-key="${CSS.escape(o.orderId + '/' + p.base)}"] .busy span`);
-      if (span) span.textContent = p.busy.message;
+      // A finished redo has no message left. Leaving the last one on screen is what made a
+      // finished photo read as "still vectorizing" until something forced a repaint.
+      if (span) span.textContent = p.busy ? p.busy.message : '';
     }
   }
 }
 
+/** The operator may be typing a title page while a poll repaints the grid. Carry their text and
+ *  their caret across it. Freezing the grid instead — the old fix — stops every tile in every
+ *  order from updating for as long as the cursor rests in one box. */
+function captureFocus() {
+  const el = document.activeElement;
+  if (!el?.matches?.('.ded input')) return null;
+  return { order: el.closest('.ded').dataset.order, value: el.value, start: el.selectionStart, end: el.selectionEnd };
+}
+
+function restoreFocus(snap) {
+  if (!snap) return;
+  const el = document.querySelector(`.ded[data-order="${CSS.escape(snap.order)}"] input`);
+  if (!el || el.disabled) return;
+  el.value = snap.value; // the operator's text, never the server's
+  el.focus();
+  try {
+    el.setSelectionRange(snap.start, snap.end);
+  } catch {}
+}
+
 let lastSkeleton = null;
+let repainting = false;
 
 function render(data, force) {
   const root = $('#root');
@@ -362,14 +390,7 @@ function render(data, force) {
   paintGoBar(data);
 
   const skeleton = skeletonOf(data);
-  if (!force) {
-    if (skeleton === lastSkeleton) return patchProgress(data);
-    // Never repaint over a field the operator is typing into. Repainting removes the focused,
-    // dirty input, which fires blur -> change -> save: a background poll would silently commit
-    // half-typed text as this book's title page. An action they took themselves always repaints
-    // (force), or saving the field would swallow its own result.
-    if (document.activeElement?.matches?.('.ded input')) return patchProgress(data);
-  }
+  if (!force && skeleton === lastSkeleton) return patchProgress(data);
   lastSkeleton = skeleton;
 
   if (!orders.length) {
@@ -390,24 +411,40 @@ function render(data, force) {
   $('#c-ready').textContent = `${ready} ready for the builder`;
 
   const locked = data.run.active;
-  root.innerHTML = orders.map((o) => {
+  const html = orders.map((o) => {
     const s = o.summary;
     const note = o.dirName && o.dirName !== o.orderId ? `<span class="note">folder: ${esc(o.dirName)}</span>` : '';
     const badge = s.ready
       ? `<span class="chip ready">ready — ${s.total} photo${s.total > 1 ? 's' : ''}</span>`
       : `<span class="chip hold">${s.eligible}/${s.total} ready</span>`;
-    // The builder prints a title page only when this is non-empty, and the operator's books
-    // have one — so an empty dedication silently prints a different book.
+
+    // An untouched order shows the text recovered from the photo names; the operator's own
+    // answer, once given, always wins. `data-saved` is what the server holds, and `data-decided`
+    // marks an order they have already answered — clearing the box is one of the answers.
+    const shown = o.dedication || o.suggestedDedication;
+    const hint = o.dedication
+      ? ''
+      : o.suggestedDedication
+        ? '<span class="note">from the photo names</span>'
+        : '<span class="note">no dedication — the title page prints without text</span>';
     const ded = `<div class="ded" data-order="${esc(o.orderId)}">
         <label for="ded-${esc(o.orderId)}">Title page</label>
-        <input id="ded-${esc(o.orderId)}" value="${esc(o.dedication)}"${locked ? ' disabled' : ''} placeholder="dedication text — the book will not print without it">
-        ${o.dedication ? '' : '<span class="warn">needed before this order can print</span>'}
+        <input id="ded-${esc(o.orderId)}" value="${esc(shown)}" data-saved="${esc(o.dedication)}"${o.suggestedDedication ? '' : ' data-decided="1"'}${locked ? ' disabled' : ''} placeholder="no dedication — the title page will have no text">
+        ${hint}
       </div>`;
     return `<section class="order">
       <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}${ded}</header>
       <div class="grid">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
     </section>`;
   }).join('');
+
+  // Removing a focused, dirty input can fire focusout. Suppress the save it would trigger —
+  // the text is restored a line later, and the operator has not finished with it.
+  const focused = captureFocus();
+  repainting = true;
+  root.innerHTML = html;
+  repainting = false;
+  restoreFocus(focused);
 }
 
 let inFlight = false;
@@ -434,10 +471,18 @@ document.addEventListener('error', (e) => {
   fig.innerHTML = `<div class="ph">unreadable file</div><figcaption>${esc(cap)}</figcaption>`;
 }, true);
 
-// 'change' fires on blur or Enter — save when the operator is done typing, not per keystroke.
-document.addEventListener('change', (e) => {
-  const input = e.target.closest('.ded input');
-  if (input) saveDedication(input.closest('.ded').dataset.order, input.value);
+// Save when the operator is done typing, not per keystroke. Driven off focusout rather than
+// 'change': a repaint re-creates the input, which resets the browser's idea of "changed since
+// focus", so a 'change' listener would silently drop the edit that survived the repaint.
+// An order nobody has decided yet always saves — that is how the suggested text, and the
+// decision to have no title page at all, become real.
+document.addEventListener('focusout', (e) => {
+  if (repainting) return;
+  const input = e.target.closest?.('.ded input');
+  if (!input) return;
+  const decided = input.dataset.decided === '1';
+  if (decided && input.value.trim() === input.dataset.saved) return;
+  pendingSave = saveDedication(input.closest('.ded').dataset.order, input.value);
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.closest('.ded input')) e.target.blur();

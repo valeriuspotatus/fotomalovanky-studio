@@ -153,3 +153,64 @@ test('the run log never carries the generator token', async () => {
   const body = JSON.stringify(await getState());
   assert.ok(!body.includes('example.test/tok'));
 });
+
+// ---- revealing the finished book --------------------------------------------
+
+/** A run on its own server, so the shared one's state stays untouched. Records what the server
+ *  would have opened on the desktop instead of really opening it. */
+async function runOnce(opts) {
+  const r = mkdtempSync(join(tmpdir(), 'fma-reveal-'));
+  const inb = join(r, 'inbox');
+  const outb = join(r, 'outbox');
+  const dir = join(outb, '1510');
+  mkdirSync(join(inb, '1510'), { recursive: true });
+  mkdirSync(dir, { recursive: true });
+  await sharp({ create: { width: 20, height: 20, channels: 3, background: '#ccc' } }).jpeg().toFile(join(inb, '1510', 'a.jpeg'));
+  writeManifest(dir, setDedication(emptyManifest('1510'), 'Pro Barču'));
+
+  const gen = new GatedGenerator();
+  gen.release();
+  const revealed = [];
+  const { server: s } = createReviewServer({
+    config: CONFIG,
+    inboxRoot: inb,
+    outboxRoot: outb,
+    driver: gen,
+    builder: stubBuilder,
+    reveal: (p) => revealed.push(p),
+    ...opts,
+  });
+  await new Promise((done) => s.listen(0, '127.0.0.1', done));
+  const origin2 = `http://127.0.0.1:${s.address().port}`;
+  await fetch(`${origin2}/api/_run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    const st = await (await fetch(`${origin2}/api/state`)).json();
+    if (st.run.report) break;
+    if (Date.now() > deadline) throw new Error('the run never finished');
+    await new Promise((done) => setTimeout(done, 50));
+  }
+  s.close();
+  return { revealed, orderDir: dir, cleanup: () => rmSync(r, { recursive: true, force: true }) };
+}
+
+test('a finished run leaves the desktop alone unless the launcher asked for it', async () => {
+  const { revealed, cleanup } = await runOnce({});
+  try {
+    // A test or a smoke that builds a server must never spawn a File Explorer window — least of
+    // all onto a temp folder it is about to delete.
+    assert.deepEqual(revealed, []);
+  } finally {
+    cleanup();
+  }
+});
+
+test("the launcher opens the finished book's folder when the run is done", async () => {
+  const { revealed, orderDir: dir, cleanup } = await runOnce({ revealFinished: true });
+  try {
+    assert.deepEqual(revealed, [dir]);
+  } finally {
+    cleanup();
+  }
+});

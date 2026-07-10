@@ -4,6 +4,7 @@ import { ingestOrders } from './ingest.js';
 import { generatePhoto } from './batch.js';
 import { outputPaths, photoBase } from './organize.js';
 import { assessOutputFiles } from './qcFiles.js';
+import { deriveDedication } from './dedication.js';
 import {
   STATES,
   getStatus,
@@ -11,6 +12,7 @@ import {
   setStatus,
   getDedication,
   setDedication,
+  hasDedication,
   readManifest,
   writeManifest,
   summarizeOrder,
@@ -87,6 +89,9 @@ export function reviewState({ inboxRoot, outboxRoot }) {
       orderDir,
       dirName: order.dirName ?? orderId,
       dedication: getDedication(manifest),
+      // Only ever a *suggestion* for an untouched order. Once the operator has decided — even
+      // by emptying the box — the grid must show their decision, not talk them out of it.
+      suggestedDedication: hasDedication(manifest) ? '' : deriveDedication(bases),
       photos,
       summary: summarizeOrder(manifest, bases),
     });
