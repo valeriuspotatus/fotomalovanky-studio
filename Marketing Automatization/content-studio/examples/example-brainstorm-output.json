@@ -1,0 +1,130 @@
+{
+  "_comment": "Example of what buildBrainstormBlogPrompt should return. Ideas only - no fabricated facts. Any idea needing numbers/reviews flags them as [OVĚŘIT] in the outline.",
+  "ideas": [
+    {
+      "id": "den-matek-1",
+      "title": "Dárek pro maminku, který chytne za srdce: omalovánky z vašich společných fotek",
+      "angle": "Místo dalšího hrnečku osobní omalovánka ze společné fotky, u které se mamka dojme.",
+      "targetKeyword": "dárek pro maminku",
+      "searchIntent": "commercial",
+      "persona": "darci",
+      "journeyFit": "Think - čtenář zvažuje konkrétní originální dárek pro mámu.",
+      "outline": [
+        "Úvod: máma, která říká, že nic nepotřebuje",
+        "Proč osobní vzpomínka funguje lépe než věc",
+        "Jaké fotky se hodí",
+        "Jak to funguje ve 3 krocích",
+        "Sociální důkaz [OVĚŘIT]",
+        "Závěr + CTA"
+      ]
+    },
+    {
+      "id": "den-matek-2",
+      "title": "Co dát mámě, která má všechno: 7 nápadů na osobní dárek",
+      "angle": "Listicle s nápady, kde osobní omalovánka je hrdina seznamu.",
+      "targetKeyword": "co dát mámě k svátku",
+      "searchIntent": "informational",
+      "persona": "darci",
+      "journeyFit": "See/Think - inspirace pro nerozhodnuté.",
+      "outline": [
+        "Proč je těžké vybrat",
+        "7 nápadů od zážitků po osobní dárky",
+        "Detail na omalovánky z fotek",
+        "Jak nezkazit poslední chvíli",
+        "CTA"
+      ]
+    },
+    {
+      "id": "den-matek-3",
+      "title": "Dárek pro babičku ke Dni matek: vnoučata na papíře, který si může vybarvit",
+      "angle": "Emocionální úhel pro obdarování babičky z pohledu dcery/syna.",
+      "targetKeyword": "dárek pro babičku",
+      "searchIntent": "commercial",
+      "persona": "prarodice",
+      "journeyFit": "Think - silná emoce, vysoká relevance pro prarodiče.",
+      "outline": [
+        "Úvod: fotka z komody",
+        "Proč to babičky milují",
+        "Tip na výběr fotky s vnoučaty",
+        "Jak objednat",
+        "CTA"
+      ]
+    },
+    {
+      "id": "den-matek-4",
+      "title": "Jak z fotky v mobilu vznikne omalovánka (a proč je to lepší dárek)",
+      "angle": "Vysvětlující článek o procesu bez technického žargonu.",
+      "targetKeyword": "omalovánky z fotek",
+      "searchIntent": "informational",
+      "persona": "maminky",
+      "journeyFit": "Think - odstraňuje pochybnosti o tom, jak to funguje.",
+      "outline": [
+        "Od fotky k sešitu ve 3 krocích",
+        "Jaké fotky fungují nejlépe",
+        "Kvalita papíru a co čekat [OVĚŘIT]",
+        "Pro koho je to ideální dárek",
+        "CTA"
+      ]
+    },
+    {
+      "id": "den-matek-5",
+      "title": "Místo květin letos vzpomínka: originální dárek ke Dni matek",
+      "angle": "Srovnání pomíjivého dárku a trvalé vzpomínky.",
+      "targetKeyword": "originální dárek ke dni matek",
+      "searchIntent": "commercial",
+      "persona": "darci",
+      "journeyFit": "Think - posouvá od klišé dárku k osobnímu.",
+      "outline": [
+        "Květiny zvadnou, vzpomínka zůstane",
+        "Co dělá dárek osobním",
+        "Ukázky use case",
+        "CTA"
+      ]
+    },
+    {
+      "id": "den-matek-6",
+      "title": "Společné odpoledne s pastelkami: dárek pro mámu i aktivita pro celou rodinu",
+      "angle": "Dárek, který je zároveň společným časem bez obrazovek.",
+      "targetKeyword": "kreativní dárek pro maminku",
+      "searchIntent": "informational",
+      "persona": "maminky",
+      "journeyFit": "See/Think - propojuje dárek s hodnotou společného času.",
+      "outline": [
+        "Dárek, který se dá zažít spolu",
+        "Pastelky místo tabletu",
+        "Jak na to",
+        "CTA"
+      ]
+    },
+    {
+      "id": "den-matek-7",
+      "title": "Last-minute dárek pro maminku, který nevypadá jako last-minute",
+      "angle": "Pro ty, kdo to nechali na poslední chvíli - poukaz jako řešení.",
+      "targetKeyword": "last minute dárek pro maminku",
+      "searchIntent": "transactional",
+      "persona": "darci",
+      "journeyFit": "Do - blízko rozhodnutí, řeší časovou bariéru.",
+      "outline": [
+        "Když došel čas",
+        "Dárkový poukaz jako řešení",
+        "Jak na to v pár krocích [OVĚŘIT dodací lhůta]",
+        "CTA"
+      ]
+    },
+    {
+      "id": "den-matek-8",
+      "title": "Jaké fotky se hodí na omalovánku ke Dni matek (tipy na výběr)",
+      "angle": "Praktický návod na výběr fotky, snižuje obavy z nákupu.",
+      "targetKeyword": "jaká fotka na omalovánku",
+      "searchIntent": "informational",
+      "persona": "maminky",
+      "journeyFit": "Think - praktická pomoc před nákupem.",
+      "outline": [
+        "Co dělá fotku vhodnou",
+        "Čeho se vyvarovat",
+        "Příklady společných momentů",
+        "CTA"
+      ]
+    }
+  ]
+}

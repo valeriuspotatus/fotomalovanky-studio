@@ -1,0 +1,23 @@
+Weavy cover prompt (English):
+Authentic UGC-style photo in a real Czech home, on a warm wooden table.
+An open coloring book shows a hand-drawn line-art family scene, with a smartphone
+next to it displaying the original family photo. Wooden colored pencils scattered
+around, a cup of tea, cozy gift atmosphere suitable for grandparents. Soft natural
+window light, lived-in feel, shot-on-iPhone aesthetic, shallow depth of field.
+Not a stock photo. No text, no logos, no recognizable real faces.
+
+Weavy inline prompt (English):
+Close-up overhead shot of an older person's hands and a child's hands coloring the
+same coloring book page together at a wooden table, wooden colored pencils around.
+Warm afternoon window light, cozy authentic home setting, shot-on-iPhone aesthetic.
+Not a stock photo. No text, no logos, no recognizable real faces.
+
+Alt text suggestion - cover (CZ):
+Otevřená omalovánka z rodinné fotky na stole, vedle mobil s původní fotkou a pastelky, útulná atmosféra dárku pro prarodiče.
+
+Alt text suggestion - inline (CZ):
+Ruce babičky nebo dědečka a dítěte společně vybarvují omalovánku u stolu s pastelkami.
+
+Note:
+Pro obrázky nepoužívejte rozpoznatelné tváře reálných zákazníků. Alt text upravte
+podle skutečně použitého obrázku, ať popisuje, co je na něm vidět.

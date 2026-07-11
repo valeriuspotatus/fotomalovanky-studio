@@ -1,0 +1,995 @@
+import { products, giftBoxes, valueSets, categories, ingredients } from '@/lib/store';
+import { CALENDAR_EVENTS, formatEventContext, getEventById, type CalendarEvent } from '../marketing-calendar';
+import type { Product, Category, Ingredient } from '@/lib/store';
+
+// Combined product list
+const allProductItems = [...products, ...giftBoxes, ...valueSets];
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export type Platform = 'instagram' | 'facebook' | 'tiktok' | 'linkedin';
+export type OutputFormat = 'social-post' | 'ad' | 'video';
+export type JourneyStage = 'see' | 'think' | 'do' | 'care';
+export type Season = 'winter' | 'summer' | 'spring' | 'fall';
+export type ContextType =
+  | 'after-workout'
+  | 'travel'
+  | 'morning-routine'
+  | 'evening-routine'
+  | 'business-meeting'
+  | 'date-night'
+  | 'weekend'
+  | 'holiday';
+export type ContentSource =
+  | 'reviews'
+  | 'ugc'
+  | 'behind-scenes'
+  | 'influencer'
+  | 'founder-story'
+  | 'before-after'
+  | 'faq'
+  | 'comparison';
+
+export type ContentStyle = 'funny' | 'educational' | 'storytelling' | 'promo' | 'social-proof' | 'behind-scenes';
+
+export interface SocialGeneratorInput {
+  productIds: string[];
+  concernIds: string[];
+  categoryIds: string[];
+  ingredientIds: string[];
+  eventIds: string[];
+  season?: Season;
+  context?: ContextType;
+  journeyStage: JourneyStage;
+  contentStyle: ContentStyle;
+  contentSources: ContentSource[];
+  sourceContent?: Partial<Record<ContentSource, string>>;
+  outputFormat: OutputFormat;
+  platform: Platform;
+  customPrompt?: string;
+}
+
+export interface SocialIdea {
+  id: string;
+  hook: string;
+  concept: string;
+  visualIdea: string;
+  journeyFit: string;
+}
+
+export interface BrainstormSocialResponse {
+  ideas: SocialIdea[];
+  prompt: string;
+}
+
+export interface GenerateSocialInput extends SocialGeneratorInput {
+  selectedIdea: SocialIdea;
+}
+
+// Output types for different formats
+export interface SocialPostOutput {
+  caption: string;
+  hashtags: string[];
+  visualConcept: string;
+  postingTip: string;
+}
+
+export interface AdOutput {
+  headlines: string[];
+  primaryText: string;
+  description: string;
+  visualConcept: string;
+  targetAudience: string;
+  ctaButton: string;
+}
+
+export interface VideoOutput {
+  hookScript: string;
+  fullScript: string;
+  visualDirections: string[];
+  musicSuggestion: string;
+  onScreenText: string[];
+  duration: string;
+}
+
+export interface GenerateSocialResponse {
+  output: SocialPostOutput | AdOutput | VideoOutput;
+  prompt: string;
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+export const PLATFORMS: Record<
+  Platform,
+  {
+    cs: string;
+    specs: string;
+    bestPractices: string;
+  }
+> = {
+  instagram: {
+    cs: 'Instagram',
+    specs: 'Caption max 2200 znaků (ideálně 125-150 pro engagement). Hashtags 5-15. Reels 15-90s.',
+    bestPractices: `- První věta je klíčová (hook před "...more")
+- Carousel posts mají 3x vyšší engagement
+- Reels = discovery, Stories = engagement
+- Hashtags mix: 3 velké, 5 středních, 5 niche`,
+  },
+  facebook: {
+    cs: 'Facebook',
+    specs: 'Post ideálně 40-80 znaků pro engagement. Videa 1-3 min. Ads: headline 40 znaků, primary text 125 znaků.',
+    bestPractices: `- Kratší = lepší engagement
+- Video má 135% větší organic reach
+- Otázky zvyšují komentáře
+- Native video > YouTube link`,
+  },
+  tiktok: {
+    cs: 'TikTok',
+    specs: 'Videa 15-60s (ideálně 21-34s). Caption max 2200 znaků. Hashtags 3-5.',
+    bestPractices: `- Hook v prvních 3 vteřinách je kritický
+- Trending sounds zvyšují reach
+- Autentické > přeprodukované
+- Text na obrazovce pomáhá bez zvuku
+- Storytelling formát funguje`,
+  },
+  linkedin: {
+    cs: 'LinkedIn',
+    specs: 'Post max 3000 znaků. Ideálně 1300 znaků pro engagement. Dokumenty/carousels fungují.',
+    bestPractices: `- Business/professional úhel
+- Příběhy a zkušenosti fungují
+- Vzdělávací obsah má vysoký engagement
+- První 2 řádky jsou klíčové`,
+  },
+};
+
+export const OUTPUT_FORMATS: Record<
+  OutputFormat,
+  {
+    cs: string;
+    structure: string;
+    tips: string;
+  }
+> = {
+  'social-post': {
+    cs: 'Social Post',
+    structure: `**STRUKTURA POSTU:**
+1. HOOK (první věta) - Zaujmi, vyvolej emoci nebo zvědavost
+2. VALUE - Hlavní sdělení, příběh, tip
+3. CTA - Co má čtenář udělat (like, comment, save, click)`,
+    tips: `- Hook rozhoduje o 80% úspěchu
+- Používej emojis střídmě ale strategicky
+- Otázky zvyšují engagement
+- Formátování (řádky, bullet points) zlepšuje čtivost
+- "Save this for later" funguje`,
+  },
+  ad: {
+    cs: 'Reklama',
+    structure: `**STRUKTURA REKLAMY (PAS framework):**
+1. PROBLEM - Identifikuj problém, který cílová skupina má
+2. AGITATION - Zesil bolest, ukaž důsledky neřešení
+3. SOLUTION - Představ produkt jako řešení + CTA`,
+    tips: `- Headline je nejdůležitější element
+- Social proof zvyšuje konverze
+- Urgency/scarcity funguje (ale nenadužívej)
+- Testuj více variant headlines
+- Vždy jasné CTA`,
+  },
+  video: {
+    cs: 'Video',
+    structure: `**STRUKTURA VIDEA:**
+0-3s: HOOK - Zaujmi okamžitě, jinak scroll away
+3-10s: PROBLEM - Ukaž problém, se kterým se divák ztotožní  
+10-25s: SOLUTION - Představ řešení, demo, benefity
+25-30s: CTA - Co má divák udělat`,
+    tips: `- 3 vteřiny rozhodují o všem
+- Mluvená část musí fungovat i bez zvuku (titulky!)
+- Pattern interrupt = změna záběru/zvuku udržuje pozornost
+- Talking head + B-roll je bezpečná volba
+- Humor funguje, ale musí být autentický`,
+  },
+};
+
+export const JOURNEY_STAGES: Record<
+  JourneyStage,
+  {
+    cs: string;
+    goal: string;
+    contentTypes: string[];
+    tone: string;
+    cta: string[];
+  }
+> = {
+  see: {
+    cs: 'See (Awareness)',
+    goal: 'Zasáhnout nové publikum, upoutat pozornost, pobavit',
+    contentTypes: [
+      'Vtipná videa a memes',
+      'Relatable content ("Když...")',
+      'Trendy a challenges',
+      'Edutainment - vzdělávej zábavně',
+    ],
+    tone: 'Zábavný, relatable, bez prodeje. Cíl je zaujmout, ne prodat.',
+    cta: ['Follow', 'Share', 'Tag a friend'],
+  },
+  think: {
+    cs: 'Think (Consideration)',
+    goal: 'Vzdělat, budovat důvěru, ukázat expertizu',
+    contentTypes: [
+      'Tipy a návody',
+      'Srovnání produktů',
+      'Ingredience explainers',
+      'Founder story a hodnoty značky',
+      'Before/after (s důvěryhodnými daty)',
+    ],
+    tone: 'Expertní ale přístupný. Hodnota first, produkt second.',
+    cta: ['Save this', 'Learn more', 'Read blog'],
+  },
+  do: {
+    cs: 'Do (Conversion)',
+    goal: 'Přesvědčit k nákupu, odstranit pochybnosti',
+    contentTypes: [
+      'Produktové demo',
+      'Customer reviews a testimonials',
+      'UGC a social proof',
+      'Limitované nabídky',
+      'Unboxing',
+    ],
+    tone: 'Přesvědčivý, urgentní (ne agresivní), social proof heavy.',
+    cta: ['Shop now', 'Get yours', 'Limited time'],
+  },
+  care: {
+    cs: 'Care (Loyalty)',
+    goal: 'Udržet zákazníky, budovat komunitu, zvyšovat LTV',
+    contentTypes: [
+      'Behind-the-scenes',
+      'Exclusive content pro zákazníky',
+      'Tipy jak lépe používat produkty',
+      'Community highlights',
+      'Sneak peeks nových produktů',
+    ],
+    tone: 'Osobní, exkluzivní, vděčný za podporu.',
+    cta: ['Join community', 'Leave review', 'Refer a friend'],
+  },
+};
+
+export const CONTENT_SOURCES: Record<
+  ContentSource,
+  {
+    cs: string;
+    description: string;
+    example: string;
+    bestFor: JourneyStage[];
+  }
+> = {
+  reviews: {
+    cs: 'Zákaznické recenze',
+    description: 'Reálné citáty a hodnocení od zákazníků. Nejvěrohodnější forma social proof.',
+    example: '"Konečně něco, co funguje na ty kruhy pod očima." - Jakub, 34',
+    bestFor: ['do', 'think'],
+  },
+  ugc: {
+    cs: 'UGC (User Generated Content)',
+    description: 'Obsah vytvořený zákazníky nebo influencery. Autentický, důvěryhodný.',
+    example: 'Video zákazníka ukazující svou ranní rutinu s Koolman produkty.',
+    bestFor: ['do', 'see'],
+  },
+  'behind-scenes': {
+    cs: 'Behind the scenes',
+    description: 'Pohled do zákulisí značky - výroba, tým, proces, hodnoty.',
+    example: 'Petr ukazuje, jak vzniká nová receptura v labi.',
+    bestFor: ['care', 'think'],
+  },
+  influencer: {
+    cs: 'Influencer collab',
+    description: 'Spolupráce s influencery - může být review, rutina, challenge.',
+    example: 'Fitness influencer ukazuje post-workout rutinu s Koolman.',
+    bestFor: ['see', 'think'],
+  },
+  'founder-story': {
+    cs: 'Příběh zakladatele',
+    description: 'Petr a jeho cesta - proč Koolman vznikl, hodnoty, mise.',
+    example: '"Proč jsem nechal korporát a začal vyrábět kosmetiku pro chlapy."',
+    bestFor: ['think', 'care'],
+  },
+  'before-after': {
+    cs: 'Před/po transformace',
+    description: 'Vizuální důkaz účinnosti. Musí být věrohodné, ne přehnané.',
+    example: 'Týden používání séra - reálný rozdíl v hydrataci pleti.',
+    bestFor: ['do', 'think'],
+  },
+  faq: {
+    cs: 'Často kladené otázky',
+    description: 'Odpovědi na reálné dotazy zákazníků. Odstraňuje pochybnosti.',
+    example: '"Kolik toho potřebuju na jedno použití?" - takto málo.',
+    bestFor: ['think', 'do'],
+  },
+  comparison: {
+    cs: 'Srovnání',
+    description: 'Proč Koolman vs. konkurence nebo vs. nic nedělat.',
+    example: 'Drogerie vs. Koolman - co vlastně platíš.',
+    bestFor: ['think', 'do'],
+  },
+};
+
+export const CONTENT_STYLES: Record<
+  ContentStyle,
+  {
+    cs: string;
+    description: string;
+    guidelines: string;
+    examples: string[];
+  }
+> = {
+  funny: {
+    cs: 'Vtipný / Relatable',
+    description: 'Humor, nadsázka, "když..." momenty ze života. Pobavit a zároveň rezonovat.',
+    guidelines: `- Self-deprecating humor funguje nejlíp
+- "Když..." formát je gold
+- Nadsázka ano, ale musí být uvěřitelná
+- Vtipný ≠ dětinský nebo trapný
+- I vtipný obsah má mít pointu o produktu`,
+    examples: [
+      'Když ti řeknou "vypadáš unaveně" potřetí za týden',
+      'POV: Tvoje pleť po víkendové akci',
+      'Nikdo: ... Já po sprše: *kontroluje jestli je tam dole vše ok*',
+    ],
+  },
+  educational: {
+    cs: 'Edukativní',
+    description: 'Tipy, návody, vysvětlení ingrediencí. Hodnota first, produkt second.',
+    guidelines: `- Konkrétní, actionable tipy
+- Čísla a fakta dodávají důvěryhodnost
+- "Věděl jsi, že..." funguje jako hook
+- Carousel = ideální formát pro tipy
+- Produkt zmíníš až jako součást řešení`,
+    examples: [
+      '3 věci, které děláš špatně při mytí obličeje',
+      'Proč tvoje pleť v zimě praská (a jak to zastavit)',
+      'Glycerin 101: Co to je a proč ho chceš v krému',
+    ],
+  },
+  storytelling: {
+    cs: 'Storytelling',
+    description: 'Příběhy - zákaznické, zakladatele, brand journey. Emoce a autenticita.',
+    guidelines: `- Začni uprostřed akce, ne "Jednou jsem..."
+- Konkrétní detaily = uvěřitelnost
+- Emocionální arc: problém → cesta → řešení
+- Zákaznické příběhy jsou silnější než brand stories
+- Autenticita > perfekce`,
+    examples: [
+      'Jak jeden email od zákazníka změnil náš přístup k vývoji',
+      '"Táta mi řekl, že vypadám líp" - příběh Martina',
+      'Proč jsem odešel z korporátu a začal vyrábět kosmetiku',
+    ],
+  },
+  promo: {
+    cs: 'Přímý prodej',
+    description: 'Product-focused obsah. Jasné benefity, CTA, urgency.',
+    guidelines: `- Benefit first, feature second
+- Jasné CTA - co má člověk udělat
+- Social proof zesiluje message
+- Urgency ano, ale nesmí být fake
+- Cena/hodnota musí být jasná`,
+    examples: [
+      'Nová várka séra právě dorazila. 3 důvody proč ho chceš.',
+      '-20% jen do neděle. Link v biu.',
+      'Best-seller se vrací. Proč ho 2000+ chlapů miluje.',
+    ],
+  },
+  'social-proof': {
+    cs: 'Social Proof',
+    description: 'Recenze, testimonials, UGC showcase. Nech mluvit zákazníky.',
+    guidelines: `- Reálné citáty > přepisování
+- Jméno + věk/profese = důvěryhodnost
+- Screenshot recenze funguje
+- Video testimonial je nejsilnější
+- Čísla: "2000+ spokojených zákazníků"`,
+    examples: [
+      '"Konečně něco, co funguje" - Jakub, 34',
+      'Co o nás říkají zákazníci (carousel s recenzemi)',
+      'Tohle nám přišlo do DMs včera...',
+    ],
+  },
+  'behind-scenes': {
+    cs: 'Behind the Scenes',
+    description: 'Zákulisí značky, výroba, tým, proces. Transparentnost buduje důvěru.',
+    guidelines: `- Raw > polished
+- Ukázat lidi, ne jen produkty
+- Proces vzniku produktu je zajímavý
+- Chyby a fails jsou ok (humanizuje značku)
+- "Day in the life" formát funguje`,
+    examples: [
+      'Jak vzniká nová receptura - od nápadu po produkt',
+      'Pondělní balení objednávek (timelapse)',
+      'Q&A s Petrem: Proč neděláme parfémy?',
+    ],
+  },
+};
+
+// ============================================================================
+// Seasons & Situational Contexts (from content-generator)
+// ============================================================================
+
+export const SEASONS: Record<Season, { cs: string; context: string; relevantConcerns: string[] }> = {
+  winter: {
+    cs: 'Zima',
+    context:
+      'Studené počasí vysušuje pleť. Topení v interiérech snižuje vlhkost vzduchu. Pleť potřebuje extra hydrataci a ochranu.',
+    relevantConcerns: ['sucha-plet', 'vrasky-40'],
+  },
+  summer: {
+    cs: 'Léto',
+    context:
+      'Horko, pot, slunce. Pleť se více mastí. Intimní partie potřebují extra péči kvůli pocení. Nohy ve sportovní obuvi potřebují ochranu.',
+    relevantConcerns: ['po-cviceni', 'zdrave-nohy', 'intimni-hygiena'],
+  },
+  spring: {
+    cs: 'Jaro',
+    context: 'Přechod z chladného období. Pleť se probouzí a potřebuje detox. Čas na restart skincare rutiny.',
+    relevantConcerns: ['sucha-plet'],
+  },
+  fall: {
+    cs: 'Podzim',
+    context: 'Příprava na zimu. Kratší dny mohou ovlivnit vzhled (unavené oči). Čas posílit ochrannou bariéru pleti.',
+    relevantConcerns: ['unavene-oci', 'sucha-plet'],
+  },
+};
+
+export const CONTEXTS: Record<ContextType, { cs: string; description: string }> = {
+  'after-workout': {
+    cs: 'Po tréninku',
+    description: 'Po posilovně, běhání, nebo jiné fyzické aktivitě. Zpocený, unavený, potřebuje osvěžit.',
+  },
+  travel: {
+    cs: 'Cestování',
+    description: 'Na služební cestě, dovolené, nebo často na cestách. Měnící se prostředí, letadla vysušují pleť.',
+  },
+  'morning-routine': {
+    cs: 'Ranní rutina',
+    description: 'Rychlá péče před odchodem do práce. Potřeba vypadat svěže a připraveně na náročný den.',
+  },
+  'evening-routine': {
+    cs: 'Večerní rutina',
+    description: 'Po náročném dni. Odstranění nečistot, regenerace přes noc. Čas na intenzivnější péči.',
+  },
+  'business-meeting': {
+    cs: 'Důležitá schůzka',
+    description: 'Před důležitým meetingem, prezentací, nebo jednáním. Potřeba vypadat profesionálně a odpočatě.',
+  },
+  'date-night': {
+    cs: 'Rande',
+    description: 'Před schůzkou. Důležité vypadat a cítit se dobře. Intimní hygiena, svěžest, sebevědomí.',
+  },
+  weekend: {
+    cs: 'Víkend',
+    description: 'Volnější čas, možnost věnovat péči více pozornosti. Relax, regenerace, příprava na nový týden.',
+  },
+  holiday: {
+    cs: 'Svátek/Dárek',
+    description: 'Vánoce, narozeniny, nebo jiná příležitost. Darování péče o sebe jako dárek.',
+  },
+};
+
+// ============================================================================
+// Strict Constraints (Prevent Hallucinations)
+// ============================================================================
+
+export const STRICT_CONSTRAINTS = `
+## KRITICKÁ PRAVIDLA – MUSÍŠ JE DODRŽET!
+
+### 1. POUZE POSKYTNUTÉ INFORMACE
+- Zmiň POUZE ingredience, benefity a vlastnosti, které jsou EXPLICITNĚ uvedené u produktů níže
+- NEVYMÝŠLEJ žádné další ingredience ani benefity
+- Pokud něco není v seznamu, NEPIŠ o tom
+
+### 2. ŽÁDNÉ VYMÝŠLENÍ INGREDIENCÍ
+- Každý produkt má přesný seznam ingrediencí – používej POUZE ty
+- Příklad: Krém 24 obsahuje Sedmikrásku, Kaviár, Glycerin, Vitamin E, Kyselinu hyaluronovou
+- Pokud produkt NEMÁ uvedenou konkrétní ingredienci, NESMÍŠ psát, že ji obsahuje
+
+### 3. KONTROLA RELEVANCE PRODUKTU A KONTEXTU
+- Každý produkt řeší KONKRÉTNÍ problémy – nezobecňuj
+- IT gel = POUZE oči (kruhy, otoky, únava) → NIKDY nepiš, že řeší suchou pleť nebo vrásky na obličeji
+- Intiman = POUZE intimní hygiena → NIKDY nepiš, že hydratuje obličej
+- Sprej na nohy = POUZE nohy (mykóza, zápach) → NIKDY nepiš, že osvěžuje celé tělo
+
+### 4. PŘÍKLADY ZAKÁZANÉHO CHOVÁNÍ
+❌ "IT gel hydratuje suchou zimní pleť" – ŠPATNĚ, IT gel je pro oči
+❌ "Krém 24 s obsahem tea tree oleje" – ŠPATNĚ, Krém 24 neobsahuje tea tree
+❌ "Intiman osvěží celé tělo po sprchování" – ŠPATNĚ, Intiman je pro intimní partie
+`;
+
+// ============================================================================
+// Tone of Voice (reused from content-generator)
+// ============================================================================
+
+export const TONE_OF_VOICE = `
+## TONE OF VOICE – JAK PÍŠEME PRO KOOLMAN
+
+### Principy
+- **Přímý, bez keců** - "Funguje." místo "Poskytuje zázračné výsledky"
+- **Zaměření na problém** - Nejdřív problém, pak řešení
+- **Mužský, ale ne agresivní** - Mluvíme k chlapovi, ne o kosmetice
+- **Profesionální, ale přístupný** - Petr ví, co dělá, a sdílí to jednoduše
+
+### Dobré příklady (POUŽÍVEJ TENTO STYL)
+- "Pleť se přes den mastí, potí a špiní – potřebuje oddechnout"
+- "Když ti lidi říkají, že vypadáš unaveně"
+- "Když chceš mít tam dole pocit čistoty a klidu"
+- "Když tě po sprše trápí suchá nebo napnutá kůže"
+- "Když chceš poslat vráskám těžkou techniku"
+
+### Pro sociální sítě extra
+- Kratší věty, rychlejší tempo
+- Emojis ano, ale střídmě (max 3-4 na post)
+- Hooks musí být okamžitě relatable
+- Humor ano, ale ne za každou cenu
+`;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+export function getSelectedProducts(productIds: string[]): Product[] {
+  return allProductItems.filter((p) => productIds.includes(p.id));
+}
+
+export function getSelectedConcerns(concernIds: string[]): Category[] {
+  return categories.filter((c) => concernIds.includes(c.id));
+}
+
+export function getSelectedCategories(categoryIds: string[]): Category[] {
+  return categories.filter((c) => categoryIds.includes(c.id));
+}
+
+export function getSelectedIngredients(ingredientIds: string[]): Ingredient[] {
+  return Object.values(ingredients).filter((i) => ingredientIds.includes(i.id));
+}
+
+export function getSelectedEvents(eventIds: string[]): CalendarEvent[] {
+  return eventIds.map((id) => getEventById(id)).filter((e): e is CalendarEvent => e !== undefined);
+}
+
+// Format context for prompts - DETAILED version with strict labeling
+function formatProductContext(product: Product): string {
+  if (product.type === 'set' || product.type === 'giftbox') {
+    const contentProducts =
+      product.contents?.map((pid) => products.find((p) => p.id === pid)).filter((p): p is Product => p !== undefined) ||
+      [];
+
+    const contentsList = contentProducts.map((p) => p.title.cs).join(', ');
+    const allIngredients = new Set<string>();
+    const allBenefits = new Set<string>();
+    const allConcerns = new Set<string>();
+
+    contentProducts.forEach((p) => {
+      p.ingredients.forEach((i) => allIngredients.add(i.name.cs));
+      p.benefits.cs.forEach((b) => allBenefits.add(b));
+      allConcerns.add(p.category);
+    });
+
+    return `
+### ${product.title.cs} (${product.type === 'set' ? 'Výhodný set' : 'Dárkový box'})
+**OBSAHUJE PRODUKTY:** ${contentsList}
+**VŠECHNY INGREDIENCE V SETU:** ${Array.from(allIngredients).join(', ') || 'Neuvedeno'}
+**VŠECHNY BENEFITY:** ${Array.from(allBenefits).join('; ')}
+**POPIS SETU:** ${product.description.cs}
+**PRO KOHO:** ${product.forWhom?.cs?.join(', ') || 'Pro každého muže'}
+**CONCERNS (typy problémů):** ${Array.from(allConcerns).join(', ') || 'Obecné'}
+**TAGLINE:** "${product.tagline?.cs || ''}"
+`;
+  }
+
+  // Regular individual product - with strict labeling
+  const ingredientsList = product.ingredients.map((i) => i.name.cs).join(', ') || 'Neuvedeno';
+  const benefitsList = product.benefits.cs.join('; ');
+  const whenToUseList = product.whenToUse?.cs?.join(', ') || 'Denně';
+  const concernsList = product.category || 'Obecné';
+
+  return `
+### ${product.title.cs}
+**⚠️ POUZE TYTO INGREDIENCE (jiné NEZMIŇUJ):** ${ingredientsList}
+**⚠️ POUZE TYTO BENEFITY:** ${benefitsList}
+**PROBLÉM, KTERÝ ŘEŠÍ:** ${product.problemStatement?.cs || product.description.cs}
+**ŘEŠENÍ:** ${product.solutionStatement?.cs || product.tagline?.cs || ''}
+**KDY POUŽÍT:** ${whenToUseList}
+**CONCERNS (typy problémů):** ${concernsList}
+**TAGLINE:** "${product.tagline?.cs || ''}"
+`;
+}
+
+function formatConcernContext(concern: Category): string {
+  return `
+### ${concern.title.cs}
+- **Problém:** ${concern.problem.cs}
+- **Řešení:** ${concern.solution.cs}
+- **Doporučené produkty:** ${concern.recommendedProducts.join(', ')}
+`;
+}
+
+function formatIngredientContext(ingredient: Ingredient): string {
+  return `**${ingredient.name.cs}**
+Benefit: ${ingredient.benefit.cs}`;
+}
+
+// ============================================================================
+// Data Export Functions for UI
+// ============================================================================
+
+export function getAllPlatformOptions() {
+  return Object.entries(PLATFORMS).map(([id, data]) => ({
+    id: id as Platform,
+    name: data.cs,
+  }));
+}
+
+export function getAllFormatOptions() {
+  return Object.entries(OUTPUT_FORMATS).map(([id, data]) => ({
+    id: id as OutputFormat,
+    name: data.cs,
+  }));
+}
+
+export function getAllJourneyOptions() {
+  return Object.entries(JOURNEY_STAGES).map(([id, data]) => ({
+    id: id as JourneyStage,
+    name: data.cs,
+    goal: data.goal,
+  }));
+}
+
+export function getAllContentSourceOptions() {
+  return Object.entries(CONTENT_SOURCES).map(([id, data]) => ({
+    id: id as ContentSource,
+    name: data.cs,
+    description: data.description,
+  }));
+}
+
+export function getAllContentStyleOptions() {
+  return Object.entries(CONTENT_STYLES).map(([id, data]) => ({
+    id: id as ContentStyle,
+    name: data.cs,
+    description: data.description,
+  }));
+}
+
+export function getAllSeasonOptions() {
+  return Object.entries(SEASONS).map(([id, data]) => ({
+    id: id as Season,
+    name: data.cs,
+    context: data.context,
+  }));
+}
+
+export function getAllContextOptions() {
+  return Object.entries(CONTEXTS).map(([id, data]) => ({
+    id: id as ContextType,
+    name: data.cs,
+    description: data.description,
+  }));
+}
+
+export function getAllProductOptions() {
+  return [
+    ...products.map((p) => ({ id: p.id, name: p.title.cs, type: 'product' as const })),
+    ...valueSets.map((p) => ({ id: p.id, name: p.title.cs, type: 'set' as const })),
+    ...giftBoxes.map((p) => ({ id: p.id, name: p.title.cs, type: 'giftbox' as const })),
+  ];
+}
+
+// Returns categories (which now include problem/solution from old concerns)
+export function getAllConcernOptions() {
+  return categories.map((c) => ({
+    id: c.id,
+    name: c.title.cs,
+    problem: c.problem.cs,
+  }));
+}
+
+export function getAllCategoryOptions() {
+  return categories.map((c) => ({
+    id: c.id,
+    name: c.title.cs,
+    description: c.description.cs,
+  }));
+}
+
+export function getAllIngredientOptions() {
+  return Object.values(ingredients).map((i) => ({
+    id: i.id,
+    name: i.name.cs,
+    benefit: i.benefit.cs,
+  }));
+}
+
+export function getAllEventOptions() {
+  return CALENDAR_EVENTS.map((e) => ({
+    id: e.id,
+    name: e.name,
+    date: e.date,
+    category: e.category,
+    emoji: e.emoji,
+    relevance: e.relevance,
+  }));
+}
+
+// ============================================================================
+// Prompt Builders
+// ============================================================================
+
+export function buildBrainstormSocialPrompt(input: SocialGeneratorInput): string {
+  const selectedProducts = getSelectedProducts(input.productIds);
+  const selectedConcerns = getSelectedConcerns(input.concernIds);
+  const selectedCategories = getSelectedCategories(input.categoryIds);
+  const selectedIngredients = getSelectedIngredients(input.ingredientIds);
+  const selectedEvents = getSelectedEvents(input.eventIds);
+
+  const platformInfo = PLATFORMS[input.platform];
+  const formatInfo = OUTPUT_FORMATS[input.outputFormat];
+  const journeyInfo = JOURNEY_STAGES[input.journeyStage];
+  const styleInfo = CONTENT_STYLES[input.contentStyle];
+  const seasonInfo = input.season ? SEASONS[input.season] : null;
+  const contextInfo = input.context ? CONTEXTS[input.context] : null;
+
+  // Build context sections based on what's selected
+  const contextSections: string[] = [];
+
+  if (selectedProducts.length > 0) {
+    contextSections.push(`### Vybrané produkty:
+${selectedProducts.map(formatProductContext).join('\n\n')}`);
+  }
+
+  if (selectedConcerns.length > 0) {
+    contextSections.push(`### Vybrané problémy:
+${selectedConcerns.map(formatConcernContext).join('\n\n')}`);
+  }
+
+  if (selectedCategories.length > 0) {
+    contextSections.push(`### Vybrané kategorie:
+${selectedCategories.map((c) => `**${c.title.cs}**: ${c.description.cs}`).join('\n')}`);
+  }
+
+  if (selectedIngredients.length > 0) {
+    contextSections.push(`### Vybrané ingredience:
+${selectedIngredients.map(formatIngredientContext).join('\n')}`);
+  }
+
+  if (selectedEvents.length > 0) {
+    contextSections.push(`### Vybrané události/příležitosti:
+${selectedEvents.map(formatEventContext).join('\n\n')}`);
+  }
+
+  // Season context
+  if (seasonInfo) {
+    contextSections.push(`### Sezónní kontext: ${seasonInfo.cs}
+${seasonInfo.context}`);
+  }
+
+  // Situational context
+  if (contextInfo) {
+    contextSections.push(`### Situační kontext: ${contextInfo.cs}
+${contextInfo.description}`);
+  }
+
+  // Content sources section with actual content
+  const sourcesSection =
+    input.contentSources.length > 0
+      ? `### Content sources k využití:
+${input.contentSources
+  .map((sourceId) => {
+    const sourceInfo = CONTENT_SOURCES[sourceId];
+    const userContent = input.sourceContent?.[sourceId];
+    if (userContent) {
+      return `**${sourceInfo.cs}:**
+${userContent}`;
+    }
+    return `- **${sourceInfo.cs}**: ${sourceInfo.description}`;
+  })
+  .join('\n\n')}`
+      : '';
+
+  return `Jsi social media expert pro českou pánskou kosmetiku KOOLMAN. Tvým úkolem je vymyslet nápady na obsah.
+
+${selectedProducts.length > 0 ? STRICT_CONSTRAINTS : ''}
+
+${TONE_OF_VOICE}
+
+## PLATFORMA: ${platformInfo.cs}
+${platformInfo.specs}
+${platformInfo.bestPractices}
+
+## FORMÁT: ${formatInfo.cs}
+${formatInfo.structure}
+${formatInfo.tips}
+
+## CUSTOMER JOURNEY: ${journeyInfo.cs}
+**Cíl:** ${journeyInfo.goal}
+**Tone:** ${journeyInfo.tone}
+**Vhodné typy obsahu:** ${journeyInfo.contentTypes.join(', ')}
+**CTA:** ${journeyInfo.cta.join(', ')}
+
+## STYL OBSAHU: ${styleInfo.cs}
+${styleInfo.description}
+${styleInfo.guidelines}
+**Příklady:** ${styleInfo.examples.join(' | ')}
+
+## KONTEXT PRO BRAINSTORMING
+
+${contextSections.join('\n\n')}
+
+${sourcesSection}
+
+${input.customPrompt ? `### Dodatečné zadání:\n${input.customPrompt}` : ''}
+
+## TVŮJ ÚKOL
+
+Vymysli 10 nápadů na ${formatInfo.cs.toLowerCase()} pro ${platformInfo.cs}, které:
+1. Odpovídají fázi "${journeyInfo.cs}" customer journey
+2. Jsou ve stylu "${styleInfo.cs}" - dodržuj guidelines pro tento styl
+3. Využívají vybraný kontext (produkty/problémy/události)
+4. Jsou v duchu Koolman tone of voice
+5. Mají jasný hook, který zaujme v prvních vteřinách
+
+Pro každý nápad uveď:
+- **hook**: První věta/fráze která zaujme (max 15 slov)
+- **concept**: O čem to je, jaký je hlavní message (2-3 věty)
+- **visualIdea**: Jak by měl vypadat vizuál nebo video (1-2 věty)
+- **journeyFit**: Proč to pasuje do ${journeyInfo.cs} fáze (1 věta)
+
+Odpověz ve formátu JSON:
+{
+  "ideas": [
+    {
+      "id": "1",
+      "hook": "...",
+      "concept": "...",
+      "visualIdea": "...",
+      "journeyFit": "..."
+    }
+  ]
+}`;
+}
+
+export function buildGenerateSocialPrompt(input: GenerateSocialInput): string {
+  const selectedProducts = getSelectedProducts(input.productIds);
+  const selectedConcerns = getSelectedConcerns(input.concernIds);
+  // Categories and ingredients are collected for potential future use but not currently in prompt
+  getSelectedCategories(input.categoryIds);
+  getSelectedIngredients(input.ingredientIds);
+  const selectedEvents = getSelectedEvents(input.eventIds);
+
+  const platformInfo = PLATFORMS[input.platform];
+  const formatInfo = OUTPUT_FORMATS[input.outputFormat];
+  const journeyInfo = JOURNEY_STAGES[input.journeyStage];
+  const styleInfo = CONTENT_STYLES[input.contentStyle];
+  const seasonInfo = input.season ? SEASONS[input.season] : null;
+  const contextInfo = input.context ? CONTEXTS[input.context] : null;
+
+  // Build context
+  const contextSections: string[] = [];
+
+  if (selectedProducts.length > 0) {
+    contextSections.push(`### Produkty:
+${selectedProducts.map(formatProductContext).join('\n')}`);
+  }
+
+  if (selectedConcerns.length > 0) {
+    contextSections.push(`### Problémy:
+${selectedConcerns.map(formatConcernContext).join('\n')}`);
+  }
+
+  if (selectedEvents.length > 0) {
+    contextSections.push(`### Události:
+${selectedEvents.map(formatEventContext).join('\n\n')}`);
+  }
+
+  // Season context
+  if (seasonInfo) {
+    contextSections.push(`### Sezónní kontext: ${seasonInfo.cs}
+${seasonInfo.context}`);
+  }
+
+  // Situational context
+  if (contextInfo) {
+    contextSections.push(`### Situační kontext: ${contextInfo.cs}
+${contextInfo.description}`);
+  }
+
+  // Content sources with actual content
+  if (input.contentSources.length > 0) {
+    const sourcesContent = input.contentSources
+      .map((sourceId) => {
+        const sourceInfo = CONTENT_SOURCES[sourceId];
+        const userContent = input.sourceContent?.[sourceId];
+        if (userContent) {
+          return `**${sourceInfo.cs}:**
+${userContent}`;
+        }
+        return `- **${sourceInfo.cs}**: ${sourceInfo.description}`;
+      })
+      .join('\n\n');
+    contextSections.push(`### Content sources:\n${sourcesContent}`);
+  }
+
+  // Format-specific output instructions
+  let outputInstructions = '';
+
+  if (input.outputFormat === 'social-post') {
+    outputInstructions = `
+Vytvoř kompletní social post. Odpověz ve formátu JSON:
+{
+  "output": {
+    "caption": "Kompletní caption včetně emoji a formátování",
+    "hashtags": ["hashtag1", "hashtag2", "..."],
+    "visualConcept": "Detailní popis vizuálu/fotky/grafiky",
+    "postingTip": "Tip na nejlepší čas/den pro posting"
+  }
+}`;
+  } else if (input.outputFormat === 'ad') {
+    outputInstructions = `
+Vytvoř kompletní reklamní copy. Odpověz ve formátu JSON:
+{
+  "output": {
+    "headlines": ["Headline 1", "Headline 2", "Headline 3"],
+    "primaryText": "Hlavní text reklamy (max 125 znaků pro FB)",
+    "description": "Doplňkový text pod hlavní text",
+    "visualConcept": "Detailní popis vizuálu/video konceptu",
+    "targetAudience": "Popis cílové skupiny pro targeting",
+    "ctaButton": "Doporučené CTA tlačítko (Shop Now, Learn More, etc.)"
+  }
+}`;
+  } else if (input.outputFormat === 'video') {
+    outputInstructions = `
+Vytvoř kompletní video script. Odpověz ve formátu JSON:
+{
+  "output": {
+    "hookScript": "Přesný script pro prvních 3 vteřin - slovo od slova",
+    "fullScript": "Kompletní script s časovými značkami [0:00-0:03] Hook\\n[0:03-0:10] Problem...",
+    "visualDirections": ["Záběr 1: ...", "Záběr 2: ...", "..."],
+    "musicSuggestion": "Doporučený typ hudby/zvuku",
+    "onScreenText": ["Text 1 (0:00-0:05)", "Text 2 (0:05-0:15)", "..."],
+    "duration": "Doporučená délka videa"
+  }
+}`;
+  }
+
+  return `Jsi social media expert pro českou pánskou kosmetiku KOOLMAN. Tvým úkolem je vytvořit finální obsah.
+
+${selectedProducts.length > 0 ? STRICT_CONSTRAINTS : ''}
+
+${TONE_OF_VOICE}
+
+## PLATFORMA: ${platformInfo.cs}
+${platformInfo.specs}
+
+## FORMÁT: ${formatInfo.cs}
+${formatInfo.structure}
+
+## CUSTOMER JOURNEY: ${journeyInfo.cs}
+Cíl: ${journeyInfo.goal}
+Doporučené CTA: ${journeyInfo.cta.join(', ')}
+
+## STYL OBSAHU: ${styleInfo.cs}
+${styleInfo.guidelines}
+
+## VYBRANÝ NÁPAD
+
+**Hook:** ${input.selectedIdea.hook}
+**Koncept:** ${input.selectedIdea.concept}
+**Vizuální nápad:** ${input.selectedIdea.visualIdea}
+
+## KONTEXT
+
+${contextSections.join('\n\n')}
+
+${input.customPrompt ? `### Dodatečné zadání:\n${input.customPrompt}` : ''}
+
+## TVŮJ ÚKOL
+
+${outputInstructions}`;
+}

@@ -1,0 +1,30 @@
+[
+  {
+    "adName": "FM_CZ_TOGETHER_FAM_REAL_v01",
+    "market": "CZ",
+    "angle": "TOGETHER",
+    "subject": "FAM",
+    "format": "REAL",
+    "funnel": "CARE",
+    "persona": "maminky",
+    "sourceConcept": "E23",
+    "primaryText": "Nejlepší odpoledne se nedají naplánovat. Vytáhnete omalovánku z vaší společné fotky, po stole se rozkutálí pastelky a než se nadějete, maluje celá rodina. I ten, co říkal, že ho to nebaví. Není to o dokonalém vybarvení. Je to o tom, že jste u toho spolu.",
+    "headline": "Odpoledne, u kterého sedí celá rodina",
+    "description": "Omalovánka z vaší fotky",
+    "rationale": "TOGETHER přes víc rukou u jednoho stolu, ne split screen jedné tváře."
+  },
+  {
+    "adName": "FM_CZ_TOGETHER_GRAND_REAL_v01",
+    "market": "CZ",
+    "angle": "TOGETHER",
+    "subject": "GRAND",
+    "format": "REAL",
+    "funnel": "CARE",
+    "persona": "prarodice",
+    "sourceConcept": "E24",
+    "primaryText": "Babička drží jednu pastelku, vnučka druhou. Před nimi jedna stránka, fotka z výletu, na kterém byly spolu. Chvíli je ticho, pak se obě smějou, že přetáhly čáru. Malování ve dvou je úplně jiné než malování o samotě.",
+    "headline": "Vzpomínka, kterou vybarvíte spolu",
+    "description": "Osobní omalovánka z vaší fotky",
+    "rationale": "Stejný segment jako E4, ale claim je společná činnost, ne poznání sebe."
+  }
+]

@@ -1,0 +1,80 @@
+diff --git a/src/ui/server.js b/Marketing Automatization/generator/src/ui/server.js
+index 6d5e528..0f2e08c 100644
+--- a/src/ui/server.js
++++ b/Marketing Automatization/generator/src/ui/server.js	
+@@ -1,7 +1,7 @@
+ import { createServer } from 'node:http';
+ import { spawn } from 'node:child_process';
+-import { readFileSync, statSync } from 'node:fs';
+-import { join, dirname } from 'node:path';
++import { readFileSync, statSync, existsSync } from 'node:fs';
++import { join, dirname, extname, resolve, sep } from 'node:path';
+ import { fileURLToPath, pathToFileURL } from 'node:url';
+ import sharp from 'sharp';
+ import { loadConfig } from '../config.js';
+@@ -34,6 +34,19 @@ import { migrateDedications, MEMORY_DIR } from '../dedications.js';
+ const HERE = dirname(fileURLToPath(import.meta.url));
+ const THUMB_WIDTH = 720;
+ 
++// The studio shell — the marketing dashboard.html and its image assets — sits at the repo root,
++// three levels up from src/ui. It is served as the home page, and the review grid moves under
++// /review. When no dashboard.html is there (the generator running on its own), the grid stays home.
++const STUDIO_ROOT = resolve(HERE, '..', '..', '..');
++// Shell assets are served only from these public folders, and only for these extensions, so the
++// static route can never hand back source, config, order data, or the .env.
++const SHELL_ASSET_DIRS = ['creatives', 'brand', 'assets', 'graphics'];
++const SHELL_ASSET_TYPES = new Map([
++  ['.svg', 'image/svg+xml'], ['.png', 'image/png'], ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'],
++  ['.gif', 'image/gif'], ['.webp', 'image/webp'], ['.ico', 'image/x-icon'],
++  ['.css', 'text/css; charset=utf-8'], ['.woff2', 'font/woff2'], ['.woff', 'font/woff'],
++]);
++
+ const json = (res, code, body) => {
+   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+   res.end(JSON.stringify(body));
+@@ -240,7 +253,7 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
+  *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
+  *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
+  *  double-click launcher, where a real operator is watching, turns it on. */
+-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR } = {}) {
++export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, shellRoot = STUDIO_ROOT } = {}) {
+   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
+   const outbox = outboxRoot ?? config.paths.outbox;
+   const inFlight = new Map(); // "order/base" -> { message }
+@@ -397,10 +410,34 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
+     const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+ 
+     try {
++      // Home is the studio dashboard (the marketing shell). Falls back to the review grid when
++      // there is no dashboard.html — i.e. the generator running on its own.
+       if (req.method === 'GET' && url.pathname === '/') {
+-        const html = readFileSync(join(HERE, 'static', 'index.html'));
++        const shell = join(shellRoot, 'dashboard.html');
++        const file = existsSync(shell) ? shell : join(HERE, 'static', 'index.html');
++        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
++        return res.end(readFileSync(file));
++      }
++
++      // The review grid, now a sub-page reached from the dashboard's "Generátor" tile.
++      if (req.method === 'GET' && (url.pathname === '/review' || url.pathname === '/review/')) {
+         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+-        return res.end(html);
++        return res.end(readFileSync(join(HERE, 'static', 'index.html')));
++      }
++
++      // Shell assets (the dashboard's creative SVGs and brand images). Scoped to public folders
++      // and safe extensions, and the resolved path must stay inside shellRoot — so a crafted path
++      // cannot climb out to read source, config, order data, or the .env.
++      if (req.method === 'GET' && SHELL_ASSET_DIRS.some((d) => url.pathname.startsWith(`/${d}/`))) {
++        let rel;
++        try { rel = decodeURIComponent(url.pathname.slice(1)); } catch { return json(res, 404, { error: 'Not found.' }); }
++        const base = resolve(shellRoot);
++        const full = resolve(base, rel);
++        const type = SHELL_ASSET_TYPES.get(extname(full).toLowerCase());
++        const inside = full === base || full.startsWith(base + sep);
++        if (!type || !inside || !existsSync(full)) return json(res, 404, { error: 'Not found.' });
++        res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
++        return res.end(readFileSync(full));
+       }
+ 
+       if (req.method === 'GET' && url.pathname === '/api/state') {

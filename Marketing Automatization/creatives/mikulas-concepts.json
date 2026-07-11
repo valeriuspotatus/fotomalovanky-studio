@@ -1,0 +1,30 @@
+[
+  {
+    "adName": "FM_CZ_GIFT_KIDS_REAL_v01",
+    "market": "CZ",
+    "angle": "GIFT",
+    "subject": "KIDS",
+    "format": "REAL",
+    "funnel": "DO",
+    "persona": "darci",
+    "sourceConcept": "M1",
+    "primaryText": "Co letos přinese Mikuláš? Něco lepšího než uhlí. Osobní omalovánka, na které se dítě pozná. Malý dárek, u kterého stráví celé prosincové odpoledne tvořením. Objednejte do 30. 11., ať to na Mikuláše 5. 12. stihne.",
+    "headline": "Malý dárek od Mikuláše",
+    "description": "Osobní omalovánka z vaší fotky",
+    "rationale": "Mikuláš jako gifting okamžik pro malý dárek dítěti. Angle GIFT, uhlí jako lehký kontrast. Uzávěrka 30. 11. = doručení kolem 4. 12., den před mikulášskou nocí (5. 12.), při výrobě a přepravě do 3–4 pracovních dnů (potvrzeno Davidem 2026-07-10)."
+  },
+  {
+    "adName": "FM_CZ_FUN_KIDS_SPLIT_v02",
+    "market": "CZ",
+    "angle": "FUN",
+    "subject": "KIDS",
+    "format": "SPLIT",
+    "funnel": "SEE",
+    "persona": "maminky",
+    "sourceConcept": "M2",
+    "primaryText": "Byl jste celý rok hodný? Skvělé. Byl jste občas trochu čert? No, my vás nesoudíme. Letos místo uhlí zkuste omalovánku z vaší nejlepší fotky. Mikuláš by souhlasil.",
+    "headline": "Letos místo uhlí",
+    "description": "Osobní omalovánka z fotky",
+    "rationale": "Čert/uhlí hook je přirozeně FUN. Dává FUN sezónní statický test před video budgetem."
+  }
+]

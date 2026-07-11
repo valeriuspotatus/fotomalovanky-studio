@@ -1,0 +1,30 @@
+[
+  {
+    "adName": "FM_CZ_GIFT_NONE_REAL_v02",
+    "market": "CZ",
+    "angle": "GIFT",
+    "subject": "NONE",
+    "format": "REAL",
+    "funnel": "DO",
+    "persona": "darci",
+    "sourceConcept": "BF1",
+    "primaryText": "Tenhle víkend nedáváte jen omalovánku. K osobní omalovánce z vaší fotky přibalíme i prémiové pastelky, aby se dalo malovat hned, jak dárek rozbalí. Celý dárek v jedné krabici, připravený pod stromeček. [OVĚŘIT: do kdy objednat, aby dárek přišel na Mikuláše a do Vánoc]",
+    "headline": "Celý dárek v jedné krabici",
+    "description": "Omalovánka a pastelky pohromadě",
+    "rationale": "Black Friday jako bundle, ne sleva. Kompletní dárek zvedá AOV místo aby snižoval cenu."
+  },
+  {
+    "adName": "FM_CZ_TOGETHER_GRAND_REAL_v02",
+    "market": "CZ",
+    "angle": "TOGETHER",
+    "subject": "GRAND",
+    "format": "REAL",
+    "funnel": "CARE",
+    "persona": "prarodice",
+    "sourceConcept": "BF2",
+    "primaryText": "Jednu omalovánku vybarvíte a je pryč. Co takhle dvě? Tenhle víkend k objednávce přibalíme druhou kopii, aby si stejnou vzpomínku vybarvila i babička u sebe doma. Dvě knihy, jedna vzpomínka. Malujete každý u svého stolu a stejně jste u toho spolu.",
+    "headline": "Druhá kopie pro babičku",
+    "description": "Stejná vzpomínka, dvakrát",
+    "rationale": "Remarketing bundle. Druhá kopie je levná na dotisk, sedí na TOGETHER a dává mu sezónní test."
+  }
+]

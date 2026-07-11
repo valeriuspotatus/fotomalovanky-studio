@@ -1,0 +1,24 @@
+# Secrets — never commit
+.env
+.env.local
+
+# Machine-generated: pulled ad data and reports (may contain account data)
+data/
+reports/
+
+# Dependencies
+node_modules/
+
+# Large local asset dump — not part of the project (4 GB of videos/images/other-project copies)
+Extra files/
+extracted/
+
+# Throwaway archives
+*.zip
+
+# Shopify order export — contains customer PII, keep it out of version control
+orders_export*.csv
+
+# OS
+.DS_Store
+Thumbs.db

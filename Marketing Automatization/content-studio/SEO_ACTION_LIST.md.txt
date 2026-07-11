@@ -1,0 +1,33 @@
+# SEO / Content Action List
+
+Chosen priorities: 1, 4, 6.
+
+| Priority | Task | Impact |
+|---:|---|---|
+| 1 | Create “Jak vybrat fotky” guide | Very high |
+| 2 | Fix product page variant/crawl text | Very high |
+| 3 | Improve image filenames + alt texts | High |
+| 4 | Add 5–8 strong behind-the-scenes / help articles | High |
+| 5 | Add product structured data + Merchant Center | High |
+| 6 | Add videos to product / homepage | Medium-high |
+| 7 | Add “O nás / Kdo za tím stojí” page | Medium-high |
+| 8 | Check canonicalization for srsltd URLs | Medium-high |
+| 9 | Expand FAQ with real buyer objections | Medium |
+| 10 | Add Slovak-specific content if Slovakia matters | Medium |
+
+## Current decision
+
+We chose to focus on:
+
+1. Create “Jak vybrat fotky” guide  
+Status: completed as hidden Shopify draft.
+
+4. Add 5–8 strong behind-the-scenes / help articles  
+Status: next content roadmap priority.
+
+6. Add videos to product / homepage  
+Status: plan short product/homepage video assets from blog and product content.
+
+## Notes
+
+Do not treat this list as a publishing instruction. It is a planning document for local Content Studio only.

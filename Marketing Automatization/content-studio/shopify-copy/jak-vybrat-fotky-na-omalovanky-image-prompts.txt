@@ -1,0 +1,23 @@
+Weavy cover prompt (English):
+Authentic UGC-style photo in a real Czech home, on a desk or kitchen table.
+A smartphone showing a family photo lies next to a printed coloring book page
+that depicts the same scene as clean hand-drawn line art. Wooden colored pencils
+scattered around, a cup of tea nearby. Warm natural window light, cozy and lived-in,
+shot-on-iPhone feel, shallow depth of field. Not a stock photo. No text, no logos,
+no recognizable real faces (people seen from behind or out of frame).
+
+Weavy inline prompt (English):
+Close-up overhead shot of hands choosing a photo on a smartphone screen above an
+open coloring book page and a few wooden colored pencils on a warm wooden table.
+Soft daylight from a window, authentic home setting, shot-on-iPhone aesthetic.
+No text, no logos, no recognizable real faces.
+
+Alt text suggestion - cover (CZ):
+Otevřená omalovánka vytvořená z rodinné fotky leží na stole, vedle ní mobil s původní fotkou a pastelky.
+
+Alt text suggestion - inline (CZ):
+Ruce vybírají fotku v mobilu nad otevřenou omalovánkou a pastelkami na stole.
+
+Note:
+Pro obrázky nepoužívejte rozpoznatelné tváře reálných zákazníků. Alt text upravte
+podle skutečně použitého obrázku, ať popisuje, co je na něm vidět.

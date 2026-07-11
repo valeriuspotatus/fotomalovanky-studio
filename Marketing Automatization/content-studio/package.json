@@ -1,0 +1,16 @@
+{
+  "name": "fotomalovanky-content-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local CZ-only blog creation system for Fotomalovánky. Draft-only, no Shopify API, no publishing.",
+  "type": "module",
+  "scripts": {
+    "demo": "tsx src/demo.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

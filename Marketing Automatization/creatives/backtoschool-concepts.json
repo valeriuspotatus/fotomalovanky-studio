@@ -1,0 +1,30 @@
+[
+  {
+    "adName": "FM_CZ_EMO_KIDS_HYBRID_v01",
+    "market": "CZ",
+    "angle": "EMO",
+    "subject": "KIDS",
+    "format": "HYBRID",
+    "funnel": "SEE",
+    "persona": "maminky",
+    "sourceConcept": "BTS1",
+    "primaryText": "Prázdniny utekly jako voda. Ale ta fotka, kde skáčete z mola do vody, pořád existuje. Než zapadne mezi tisíci dalšími v mobilu, uděláme z ní omalovánku. Kus léta, který dítěti zůstane, i když venku prší a začíná škola. Dovolená, která nekončí.",
+    "headline": "Kus léta, který zůstane",
+    "description": "Omalovánka z prázdninových fotek",
+    "rationale": "Léto právě skončilo, mobil plný fotek. Zachovat vzpomínku, angle EMO. Ověřená tagline."
+  },
+  {
+    "adName": "FM_CZ_SCREEN_FAM_REAL_v01",
+    "market": "CZ",
+    "angle": "SCREEN",
+    "subject": "FAM",
+    "format": "REAL",
+    "funnel": "SEE",
+    "persona": "maminky",
+    "sourceConcept": "BTS2",
+    "primaryText": "Škola začala, večery se krátí a tablet je zase po ruce. Až příště uslyšíte \"nudím se\", vytáhněte omalovánku z vlastní fotky. Vlastní pastelky, vlastní vzpomínka, a klid na celý podvečer bez obrazovky. Kreativita, u které děti vydrží.",
+    "headline": "Podvečer bez obrazovky",
+    "description": "Osobní omalovánka z fotky",
+    "rationale": "Podzim, kratší večery, zpátky k tabletu. Zaplňuje SCREEN, který má jen E19."
+  }
+]

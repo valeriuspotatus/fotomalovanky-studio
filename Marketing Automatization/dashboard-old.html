@@ -1,0 +1,1198 @@
+<title>Fotomalovánky — Marketing Factory Console</title>
+<style>
+  :root {
+    --bg: #FAF7F2;
+    --surface: #FFFFFF;
+    --surface-2: #F4EFE7;
+    --border: #E7DFD3;
+    --border-strong: #D8CDBD;
+    --text: #241E18;
+    --muted: #7C7266;
+    --faint: #9C9284;
+    --accent: #FF9E1B;
+    --accent-ink: #BC6D0A;
+
+    --fm-red: #FF3D3D; --fm-blue: #20A1FF; --fm-amber: #FFB400; --fm-yellow: #FFC947; --fm-green: #24D586;
+
+    --ok: #1E9E64;
+    --ok-bg: color-mix(in srgb, #24D586 15%, transparent);
+    --warn: #C4880F;
+    --warn-bg: color-mix(in srgb, #FFB400 16%, transparent);
+    --crit: #E23D3D;
+    --crit-bg: color-mix(in srgb, #FF3D3D 12%, transparent);
+
+    --a-EMO: #F0476E;
+    --a-GIFT: #E39400;
+    --a-PROOF: #12897E;
+    --a-SIMPLE: #1E90E8;
+    --a-SCREEN: #7C4DE0;
+    --a-TOGETHER: #1E9E5A;
+    --a-RELAX: #C05CC0;
+    --a-FUN: #FF6A2B;
+
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", "Segoe UI Mono", "Roboto Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+    --r: 10px;
+    --r-sm: 7px;
+    --shadow: 0 1px 2px rgba(40,30,20,.05), 0 4px 16px -8px rgba(40,30,20,.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15110D;
+      --surface: #1F1912;
+      --surface-2: #261F17;
+      --border: #352C22;
+      --border-strong: #45392C;
+      --text: #EFE7DB;
+      --muted: #A79A89;
+      --faint: #7E7364;
+      --accent: #FFB43C;
+      --accent-ink: #FFB43C;
+
+      --fm-red: #FF5B5B; --fm-blue: #45B0FF; --fm-amber: #FFC24D; --fm-yellow: #FFD466; --fm-green: #3FD588;
+
+      --ok: #3FD08D;
+      --ok-bg: color-mix(in srgb, #24D586 18%, transparent);
+      --warn: #F0B33A;
+      --warn-bg: color-mix(in srgb, #FFB400 18%, transparent);
+      --crit: #FF6A5C;
+      --crit-bg: color-mix(in srgb, #FF3D3D 16%, transparent);
+
+      --a-EMO: #FF6E90;
+      --a-GIFT: #FFC24D;
+      --a-PROOF: #35B3A6;
+      --a-SIMPLE: #5BB4FF;
+      --a-SCREEN: #A986F0;
+      --a-TOGETHER: #4FCB84;
+      --a-RELAX: #D68AD6;
+      --a-FUN: #FF8A52;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 22px -10px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #FAF7F2; --surface: #FFFFFF; --surface-2: #F4EFE7; --border: #E7DFD3; --border-strong: #D8CDBD;
+    --text: #241E18; --muted: #7C7266; --faint: #9C9284; --accent: #FF9E1B; --accent-ink: #BC6D0A;
+    --fm-red: #FF3D3D; --fm-blue: #20A1FF; --fm-amber: #FFB400; --fm-yellow: #FFC947; --fm-green: #24D586;
+    --ok: #1E9E64; --ok-bg: color-mix(in srgb, #24D586 15%, transparent);
+    --warn: #C4880F; --warn-bg: color-mix(in srgb, #FFB400 16%, transparent);
+    --crit: #E23D3D; --crit-bg: color-mix(in srgb, #FF3D3D 12%, transparent);
+    --a-EMO:#F0476E; --a-GIFT:#E39400; --a-PROOF:#12897E; --a-SIMPLE:#1E90E8;
+    --a-SCREEN:#7C4DE0; --a-TOGETHER:#1E9E5A; --a-RELAX:#C05CC0; --a-FUN:#FF6A2B;
+    --shadow: 0 1px 2px rgba(40,30,20,.05), 0 4px 16px -8px rgba(40,30,20,.10);
+  }
+  :root[data-theme="dark"] {
+    --bg: #15110D; --surface: #1F1912; --surface-2: #261F17; --border: #352C22; --border-strong: #45392C;
+    --text: #EFE7DB; --muted: #A79A89; --faint: #7E7364; --accent: #FFB43C; --accent-ink: #FFB43C;
+    --fm-red: #FF5B5B; --fm-blue: #45B0FF; --fm-amber: #FFC24D; --fm-yellow: #FFD466; --fm-green: #3FD588;
+    --ok: #3FD08D; --ok-bg: color-mix(in srgb, #24D586 18%, transparent);
+    --warn: #F0B33A; --warn-bg: color-mix(in srgb, #FFB400 18%, transparent);
+    --crit: #FF6A5C; --crit-bg: color-mix(in srgb, #FF3D3D 16%, transparent);
+    --a-EMO:#FF6E90; --a-GIFT:#FFC24D; --a-PROOF:#35B3A6; --a-SIMPLE:#5BB4FF;
+    --a-SCREEN:#A986F0; --a-TOGETHER:#4FCB84; --a-RELAX:#D68AD6; --a-FUN:#FF8A52;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 22px -10px rgba(0,0,0,.5);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 { text-wrap: balance; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+  a { color: var(--accent-ink); }
+  code, .mono { font-family: var(--mono); }
+
+  .eyebrow {
+    font-size: 11.5px; letter-spacing: .11em; text-transform: uppercase;
+    color: var(--faint); font-weight: 600;
+  }
+
+  /* header */
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  header::after {
+    content: ""; display: block; height: 3px;
+    background: linear-gradient(90deg, var(--fm-red) 0 20%, var(--fm-amber) 20% 40%, var(--fm-yellow) 40% 56%, var(--fm-green) 56% 76%, var(--fm-blue) 76% 100%);
+  }
+  .head-in {
+    max-width: 1120px; margin: 0 auto; padding: 14px 24px;
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: baseline; gap: 11px; margin-right: auto; }
+  .brand .logo {
+    font-size: 20px; font-weight: 700; letter-spacing: -.02em;
+  }
+  .brand .logo b { color: var(--accent-ink); }
+  .brand .wm { font-weight: 800; letter-spacing: -.01em; }
+  .brand .wm .c1 { color: var(--fm-red); }
+  .brand .wm .c2 { color: var(--fm-blue); }
+  .brand .wm .c3 { color: var(--fm-amber); }
+  .brand .wm .c4 { color: var(--fm-green); }
+  .brand .sub { font-size: 12.5px; color: var(--muted); }
+  nav.top { display: flex; gap: 3px; flex-wrap: wrap; }
+  nav.top a {
+    font-size: 12.5px; color: var(--muted); text-decoration: none;
+    padding: 5px 9px; border-radius: 6px; white-space: nowrap;
+  }
+  nav.top a:hover { background: var(--surface-2); color: var(--text); }
+  .toggle {
+    font: inherit; font-size: 13px; cursor: pointer; text-decoration: none;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border-strong); border-radius: 999px;
+    padding: 5px 13px; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .toggle:hover { border-color: var(--accent); }
+  .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #local.copied { color: var(--ok); border-color: var(--ok); }
+  #local.here { cursor: default; color: var(--muted); }
+  #local.here:hover { border-color: var(--border-strong); }
+
+  main { max-width: 1120px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* summary strip */
+  .strip {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px; background: var(--border); border: 1px solid var(--border);
+    border-radius: var(--r); overflow: hidden; margin: 28px 0 8px;
+  }
+  .stat { background: var(--surface); padding: 15px 17px; }
+  .stat .n { font-size: 26px; font-weight: 680; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .stat .n small { font-size: 15px; color: var(--muted); font-weight: 500; }
+  .stat .l { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .stat.alert .n { color: var(--crit); }
+
+  section { margin-top: 48px; scroll-margin-top: 76px; }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  .sec-head h2 { font-size: 20px; }
+  .sec-head .count { font-size: 13px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note { color: var(--muted); font-size: 14px; max-width: 68ch; margin: 3px 0 20px; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r); box-shadow: var(--shadow);
+  }
+
+  /* blockers */
+  .blockers { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .blocker {
+    background: var(--surface); border: 1px solid var(--border);
+    border-left: 3px solid var(--sev); border-radius: var(--r-sm);
+    padding: 15px 17px; box-shadow: var(--shadow);
+  }
+  .blocker.crit { --sev: var(--crit); }
+  .blocker.warn { --sev: var(--warn); }
+  .blocker .row { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; }
+  .blocker .kind {
+    font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700;
+    color: var(--sev); background: color-mix(in srgb, var(--sev) 12%, transparent);
+    padding: 2px 7px; border-radius: 4px;
+  }
+  .blocker h3 { font-size: 15px; }
+  .blocker p { margin: 0; font-size: 13.5px; color: var(--muted); }
+  .blocker .unlocks { margin-top: 9px; font-size: 12.5px; color: var(--faint); }
+  .blocker .unlocks b { color: var(--text); font-weight: 600; }
+
+  /* loop */
+  .loop { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; overflow-x: auto; padding: 4px; }
+  .loop-step {
+    flex: 1 1 130px; min-width: 130px; padding: 14px 15px; position: relative;
+    border: 1px solid var(--border); background: var(--surface); border-radius: var(--r-sm); margin: 5px;
+  }
+  .loop-step .st { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; }
+  .loop-step.auto .st { color: var(--ok); }
+  .loop-step.manual .st { color: var(--warn); }
+  .loop-step h4 { margin: 4px 0 3px; font-size: 14.5px; font-weight: 620; }
+  .loop-step code { font-size: 11.5px; color: var(--muted); }
+  .loop-step p { margin: 5px 0 0; font-size: 12px; color: var(--muted); }
+  .seam-label {
+    display: inline-flex; align-items: center; gap: 7px; margin: 16px 0 0;
+    font-size: 12.5px; color: var(--warn); font-weight: 600;
+  }
+  .seam-label::before { content: "✂"; }
+
+  /* angle grid */
+  .angles { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .angle {
+    --h: var(--muted);
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm);
+    padding: 13px 15px; box-shadow: var(--shadow);
+  }
+  .angle .top { display: flex; align-items: center; gap: 9px; }
+  .angle .dot { width: 11px; height: 11px; border-radius: 3px; background: var(--h); flex: none; }
+  .angle .name { font-family: var(--mono); font-size: 13.5px; font-weight: 600; letter-spacing: .02em; }
+  .angle .cnt { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .angle .claim { font-size: 12.5px; color: var(--muted); margin-top: 7px; }
+  .angle .bar { height: 5px; border-radius: 3px; background: var(--surface-2); margin-top: 10px; overflow: hidden; }
+  .angle .bar > i { display: block; height: 100%; background: var(--h); border-radius: 3px; }
+  .angle .flag {
+    margin-top: 9px; font-size: 11.5px; font-weight: 600; padding: 3px 8px; border-radius: 999px;
+    display: inline-block;
+  }
+  .flag.thin { color: var(--crit); background: var(--crit-bg); }
+  .flag.over { color: var(--warn); background: var(--warn-bg); }
+  .flag.watch { color: var(--a-FUN); background: color-mix(in srgb, var(--a-FUN) 13%, transparent); }
+  .flag.new { color: var(--ok); background: var(--ok-bg); }
+
+  /* briefs */
+  .briefs { display: flex; flex-direction: column; gap: 13px; }
+  details.brief {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  details.brief > summary {
+    list-style: none; cursor: pointer; padding: 15px 18px;
+    display: flex; align-items: center; gap: 13px; flex-wrap: wrap;
+  }
+  details.brief > summary::-webkit-details-marker { display: none; }
+  details.brief > summary::after {
+    content: "▾"; margin-left: auto; color: var(--faint); transition: transform .18s ease; font-size: 13px;
+  }
+  details.brief[open] > summary::after { transform: rotate(180deg); }
+  .brief .season { font-size: 15px; font-weight: 640; }
+  .brief .subttl { font-size: 12.5px; color: var(--muted); }
+  .brief .badges { display: flex; gap: 6px; align-items: center; margin-left: 4px; flex-wrap: wrap; }
+  .pill {
+    font-size: 11px; font-weight: 600; padding: 2.5px 8px; border-radius: 999px; white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); }
+  .pill.brief { color: var(--warn); background: var(--warn-bg); }
+  .pill.verify { color: var(--crit); background: var(--crit-bg); }
+  .pill.angle { font-family: var(--mono); color: var(--h); background: color-mix(in srgb, var(--h) 13%, transparent); }
+  .brief .body { padding: 2px 18px 18px; border-top: 1px solid var(--border); }
+  .brief .note { font-size: 13px; color: var(--muted); margin: 12px 0 14px; max-width: 72ch; }
+  .concept {
+    border: 1px solid var(--border); border-left: 3px solid var(--h); border-radius: var(--r-sm);
+    padding: 12px 14px; margin-top: 10px; background: var(--surface-2);
+  }
+  .concept .cn-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 7px; }
+  .concept .adname { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .concept .hl { font-size: 14px; font-weight: 620; margin: 2px 0 5px; }
+  .concept .txt { font-size: 13.5px; line-height: 1.5; }
+  .concept .verifytag {
+    display: inline; font-family: var(--mono); font-size: 12px; color: var(--crit);
+    background: var(--crit-bg); padding: 1px 5px; border-radius: 4px;
+  }
+
+  /* shots */
+  .clusters { display: flex; flex-direction: column; gap: 14px; }
+  .cluster { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden; }
+  .cluster > .ch { padding: 13px 18px; display: flex; align-items: baseline; gap: 11px; flex-wrap: wrap; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+  .cluster .ch .nm { font-size: 15px; font-weight: 640; }
+  .cluster .ch .setup { font-size: 12.5px; color: var(--muted); flex: 1 1 200px; }
+  .cluster .ch .when { font-size: 11px; font-weight: 700; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 13%, transparent); padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .shot { --h: var(--muted); display: flex; gap: 12px; align-items: flex-start; padding: 11px 18px; border-top: 1px solid var(--border); }
+  .shot:first-of-type { border-top: 0; }
+  .shot .chk {
+    flex: none; width: 20px; height: 20px; margin-top: 1px; border-radius: 5px; cursor: pointer;
+    border: 1.5px solid var(--faint); background: transparent; padding: 0; position: relative; transition: background .12s ease, border-color .12s ease;
+  }
+  .shot .chk:hover { border-color: var(--h); }
+  .shot .chk[aria-pressed="true"] { background: var(--h); border-color: var(--h); }
+  .shot .chk[aria-pressed="true"]::after { content: "✓"; color: #fff; font-size: 12px; font-weight: 700; position: absolute; inset: 0; display: grid; place-items: center; }
+  .shot .chk:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .shot .main { flex: 1; min-width: 0; }
+  .shot .l1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .shot .code { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--h); }
+  .shot .cap { font-size: 13px; margin-top: 4px; }
+  .shot.done { opacity: .55; }
+  .shot.done .cap { text-decoration: line-through; text-decoration-color: var(--faint); }
+  .shot .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .mini { font-size: 10.5px; font-family: var(--mono); color: var(--muted); background: var(--surface-2); padding: 1.5px 6px; border-radius: 4px; }
+  .mini.block { color: var(--crit); background: var(--crit-bg); font-family: var(--sans); font-weight: 600; }
+  .gather h3 { font-size: 14px; margin-bottom: 4px; }
+  .gather .gsub { font-size: 12.5px; color: var(--muted); margin-bottom: 11px; }
+  .gather ul { margin: 0; padding: 0; list-style: none; columns: 2; column-gap: 26px; }
+  .gather li { font-size: 13px; padding: 4px 0 4px 16px; text-indent: -16px; break-inside: avoid; color: var(--muted); }
+  .gather li::before { content: "○ "; color: var(--faint); }
+  .gather li b { color: var(--text); font-weight: 600; }
+  @media (max-width: 560px) { .gather ul { columns: 1; } }
+
+  /* full-brief modal + markdown */
+  .btn-brief { font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; color: var(--accent-ink); background: transparent; border: 1px solid var(--border-strong); border-radius: 999px; padding: 2.5px 10px; white-space: nowrap; }
+  .btn-brief:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+  .btn-brief:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .modal { position: fixed; inset: 0; z-index: 50; display: none; background: color-mix(in srgb, #000 56%, transparent); padding: 5vh 18px; overflow-y: auto; }
+  .modal.show { display: block; }
+  .modal-box { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r); max-width: 820px; margin: 0 auto; box-shadow: 0 24px 70px -24px rgba(0,0,0,.55); }
+  .modal-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--surface); border-bottom: 1px solid var(--border); border-radius: var(--r) var(--r) 0 0; }
+  .modal-head .path { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .modal-head .path a { color: var(--muted); text-decoration: none; }
+  .modal-head .path a:hover { color: var(--accent-ink); text-decoration: underline; }
+  .modal-close { font: inherit; font-size: 15px; line-height: 1; cursor: pointer; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; width: 30px; height: 30px; flex: none; }
+  .modal-close:hover { color: var(--text); border-color: var(--border-strong); }
+  .md-body { padding: 6px 26px 34px; }
+  .md-body .md-h { margin: 22px 0 8px; line-height: 1.25; }
+  .md-body h1.md-h { font-size: 22px; }
+  .md-body h2.md-h { font-size: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .md-body h3.md-h { font-size: 15px; }
+  .md-body .md-p { font-size: 14px; margin: 9px 0; }
+  .md-body .md-ul, .md-body .md-ol { margin: 9px 0; padding-left: 22px; }
+  .md-body li { font-size: 14px; margin: 4px 0; }
+  .md-body .md-q { margin: 12px 0; padding: 10px 15px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 13.5px; color: var(--muted); }
+  .md-body .md-hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
+  .md-body code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+  .md-body .md-code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px 14px; overflow-x: auto; margin: 12px 0; line-height: 1.5; white-space: pre; }
+  .md-body .md-table { overflow-x: auto; margin: 12px 0; }
+  .md-body table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  .md-body th, .md-body td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+  .md-body th { background: var(--surface-2); font-weight: 600; }
+  .md-body a { color: var(--accent-ink); }
+
+  /* timeline */
+  .timeline { position: relative; margin: 8px 0 4px; padding-left: 4px; }
+  .tl-track { position: absolute; left: 10px; top: 6px; bottom: 6px; width: 2px; background: var(--border-strong); }
+  .tl-item { position: relative; padding: 9px 0 9px 34px; }
+  .tl-item .mk {
+    position: absolute; left: 3px; top: 13px; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--border-strong);
+  }
+  .tl-item.milestone .mk { border-color: var(--accent); background: var(--accent); }
+  .tl-item.today .mk { border-color: var(--crit); background: var(--crit); box-shadow: 0 0 0 4px var(--crit-bg); }
+  .tl-item .d { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tl-item .ev { font-size: 14px; font-weight: 580; }
+  .tl-item .meta { font-size: 12.5px; color: var(--muted); }
+  .tl-item.today .ev { color: var(--crit); }
+  .tl-item.milestone .ev { color: var(--accent-ink); }
+
+  /* generic two-col info cards */
+  .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .info { padding: 16px 18px; }
+  .info h3 { font-size: 14px; margin-bottom: 10px; }
+  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 13.5px; }
+  .kv:first-of-type { border-top: 0; }
+  .kv .k { color: var(--muted); }
+  .kv .v { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+  .kv .v.hi { color: var(--accent-ink); font-weight: 600; }
+  .kv .v.bad { color: var(--crit); }
+
+  .verdict { display: flex; flex-direction: column; gap: 8px; }
+  .verdict .vr { display: flex; gap: 11px; align-items: baseline; font-size: 13px; }
+  .verdict .tag {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
+    flex: none; width: 96px; text-align: center;
+  }
+  .tag.scale { color: var(--ok); background: var(--ok-bg); }
+  .tag.watch { color: var(--warn); background: var(--warn-bg); }
+  .tag.kill { color: var(--crit); background: var(--crit-bg); }
+  .tag.insuf { color: var(--muted); background: var(--surface-2); }
+  .verdict .vr span { color: var(--muted); }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 14px; }
+  .legend .li { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; }
+  .swatch.outline { border: 1.5px solid var(--faint); background: transparent; }
+  .swatch.fill { background: var(--faint); }
+
+  /* orders panel */
+  .ord-kpis {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: 1px; background: var(--border); border: 1px solid var(--border);
+    border-radius: var(--r); overflow: hidden; margin-bottom: 16px;
+  }
+  .ord-kpi { background: var(--surface); padding: 14px 16px; }
+  .ord-kpi .k { font-size: 11.5px; color: var(--muted); }
+  .ord-kpi .v { font-size: 23px; font-weight: 680; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: 2px; line-height: 1.1; }
+  .ord-kpi .v small { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .ord-kpi .sub { font-size: 11.5px; color: var(--faint); margin-top: 3px; }
+  .ord-kpi .v.ok { color: var(--ok); }
+  .ord-kpi .v.crit { color: var(--crit); }
+
+  .ord-grid { display: grid; grid-template-columns: 1.7fr 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 780px) { .ord-grid { grid-template-columns: 1fr; } }
+  .ord-card { padding: 15px 17px; }
+  .ord-card h3 { font-size: 14px; }
+  .ord-card .cap { font-size: 12px; color: var(--muted); margin: 3px 0 12px; }
+
+  .demand-chart { width: 100%; height: auto; display: block; overflow: visible; }
+  .demand-chart .bar { fill: var(--surface-2); }
+  .demand-chart .bar.peak { fill: color-mix(in srgb, var(--accent) 42%, transparent); }
+  .demand-chart .rev { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+  .demand-chart .rdot { fill: var(--accent); }
+  .demand-chart .base { stroke: var(--border-strong); stroke-width: 1; }
+  .demand-chart .mlab { fill: var(--faint); font: 600 9px var(--mono); }
+  .demand-chart .peaklab { fill: var(--accent-ink); font: 700 10px var(--sans); }
+  .dc-legend { display: flex; gap: 15px; font-size: 11.5px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
+  .dc-legend b { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 5px; }
+
+  .hbar { margin: 11px 0; }
+  .hbar .lab { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; margin-bottom: 4px; }
+  .hbar .lab .r { font-family: var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .hbar .track { height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; display: flex; }
+  .hbar .track > i { display: block; height: 100%; }
+  .split-note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .split-note b { color: var(--text); }
+  .pending-flag {
+    margin-top: 14px; padding: 12px 14px; border-radius: var(--r-sm);
+    border: 1px solid var(--crit); border-left: 3px solid var(--crit);
+    background: var(--crit-bg);
+  }
+  .pending-flag .pf-v { font-size: 20px; font-weight: 700; color: var(--crit); font-variant-numeric: tabular-nums; }
+  .pending-flag .pf-t { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+  /* season calendar */
+  .season { padding: 18px 20px 14px; }
+  .season-chart { width: 100%; height: auto; display: block; overflow: visible; }
+  .season-chart .ph-test { fill: color-mix(in srgb, var(--a-SIMPLE) 11%, transparent); }
+  .season-chart .ph-freeze { fill: color-mix(in srgb, var(--warn) 15%, transparent); }
+  .season-chart .ph-peak { fill: color-mix(in srgb, var(--crit) 12%, transparent); }
+  .season-chart .ph-lab { font: 700 10px var(--sans); text-transform: uppercase; letter-spacing: .07em; }
+  .season-chart .ph-lab.test { fill: var(--a-SIMPLE); }
+  .season-chart .ph-lab.freeze { fill: var(--warn); }
+  .season-chart .ph-lab.peak { fill: var(--crit); }
+  .season-chart .area { fill: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .season-chart .line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; }
+  .season-chart .mdot { fill: var(--accent); }
+  .season-chart .mo { font: 620 12px var(--sans); fill: var(--text); }
+  .season-chart .val { font: 600 9.5px var(--mono); fill: var(--faint); }
+  .season-chart .freeze-line { stroke: var(--crit); stroke-width: 1.5; stroke-dasharray: 4 3; }
+  .season-chart .freeze-lab { fill: var(--crit); font: 700 10px var(--sans); }
+  .season-chart .ms-stem { stroke: var(--border-strong); stroke-width: 1; }
+  .season-chart .ms-dot { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+  .season-chart .ms-dot.hol { stroke: var(--a-GIFT); }
+  .season-chart .ms-lab { fill: var(--text); font: 600 10px var(--sans); }
+  .season-chart .ms-sub { fill: var(--faint); font: 500 9px var(--mono); }
+  .season-cap { font-size: 12px; color: var(--muted); margin: 12px 2px 4px; }
+  .season-cap b { color: var(--text); }
+
+  .months { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 16px; }
+  .month { border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+  .month .mh { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 10px 13px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+  .month .mh .mn { font-size: 14px; font-weight: 640; }
+  .month .mh .mp { font: 700 9.5px var(--sans); text-transform: uppercase; letter-spacing: .06em; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .month .mp.test { color: var(--a-SIMPLE); background: color-mix(in srgb, var(--a-SIMPLE) 13%, transparent); }
+  .month .mp.learn { color: var(--warn); background: var(--warn-bg); }
+  .month .mp.peak { color: var(--crit); background: var(--crit-bg); }
+  .month .mi { padding: 4px 13px 10px; }
+  .month .mrow { --h: var(--muted); padding: 8px 0; border-top: 1px dashed var(--border); }
+  .month .mrow:first-child { border-top: 0; }
+  .month .mrow .rt { font-size: 12.5px; font-weight: 560; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .month .mrow .rt .date { font: 600 10px var(--mono); color: var(--accent-ink); flex: none; }
+  .month .mrow .rt .code { font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--h); background: color-mix(in srgb, var(--h) 14%, transparent); padding: 0 5px; border-radius: 4px; }
+  .month .mrow .rs { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+  .cadence-head { display: flex; align-items: baseline; gap: 10px; margin: 20px 2px 9px; }
+  .cadence-head h3 { font-size: 14px; }
+  .cadence-head .ch-note { font-size: 12px; color: var(--muted); }
+  .cadence { display: flex; gap: 9px; overflow-x: auto; padding: 2px 2px 10px; }
+  .fortnight {
+    --h: var(--muted); flex: 0 0 auto; width: 138px;
+    border: 1px solid var(--border); border-top: 3px solid var(--h);
+    border-radius: var(--r-sm); padding: 10px 12px; background: var(--surface); box-shadow: var(--shadow);
+  }
+  .fortnight .fn-d { font: 600 11px var(--mono); color: var(--muted); }
+  .fortnight .fn-code { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--h); margin-top: 4px; }
+  .fortnight .fn-t { font-size: 12px; margin-top: 2px; line-height: 1.35; }
+  .fortnight .fn-ang { font-family: var(--mono); font-size: 10px; color: var(--h); background: color-mix(in srgb, var(--h) 13%, transparent); padding: 1.5px 7px; border-radius: 999px; display: inline-block; margin-top: 7px; }
+  .fortnight.next { box-shadow: 0 0 0 2px var(--accent), var(--shadow); }
+  .fortnight .fn-now { font: 700 9px var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--accent-ink); }
+
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--faint); font-size: 12.5px; }
+
+  @media (max-width: 620px) {
+    .head-in { padding: 12px 16px; }
+    nav.top { display: none; }
+    main { padding: 0 16px 72px; }
+    .brand .sub { display: none; }
+  }
+</style>
+
+<header>
+  <div class="head-in">
+    <div class="brand">
+      <span class="logo"><span class="wm"><span class="c1">Foto</span><span class="c2">mal</span><span class="c3">ov</span><span class="c4">án</span><span class="c2">ky</span></span> <b>·</b> Factory</span>
+      <span class="sub">marketing content console</span>
+    </div>
+    <nav class="top">
+      <a href="#action">Action</a>
+      <a href="#loop">Loop</a>
+      <a href="#angles">Angles</a>
+      <a href="#briefs">Briefs</a>
+      <a href="#shots">Shots</a>
+      <a href="#calendar">Calendar</a>
+      <a href="#orders">Orders</a>
+      <a href="#econ">Economics</a>
+    </nav>
+    <a class="toggle" id="local" href="file:///C:/Users/David/Desktop/Claude/Marketing%20Automatization/dashboard.html" title="Open the dashboard file on your machine — relative links to the brief files work there"><span aria-hidden="true">⤢</span> <span id="loctxt">Open locally</span></a>
+    <button class="toggle" id="tg" aria-label="Switch theme"><span id="tgi">◐</span> <span id="tgt">Theme</span></button>
+  </div>
+</header>
+
+<main>
+  <div class="strip" id="strip"></div>
+  <p class="sec-note" style="margin-top:12px">
+    Everything built this session, and the short list of things only you can move.
+    The system turns Meta ad performance into the next batch of copy, grouped by <b>message angle</b> rather than ad ID.
+    Nothing publishes automatically — the last stretch is yours.
+  </p>
+
+  <section id="action">
+    <div class="sec-head"><h2>Needs you</h2><span class="count" id="blk-count"></span></div>
+    <p class="sec-note">These gate real work. Grouped by what kind of thing is missing. The Meta token and AOV are now resolved — what remains are all content-claim facts that block specific creatives, not the engine.</p>
+    <div class="blockers" id="blockers"></div>
+  </section>
+
+  <section id="loop">
+    <div class="sec-head"><h2>The loop</h2></div>
+    <p class="sec-note">Pull performance, decide per angle, generate the next batch, check it — then a human shoots, builds, and publishes it. Only the Meta Ads API is wired, so the seam is real, not an oversight.</p>
+    <div class="loop card" id="loop"></div>
+    <div class="seam-label">Everything past “lint” is manual: shooting, building the ad in Meta, publishing. No Buffer token, no <code>ads_management</code>.</div>
+  </section>
+
+  <section id="angles">
+    <div class="sec-head"><h2>Angle coverage</h2><span class="count">8 angles · 1 primary learning dimension</span></div>
+    <p class="sec-note">Each ad claims one angle; the analyzer groups spend by claim. Vocabulary is 8, but only ~7 run at once (a verdict needs 25 conversions ≈ one angle per month at current volume). Bar shows share of the 48 mapped concepts.</p>
+    <div class="angles" id="angles"></div>
+  </section>
+
+  <section id="briefs">
+    <div class="sec-head"><h2>Seasonal briefs</h2><span class="count" id="brief-count"></span></div>
+    <p class="sec-note">Drafted this session, each lint-clean. <b>Outlined = briefed, not shot.</b> Nothing is produced yet — the whole board is line art waiting to be colored in. Expand any brief for the actual copy.</p>
+    <div class="briefs" id="briefs"></div>
+    <div class="legend">
+      <span class="li"><span class="swatch outline"></span> briefed, not shot</span>
+      <span class="li"><span class="swatch fill"></span> shot / live (none yet)</span>
+      <span class="li"><span class="pill verify" style="padding:1px 7px">OVĚŘIT</span> depends on an unverified fact</span>
+    </div>
+  </section>
+
+  <section id="shots">
+    <div class="sec-head"><h2>Shot list</h2><span class="count" id="shot-count">0/12 shot</span></div>
+    <p class="sec-note">The manual seam, made concrete. The 12 drafted creatives don’t need 12 shoots — grouped by <b>what you capture in one setup</b>, it’s about four sessions. Tick a shot when it’s in the can; the board fills in as you go, and your progress is remembered on this device.</p>
+    <div class="clusters" id="clusters"></div>
+    <div class="card gather" style="padding:16px 18px; margin-top:14px" id="gather"></div>
+  </section>
+
+  <section id="calendar">
+    <div class="sec-head"><h2>H2 2026 — the run to Christmas</h2><span class="count">test → freeze → peak</span></div>
+    <p class="sec-note">The shape follows the 25-conversion rule: test through October, freeze on 1 Nov, then Christmas is for volume, not experiments. The curve is <b>last year's real demand</b> (from Orders) — it explodes exactly where you can no longer test, which is the whole reason for the freeze.</p>
+    <div class="card season"><div id="season-chart"></div><div class="season-cap" id="season-cap"></div></div>
+    <div class="months" id="months"></div>
+    <div class="cadence-head"><h3>Bi-weekly creative drop</h3><span class="ch-note">one standalone graphic goes ready every fortnight — the drumbeat the scheduled agent advances</span></div>
+    <div class="cadence" id="cadence"></div>
+  </section>
+
+  <section id="orders">
+    <div class="sec-head"><h2>Orders — the real demand</h2><span class="count" id="ord-count"></span></div>
+    <p class="sec-note">Ground truth from the Shopify export (<span class="mono">orders_export_1.csv</span>), not estimates. It confirms the numbers the factory runs on — <b>AOV, every price point</b> — and shows the shape everything else has to fit: a business that lives or dies at Christmas. Paid orders only, unless noted.</p>
+    <div class="ord-kpis" id="ord-kpis"></div>
+    <div class="ord-grid">
+      <div class="card ord-card">
+        <h3>Monthly demand</h3>
+        <div class="cap">Orders per month (bars) and paid revenue (line), Apr 2025 → Jul 2026. The December spike is the whole argument for the freeze.</div>
+        <div id="demand"></div>
+        <div class="dc-legend">
+          <span><b style="background:var(--surface-2);border:1px solid var(--border-strong)"></b>orders / month</span>
+          <span><b style="background:color-mix(in srgb,var(--accent) 42%,transparent)"></b>peak (Nov–Dec)</span>
+          <span><b style="background:var(--accent)"></b>paid revenue</span>
+        </div>
+      </div>
+      <div class="card ord-card">
+        <h3>What sells</h3>
+        <div class="cap">Paid line items, by format and bundle size.</div>
+        <div id="mix"></div>
+        <div class="pending-flag">
+          <div class="pf-v" id="pend-v"></div>
+          <div class="pf-t" id="pend-t"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="econ">
+    <div class="sec-head"><h2>Economics &amp; rules</h2></div>
+    <p class="sec-note">The numbers the analyzer runs on, and how it decides. The analyzer measures <b>Meta-attributed</b> PNO — Meta credits only ~half of real orders, so 207% Meta-attributed ≈ 100% blended. Thresholds live in that denominator; verdicts anchor to the live baseline of each pull, so they self-adjust by season. AOV is confirmed (628 Kč, Shopify = 620 Meta), so spend-based KILL is now switched on.</p>
+    <div class="info-grid">
+      <div class="card info">
+        <h3>Unit economics</h3>
+        <div class="kv"><span class="k">PNO now · blended</span><span class="v">~100% (break-even)</span></div>
+        <div class="kv"><span class="k">PNO now · Meta-attributed</span><span class="v">207%</span></div>
+        <div class="kv"><span class="k">PNO target · CZ (long-term)</span><span class="v hi">&lt; 35% blended</span></div>
+        <div class="kv"><span class="k">Blended AOV</span><span class="v" style="color:var(--ok)">628 Kč</span></div>
+        <div class="kv"><span class="k">Price floor → sweet spot</span><span class="v">337 → 714 Kč</span></div>
+        <div class="kv"><span class="k">Monthly budget</span><span class="v">100k Kč</span></div>
+      </div>
+      <div class="card info">
+        <h3>Verdict per angle</h3>
+        <div class="verdict">
+          <div class="vr"><span class="tag scale">SCALE</span><span>PNO ≤ 72% Meta-attr (= 35% blended goal), or beats live baseline by &gt;20%</span></div>
+          <div class="vr"><span class="tag watch">WATCH</span><span>enough data, not enough separation</span></div>
+          <div class="vr"><span class="tag kill">KILL</span><span>PNO 1.3× baseline, or 0 conv past 3× target CPA</span></div>
+          <div class="vr"><span class="tag insuf">INSUFFICIENT</span><span>under 25 conversions — never a verdict</span></div>
+        </div>
+        <p style="font-size:12.5px;color:var(--muted);margin:13px 0 0">
+          <b>LEGACY</b> = the 8 untagged months. Excluded from angle verdicts, kept as the baseline every new angle must beat.
+        </p>
+      </div>
+      <div class="card info">
+        <h3>What’s verified</h3>
+        <div class="kv"><span class="k">Analyzer (fixtures)</span><span class="v" style="color:var(--ok)">end-to-end</span></div>
+        <div class="kv"><span class="k">Linter · anti-fabrication</span><span class="v" style="color:var(--ok)">dogfooded</span></div>
+        <div class="kv"><span class="k">Cross-file name check</span><span class="v" style="color:var(--ok)">clean</span></div>
+        <div class="kv"><span class="k">Seasonal copy</span><span class="v" style="color:var(--ok)">0 block</span></div>
+        <div class="kv"><span class="k">Meta API · live call</span><span class="v" style="color:var(--ok)">verified · 90-day pull</span></div>
+        <div class="kv"><span class="k">Creatives shot</span><span class="v bad">0 of 12</span></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Console reflects the repo at <span class="mono">C:\…\Marketing Automatization</span>. Generated from
+    <span class="mono">factory/lib/naming.mjs</span> and <span class="mono">creatives/*-concepts.json</span> — the same files the scripts read.
+    <br><br>
+    Open locally: <span class="mono" style="word-break:break-all">file:///C:/Users/David/Desktop/Claude/Marketing%20Automatization/dashboard.html</span> — in the local copy the brief-file links resolve to disk.
+  </footer>
+</main>
+
+<div class="modal" id="briefModal" role="dialog" aria-modal="true" aria-label="Full brief">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span class="path" id="modalPath"></span>
+      <button class="modal-close" id="modalClose" aria-label="Close brief" type="button">✕</button>
+    </div>
+    <div class="md-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+  const A = ["EMO","GIFT","PROOF","SIMPLE","SCREEN","TOGETHER","RELAX","FUN"];
+  const CLAIM = {
+    EMO:"The moment of recognition — the child sees themselves.",
+    GIFT:"A gift nobody else can give.",
+    PROOF:"Others already bought it; the quality holds.",
+    SIMPLE:"Effortless — upload a photo, we do the rest.",
+    SCREEN:"Gets the kids off the tablet. Real paper.",
+    TOGETHER:"An activity the whole family sits down for.",
+    RELAX:"You buy it for yourself. Antistress, ASMR.",
+    FUN:"Humour and provocation stop the scroll."
+  };
+  const COUNT = {EMO:14,GIFT:13,PROOF:5,SIMPLE:3,SCREEN:2,TOGETHER:3,RELAX:3,FUN:7};
+  const FLAG = {
+    EMO:{c:"over",t:"over-served · 14"},
+    SCREEN:{c:"thin",t:"thin · only E19 + BTS2"},
+    TOGETHER:{c:"new",t:"was empty · filled this session"},
+    FUN:{c:"watch",t:"least-proven claim — judge on CPA"}
+  };
+  const maxCount = Math.max(...Object.values(COUNT));
+
+  const BLOCKERS = [
+    {kind:"fact", sev:"warn", h:"Is “Ivana z Loun” a real review?", p:"Fully attributed 5★. Its quote is also the tone example in the guide — a suspicious loop.", u:"Unblocks R1, R2, and PROOF for Christmas phase 2."},
+    {kind:"fact", sev:"warn", h:"German 5★ review source", p:"“Das beste Geschenk…” has no attribution; RULES.md forbids invented reviews.", u:"Unblocks the DE Evergreen 1 creative."},
+    {kind:"decision", sev:"warn", h:"Black Friday bundle mechanic", p:"Threshold or paid add-on? A free bundle is a hidden discount and won’t lift AOV.", u:"Decides whether BF1 / BF2 actually help PNO."}
+  ];
+
+  const LOOP = [
+    {st:"auto", n:"Pull", c:"pull-meta.mjs", p:"Graph API → data/"},
+    {st:"auto", n:"Analyze", c:"analyze.mjs", p:"verdict per angle → reports/"},
+    {st:"auto", n:"Generate", c:"generate.mjs", p:"brand + winners → a prompt"},
+    {st:"auto", n:"Lint", c:"lint-copy.mjs", p:"blocks fabrication before it ships"},
+    {st:"manual", n:"Shoot", c:"iPhone, an afternoon", p:"visual production"},
+    {st:"manual", n:"Build + publish", c:"Meta, by hand", p:"no ads_management, no Buffer"}
+  ];
+
+  const BRIEFS = [
+    {key:"together", season:"TOGETHER angle", subttl:"E23 · E24 · (BF2)", note:"The one angle that had zero creatives across all 38 assets. It’s the hardest to shoot and the easiest to drift into EMO or SCREEN, so it got skipped — the brief’s job is the guardrails: more than one pair of hands, no tablet.", file:"together-concepts.json"},
+    {key:"christmas", season:"Vánoce", subttl:"X1 · X2 · X3 · X4 — four phases", note:"Not one of the 38 existing creatives was a Christmas creative, the biggest revenue event of the year. These add the seasonal gift + urgency layer the evergreen winners can’t carry. Phase 2 uses SIMPLE, not reviews, because the reviews aren’t verified.", file:"christmas-concepts.json"},
+    {key:"blackfriday", season:"Black Friday", subttl:"BF1 · BF2 — bundle, not discount", note:"The brand guide bans “sleva / akce / výprodej” and the linter enforces it. A whole Black Friday campaign with zero discount words — proven by a negative test where a normal “sleva 30%” ad blocks four ways.", file:"blackfriday-concepts.json"},
+    {key:"mikulas", season:"Mikuláš", subttl:"M1 · M2", note:"Small gifts for kids — the product fits ideally. Window is too short for its own verdict, so it’s a seasonal activation of GIFT and FUN, not an angle test. The čert / coal joke gives FUN a cheap seasonal test.", file:"mikulas-concepts.json"},
+    {key:"backtoschool", season:"Zpátky do školy", subttl:"BTS1 · BTS2 — replaces broken S5", note:"Fixes S5, which put “od 249 Kč” in its copy (a banned price, and below the real floor). The only seasonal set that can actually be tested this year — 1 Sept is before the freeze — so both angles get a real read.", file:"backtoschool-concepts.json"}
+  ];
+
+  const CONCEPTS = {"together-concepts.json":[{"adName":"FM_CZ_TOGETHER_FAM_REAL_v01","angle":"TOGETHER","subject":"FAM","format":"REAL","headline":"Odpoledne, u kterého sedí celá rodina","primaryText":"Nejlepší odpoledne se nedají naplánovat. Vytáhnete omalovánku z vaší společné fotky, po stole se rozkutálí pastelky a než se nadějete, maluje celá rodina. I ten, co říkal, že ho to nebaví. Není to o dokonalém vybarvení. Je to o tom, že jste u toho spolu."},{"adName":"FM_CZ_TOGETHER_GRAND_REAL_v01","angle":"TOGETHER","subject":"GRAND","format":"REAL","headline":"Vzpomínka, kterou vybarvíte spolu","primaryText":"Babička drží jednu pastelku, vnučka druhou. Před nimi jedna stránka, fotka z výletu, na kterém byly spolu. Chvíli je ticho, pak se obě smějou, že přetáhly čáru. Malování ve dvou je úplně jiné než malování o samotě."}],"christmas-concepts.json":[{"adName":"FM_CZ_GIFT_FAM_SPLIT_v01","angle":"GIFT","subject":"FAM","format":"SPLIT","headline":"Dárek, který nikdo jiný mít nebude","primaryText":"Ta fotka z léta, kde se všichni smějou? Pořád leží v mobilu. Do Vánoc z ní uděláme omalovánku. Dárek, který nikdo jiný pod stromečkem mít nebude. Nahrajete fotku, o zbytek se postaráme my."},{"adName":"FM_CZ_SIMPLE_FAM_CAROUSEL_v01","angle":"SIMPLE","subject":"FAM","format":"CAROUSEL","headline":"Ještě není pozdě","primaryText":"Nahrát fotku je otázka pár minut, zbytek je na nás. Žádné vymýšlení, žádné shánění. Vyberete fotku, na které vám spolu bylo dobře, a uděláme z ní omalovánku. Objednejte do 16. 12. a přijde do Vánoc."},{"adName":"FM_CZ_GIFT_NONE_REAL_v01","angle":"GIFT","subject":"NONE","format":"REAL","headline":"Poslední dny na osobní dárek","primaryText":"Balíčky se balí, pastelky přibalujeme. Tohle jsou poslední dny: objednejte omalovánku z vaší fotky do 16. 12. a dorazí pod stromeček včas."},{"adName":"FM_CZ_GIFT_NONE_SCRAP_v02","angle":"GIFT","subject":"NONE","format":"SCRAP","headline":"Dárek na poslední chvíli","primaryText":"Nestihli jste objednat? Nevadí. Kupte dárkovou poukázku a osobní omalovánku z vašich fotek pak vytvoříte v klidu společně po svátcích."}],"blackfriday-concepts.json":[{"adName":"FM_CZ_GIFT_NONE_REAL_v02","angle":"GIFT","subject":"NONE","format":"REAL","headline":"Celý dárek v jedné krabici","primaryText":"Tenhle víkend nedáváte jen omalovánku. K osobní omalovánce z vaší fotky přibalíme i prémiové pastelky, aby se dalo malovat hned, jak dárek rozbalí. Celý dárek v jedné krabici, připravený pod stromeček. [OVĚŘIT: do kdy objednat, aby dárek přišel na Mikuláše a do Vánoc]"},{"adName":"FM_CZ_TOGETHER_GRAND_REAL_v02","angle":"TOGETHER","subject":"GRAND","format":"REAL","headline":"Druhá kopie pro babičku","primaryText":"Jednu omalovánku vybarvíte a je pryč. Co takhle dvě? Tenhle víkend k objednávce přibalíme druhou kopii, aby si stejnou vzpomínku vybarvila i babička u sebe doma. Dvě knihy, jedna vzpomínka. Malujete každý u svého stolu a stejně jste u toho spolu."}],"mikulas-concepts.json":[{"adName":"FM_CZ_GIFT_KIDS_REAL_v01","angle":"GIFT","subject":"KIDS","format":"REAL","headline":"Malý dárek od Mikuláše","primaryText":"Co letos přinese Mikuláš? Něco lepšího než uhlí. Osobní omalovánka, na které se dítě pozná. Malý dárek, u kterého stráví celé prosincové odpoledne tvořením. Objednejte do 30. 11., ať to na Mikuláše 5. 12. stihne."},{"adName":"FM_CZ_FUN_KIDS_SPLIT_v02","angle":"FUN","subject":"KIDS","format":"SPLIT","headline":"Letos místo uhlí","primaryText":"Byl jste celý rok hodný? Skvělé. Byl jste občas trochu čert? No, my vás nesoudíme. Letos místo uhlí zkuste omalovánku z vaší nejlepší fotky. Mikuláš by souhlasil."}],"backtoschool-concepts.json":[{"adName":"FM_CZ_EMO_KIDS_HYBRID_v01","angle":"EMO","subject":"KIDS","format":"HYBRID","headline":"Kus léta, který zůstane","primaryText":"Prázdniny utekly jako voda. Ale ta fotka, kde skáčete z mola do vody, pořád existuje. Než zapadne mezi tisíci dalšími v mobilu, uděláme z ní omalovánku. Kus léta, který dítěti zůstane, i když venku prší a začíná škola. Dovolená, která nekončí."},{"adName":"FM_CZ_SCREEN_FAM_REAL_v01","angle":"SCREEN","subject":"FAM","format":"REAL","headline":"Podvečer bez obrazovky","primaryText":"Škola začala, večery se krátí a tablet je zase po ruce. Až příště uslyšíte \"nudím se\", vytáhněte omalovánku z vlastní fotky. Vlastní pastelky, vlastní vzpomínka, a klid na celý podvečer bez obrazovky. Kreativita, u které děti vydrží."}]};
+
+  // Season chart — last year's real demand (2025 actuals, Jul–Dec) drives the curve
+  const SEASON = {
+    demand: [["Jul",17],["Aug",22],["Sep",3],["Oct",2],["Nov",65],["Dec",150]],
+    months: [
+      {mo:"July", phase:"test", pl:"Testing", items:[
+        {date:"now", t:"Make TOGETHER", code:"E23·E24", ang:"TOGETHER", s:"the only angle with zero creatives — shoot it now or lose the whole H2 read"},
+        {t:"Summer evergreens live", s:"E1–E4, E7, E12, E18, E19, E21 + S4 / E10 / E13"}
+      ]},
+      {mo:"August", phase:"test", pl:"Testing", items:[
+        {t:"Shoot Back-to-school", code:"BTS1·BTS2", ang:"EMO", s:"EMO + SCREEN, produced in Aug to run over 1 Sep"}
+      ]},
+      {mo:"September", phase:"test", pl:"Testing", items:[
+        {date:"1 Sep", t:"Back to school live", code:"BTS1·BTS2", ang:"SCREEN", s:"the one seasonal set testable before the freeze"},
+        {date:"30 Sep", t:"Last new angle", ang:null, s:"anything later can't earn a 25-conversion verdict"}
+      ]},
+      {mo:"October", phase:"learn", pl:"Read + build", items:[
+        {date:"31 Oct", t:"Last clean readout", ang:null, s:"analyze.mjs over a 90-day window — SCALE/KILL for the rest of the year"},
+        {date:"31 Oct", t:"Halloween", code:"E9", ang:"FUN", s:"produce all Christmas creatives this month"}
+      ]},
+      {mo:"November", phase:"peak", pl:"Freeze → peak", items:[
+        {date:"1 Nov", t:"Creative freeze", ang:null, s:"scale winners only, stop testing"},
+        {date:"27 Nov", t:"Black Friday", code:"BF1·BF2", ang:"GIFT", s:"bundle, not discount · last window for Mikuláš delivery"},
+        {date:"30 Nov", t:"Mikuláš cutoff", ang:null, s:"order by now → delivery before Mikuláš eve"}
+      ]},
+      {mo:"December", phase:"peak", pl:"Peak", items:[
+        {date:"5 Dec", t:"Mikuláš", code:"M1·M2", ang:"GIFT", s:"short hook · GIFT + FUN activation"},
+        {date:"16 Dec", t:"Christmas cutoff", code:"X3", ang:"GIFT", s:"24 Dec − 3–4 working days + buffer → delivery ~22 Dec"},
+        {date:"24 Dec", t:"Gift cards only", code:"X4", ang:"GIFT", s:"Shopify poukázka rescues sales after cutoff"}
+      ]}
+    ]
+  };
+
+  // Bi-weekly creative drop — one standalone graphic ready per fortnight
+  const BIWEEKLY = [
+    {d:"14 Jul", code:"E23", t:"TOGETHER — Nedělní stůl", ang:"TOGETHER", next:true},
+    {d:"28 Jul", code:"E24", t:"TOGETHER — dvě generace", ang:"TOGETHER"},
+    {d:"11 Aug", code:"BTS1", t:"Kus léta, který zůstane", ang:"EMO"},
+    {d:"25 Aug", code:"BTS2", t:"Podvečer bez obrazovky", ang:"SCREEN"},
+    {d:"8 Sep", code:"SCR+", t:"SCREEN fill — thin angle", ang:"SCREEN"},
+    {d:"22 Sep", code:"CONTEST", t:"UGC soutěž — feeds Vánoce", ang:"FUN"},
+    {d:"6 Oct", code:"X1", t:"Z léta pod stromeček", ang:"GIFT"},
+    {d:"20 Oct", code:"X3", t:"Balíčky se balí", ang:"GIFT"},
+    {d:"3 Nov", code:"X2", t:"Ještě není pozdě", ang:"SIMPLE"},
+    {d:"17 Nov", code:"BF1", t:"Celý dárek v krabici", ang:"GIFT"},
+    {d:"1 Dec", code:"M1", t:"Malý dárek od Mikuláše", ang:"GIFT"},
+    {d:"15 Dec", code:"X4", t:"Poukaz — poslední chvíle", ang:"GIFT"}
+  ];
+
+  // Orders — computed from orders_export_1.csv (524 orders, 2025-04-04 → 2026-07-10)
+  const ORDERS = {
+    span: "Apr 2025 – Jul 2026",
+    orders: 524, paid: 331,
+    paidRevenue: 217710, aov: 658, median: 468,
+    status: { paid: 331, pending: 168, voided: 20, refunded: 3, partially_refunded: 2 },
+    // [month, total orders, paid orders, paid revenue]
+    monthly: [
+      ["Apr'25",3,1,456],["May",5,5,2878],["Jun",2,2,814],["Jul",17,15,8029],
+      ["Aug",22,15,11053],["Sep",3,3,2841],["Oct",2,2,745],["Nov",65,37,26397],
+      ["Dec",150,99,62417],["Jan'26",21,12,10307],["Feb",30,16,8562],["Mar",67,43,32185],
+      ["Apr",59,34,18754],["May",50,28,15862],["Jun",22,15,10413],["Jul",6,4,5997]
+    ],
+    format: { print: { units: 289, rev: 170259 }, pdf: { units: 87, rev: 36447 } },
+    bundle: [ ["4 photos",236],["8 photos",74],["12 photos",30],["16 photos",22],["3 · 20",2] ],
+    pending: { orders: 168, czk: 109193 },
+    discountsPct: 0.8
+  };
+
+  const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
+  const esc = s => String(s).replace(/[&<>]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));
+  const markVerify = s => esc(s).replace(/\[OVĚŘIT[^\]]*\]/g, m => `<span class="verifytag">${m}</span>`);
+
+  // strip
+  const strip = document.getElementById("strip");
+  [
+    {n:"48", l:"creative concepts mapped"},
+    {n:"12", l:"ad copies drafted · lint-clean"},
+    {n:"5", l:"seasonal briefs"},
+    {n:"3", l:"blockers — need you", alert:true},
+    {n:'0<small>/12</small>', l:"shot / produced", alert:true}
+  ].forEach(s => {
+    const d = el("div", "stat" + (s.alert ? " alert" : ""));
+    d.append(el("div","n",s.n), el("div","l",s.l));
+    strip.append(d);
+  });
+
+  // blockers
+  document.getElementById("blk-count").textContent = BLOCKERS.length + " open";
+  const bwrap = document.getElementById("blockers");
+  BLOCKERS.forEach(b => {
+    const c = el("div", "blocker " + b.sev);
+    c.append(el("div","row",`<span class="kind">${b.kind}</span>`));
+    c.append(el("h3", null, esc(b.h)));
+    c.append(el("p", null, esc(b.p)));
+    c.append(el("div","unlocks",`<b>Unlocks:</b> ${esc(b.u)}`));
+    bwrap.append(c);
+  });
+
+  // loop
+  const lwrap = document.getElementById("loop");
+  LOOP.forEach((s,i) => {
+    const c = el("div", "loop-step " + s.st);
+    c.append(el("div","st", s.st === "auto" ? "Automated" : "Manual ✂"));
+    c.append(el("h4", null, esc(s.n)));
+    c.append(el("div", null, `<code>${esc(s.c)}</code>`));
+    c.append(el("p", null, esc(s.p)));
+    lwrap.append(c);
+  });
+
+  // angles
+  const awrap = document.getElementById("angles");
+  A.forEach(a => {
+    const c = el("div", "angle");
+    c.style.setProperty("--h", `var(--a-${a})`);
+    const f = FLAG[a];
+    c.append(el("div","top",
+      `<span class="dot"></span><span class="name">${a}</span><span class="cnt">${COUNT[a]} concept${COUNT[a]===1?"":"s"}</span>`));
+    c.append(el("div","claim", esc(CLAIM[a])));
+    c.append(el("div","bar", `<i style="width:${Math.round(COUNT[a]/maxCount*100)}%"></i>`));
+    if (f) c.append(el("span","flag "+f.c, esc(f.t)));
+    awrap.append(c);
+  });
+
+  // full-brief modal — renders each brief's embedded markdown
+  const BRIEF_MD = {"together":"# Creative Brief — angle `TOGETHER`\n\n**Trh:** CZ · **Fáze:** CARE (i cold SEE) · **Sdělení:** \"Aktivita, u které sedí celá rodina.\"\n\n> `TOGETHER` je jediný z osmi angles bez jediné kreativy napříč všemi 38 assety\n> (`brand/angles.md`, `analyze.mjs` to hlásí při každém běhu). Tenhle brief tu mezeru zaplňuje.\n>\n> Kódy pokračují za stávající řadou: **E23, E24** (statiky), **VID10** (video, volitelné).\n\n---\n\n## 1. Proč tahle kreativa dosud neexistuje\n\nNení to náhoda. `TOGETHER` se špatně natáčí a snadno sklouzne jinam:\n\n- **Není to `EMO`.** `EMO` (E1, E3, E4…) prodává moment, kdy *jeden* člověk pozná sám sebe na\n  papíře. Split screen, jedna tvář. `TOGETHER` prodává *víc lidí u jednoho stolu nad jednou\n  stránkou*. Když ve výsledném záběru není víc párů rukou, natočil jsi `EMO`.\n- **Není to `SCREEN`.** `SCREEN` (E19) je negativní hook: \"dostaň děti od tabletu\", má padoucha.\n  `TOGETHER` padoucha nemá. Neříká \"přestaňte scrollovat\", říká \"koukejte, co spolu děláte\".\n  Žádná vina, žádný tablet v záběru.\n\nProto se přeskočila: vyžaduje **naaranžovat víc lidí do jednoho autentického záběru**, což je\ntěžší než split screen jedné fotky. Ale je to i důvod, proč funguje — takový obraz nemá nikdo\nz konkurence, protože se nedá vygenerovat, musí se odžít.\n\n**Vizuální podpis `TOGETHER`:** víc rukou, jedna kniha, jeden stůl, pastelky mezi nimi.\n\n---\n\n## 2. Koncept E23 — \"Nedělní stůl\"\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_TOGETHER_FAM_REAL_v01` |\n| **angle / subject / format** | TOGETHER / FAM / REAL |\n| **Kanál** | FB/IG ads (tykání), remarketing na stávající zákazníky |\n\n### Vizuál (co natočit)\nStůl u okna, přirozené světlo. **Aspoň tři páry rukou** různého věku nad jednou otevřenou\nomalovánkou. Pastelky rozházené, ne úhledně srovnané. Nikdo se nedívá do kamery. Detail na\nruce, ne na obličeje — jde o tu aktivitu, ne o portrét. Vedle knihy leží mobil s původní fotkou\n(odkaz na to, odkud omalovánka je), ale je vedlejší, ne hlavní.\n\nFormát REAL, ne SPLIT. Split screen by z toho udělal `EMO`.\n\n### Copy\n**Primary text:**\n> Nejlepší odpoledne se nedají naplánovat.\n>\n> Vytáhnete omalovánku z vaší společné fotky, po stole se rozkutálí pastelky a než se nadějete,\n> maluje celá rodina. I ten, co říkal, že ho to nebaví.\n>\n> Není to o dokonalém vybarvení. Je to o tom, že jste u toho spolu.\n\n**Headline:** Odpoledne, u kterého sedí celá rodina\n**Description:** Omalovánka z vaší fotky\n**CTA:** Vytvořit omalovánku\n\n---\n\n## 3. Koncept E24 — \"Jedna stránka, dvě generace\"\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_TOGETHER_GRAND_REAL_v01` |\n| **angle / subject / format** | TOGETHER / GRAND / REAL |\n| **Kanál** | FB/IG ads (tykání) |\n\n### Proč to není duplikát E4\n`E4 \"Prarodiče\"` je `EMO`: babička pozná sama sebe / vnouče na obrázku. Tady je stejný segment\n(prarodiče), ale **jiný claim** — ne poznání, ale *společná činnost*. Babička a vnučka malují\ntutéž stránku. To je přesně ten rozdíl jako `E4` versus `E12`: stejní lidé v záběru, jiný argument.\nProto stojí za samostatnou kreativu a ne za variantu E4.\n\n### Vizuál\nDvě ruce, jedna velká, jedna malá, obě s pastelkou nad **jednou** stránkou. Fotka z výletu,\nna kterém byly spolu. Teplé domácí prostředí. Chvíle soustředění, pak sdílený smích.\n\n### Copy\n**Primary text:**\n> Babička drží jednu pastelku, vnučka druhou. Před nimi jedna stránka, fotka z výletu, na kterém\n> byly spolu.\n>\n> Chvíli je ticho, pak se obě smějou, že přetáhly čáru.\n>\n> Malování ve dvou je úplně jiné než malování o samotě.\n\n**Headline:** Vzpomínka, kterou vybarvíte spolu\n**Description:** Osobní omalovánka z vaší fotky\n**CTA:** Vytvořit omalovánku\n\n---\n\n## 4. VID10 — \"Stůl se plní\" (volitelné video)\n\nTimelapse: prázdný stůl s jednou omalovánkou a hrstkou pastelek. Postupně přibývají ruce —\njedna, druhá, třetí — a stránka se plní barvou. Zrychlené, ASMR šustění papíru nebo tichá hudba.\nZa 15 sekund ukáže celý oblouk \"jeden člověk → celá rodina u stolu\".\n\n`adName`: `FM_CZ_TOGETHER_FAM_REEL_v01` · priorita: až po statikách, `TOGETHER` se nejdřív\notestuje levně na E23/E24.\n\n---\n\n## 5. Produkční seam\n\nTohle jsou briefy, ne hotové assety. Než poběží, musí někdo:\n\n1. Sehnat scénu — víc lidí, jeden stůl, přirozené světlo. iPhone stačí.\n2. Mít po ruce reálnou hotovou omalovánku z fotky, kterou ti lidé znají.\n3. Sestavit reklamu v Meta ručně (nemáme `ads_management`).\n\nPodle `calendar/2026-h2.md` to má vzniknout **v červenci**. `TOGETHER` potřebuje 25 konverzí,\nnež o něm něco zjistíme, a to při ~180 objednávkách/měsíc znamená nasadit ho teď, ne v listopadu.\n\n---\n\n## 6. Čeho se držet (a co nedělat)\n\n- Tykání (FB/IG ads). Žádné vymyšlené číslo, recenze, cena, dodací lhůta — `[OVĚŘIT: …]` místo toho.\n- Žádný em dash. Vykřičníky střídmě.\n- **Víc lidí v záběru, jinak je to `EMO`.** **Žádný tablet ani \"přestaňte scrollovat\", jinak je to `SCREEN`.**\n- Fyzický produkt (kniha, pastelky) vždycky viditelný — to je celý point, děje se to na papíře.\n\nCopy z tohohle briefu prošla `factory/lint-copy.mjs` bez chyby (viz § 7).\n\n---\n\n## 7. Ověření\n\nAd names i copy jsou zkontrolované:\n\n```bash\nnode factory/lint-copy.mjs creatives/together-concepts.json\n# → 0 BLOCK\n```\n\n`analyze.mjs` po zanesení E23/E24 do `naming.mjs` už `TOGETHER` nehlásí jako angle bez kreativy —\nvšech osm angles má nově aspoň koncept.\n","christmas":"# Creative Brief — Vánoce 2026\n\n**Trh:** CZ · **Sezóna:** `XMAS` · **Období:** 1. 11. – 24. 12. 2026\n\n> Ani jedna z 38 stávajících kreativ není vánoční. Vánoce jsou přitom největší tržba roku\n> (loni přes 250 objednávek za sezónu). Tohle tu mezeru zaplňuje.\n>\n> Fázování převzato z `calendar/2026-h2.md` § 3 (fáze C) a z vánočního plánu v `Fotomalovánky 2026.pdf`.\n> Kódy pokračují novou řadou **X1–X4**.\n\n---\n\n## 1. Co tyhle kreativy dělají a co ne\n\n**Nenahrazují evergreen vítěze.** Podle kalendáře fáze 1 běží na tom, co vyhrálo v odečtu\n31. 10. — typicky `EMO`, `SCREEN`, `FUN`. Ty existují a fungují celoročně.\n\nČemu evergreen chybí, je **vánoční rámování**: \"pod stromeček\", \"poslední šance\", \"stihnout včas\".\nTo je práce těchhle čtyř kreativ. Přidávají sezónní vrstvu `GIFT` a urgence, kterou celoroční\nkreativa nést nemůže, aniž by přestala být celoroční.\n\nProto tři ze čtyř nesou angle `GIFT`. To je správně — Vánoce jsou z podstaty dárková sezóna.\nAle znamená to jednu věc pro měření (§ 6).\n\n---\n\n## 2. Fáze 1 — Awareness · X1 \"Z léta pod stromeček\"\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_GIFT_FAM_SPLIT_v01` |\n| **angle / subject / format** | GIFT / FAM / SPLIT |\n| **Období** | 1. 11. – 5. 12. · **Persona:** dárci (\"vyřešíme to za tebe\") |\n\n### Vizuál\nSplit screen: vlevo reálná letní rodinná fotka (dovolená, smích), vpravo tatáž jako omalovánka.\nNenápadný vánoční kontext — kousek světýlek, jehličí u okraje, ne přehlcené. Pointa je kontrast\n\"léto → Vánoce\", proměna vzpomínky v dárek.\n\n### Copy\n**Primary text:**\n> Ta fotka z léta, kde se všichni smějou? Pořád leží v mobilu.\n>\n> Do Vánoc z ní uděláme omalovánku. Dárek, který nikdo jiný pod stromečkem mít nebude.\n>\n> Nahrajete fotku, o zbytek se postaráme my.\n\n**Headline:** Dárek, který nikdo jiný mít nebude\n**Description:** Osobní vánoční dárek\n**CTA:** Vytvořit omalovánku\n\n---\n\n## 3. Fáze 2 — Consideration · X2 \"Ještě není pozdě\"\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_SIMPLE_FAM_CAROUSEL_v01` |\n| **angle / subject / format** | SIMPLE / FAM / CAROUSEL |\n| **Období** | 5. 12. – 15. 12. · cílí na ty, co klikli a nekoupili |\n\n### Proč SIMPLE a ne PROOF\nVánoční fáze 2 v kalendáři počítá s `PROOF` (recenze `R1`, `R2`). Ty jsou ale **zablokované**,\ndokud se neověří, že recenze jsou reálné (`brand-guide.md` § 14, úkol #11). Nestavíme vánoční\nkampaň na neověřených citacích. Místo toho `SIMPLE`: odbourat obavu \"je pozdě / je to složité\".\nAž se recenze ověří, `R1`/`R2` se do téhle fáze přidají.\n\n### Vizuál\nCarousel, 3 slidy: 1) fotka v mobilu, 2) pár kliků, 3) hotová omalovánka na stole. Klidné, jasné.\n\n### Copy\n**Primary text:**\n> Nahrát fotku je otázka pár minut, zbytek je na nás.\n>\n> Žádné vymýšlení, žádné shánění. Vyberete fotku, na které vám spolu bylo dobře, a uděláme z ní omalovánku.\n>\n> [OVĚŘIT: do kdy objednat, aby dárek přišel do Vánoc]\n\n**Headline:** Ještě není pozdě\n**Description:** Nahrajete fotku, zbytek je na nás\n**CTA:** Vytvořit omalovánku\n\n---\n\n## 4. Fáze 3 — Urgency · X3 \"Balíčky se balí\"\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_GIFT_NONE_REAL_v01` |\n| **angle / subject / format** | GIFT / NONE / REAL |\n| **Období** | 15. 12. – **uzávěrka** · vytěžit váhající |\n\n### Vizuál\nReálná fotka **zabalených balíčků připravených k odeslání** (nápad přímo z PDF). Ukazuje, že to\nfrčí, že se opravdu balí a posílá. Bez lidí, jde o ten stoh balíčků. Autentické, ne stock.\n\n### Copy\n**Primary text:**\n> Balíčky se balí, pastelky přibalujeme.\n>\n> Tohle jsou poslední dny, kdy se dá objednat omalovánka z vaší fotky tak, aby dorazila pod stromeček včas.\n>\n> [OVĚŘIT: přesné datum uzávěrky = 24. 12. minus výrobní a přepravní lhůta]\n\n**Headline:** Poslední dny na osobní dárek\n**Description:** Vzpomínka, která se dá vybarvit\n**CTA:** Objednat\n\n> ⚠ **Tahle kreativa stojí a padá s datem uzávěrky.** Loni to bylo 19. 12. (pátek); v roce 2026\n> je 19. 12. sobota, takže ekvivalent je pátek **18. 12.** — ale to je odhad z loňska, ne spočítaný\n> termín. Skutečná uzávěrka = 24. 12. minus výroba minus doprava, a ta lhůta není nikde doložená.\n> **Bez ověření nesmí do copy jít konkrétní datum.** Proto `[OVĚŘIT]`.\n\n---\n\n## 5. Fáze 4 — Poukazy · X4 \"Poslední chvíle\"\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_GIFT_NONE_SCRAP_v02` |\n| **angle / subject / format** | GIFT / NONE / SCRAP |\n| **Období** | po uzávěrce – 24. 12. · záchrana tržeb 23.–24. 12. ráno |\n\nTohle je vánoční copy pro existující koncept **E22 \"Dárkový poukaz\"** (proto `v02` ve stejné\ntaxonomické buňce, ne nový koncept). Když už fyzicky nestíháme doručit, prodáváme poukaz.\n\n### Copy\n**Primary text:**\n> Nestihli jste objednat? Nevadí.\n>\n> Dárkový poukaz na osobní omalovánku vyřešíš na poslední chvíli a fotku pak vyberete spolu, v klidu po svátcích.\n>\n> [OVĚŘIT: existuje dárkový poukaz jako produkt?]\n\n**Headline:** Dárek na poslední chvíli\n**Description:** Osobní omalovánka z vašich fotek\n**CTA:** Koupit poukaz\n\n> ⚠ Celá fáze 4 předpokládá, že **dárkový poukaz existuje jako produkt**. `docs/CONTENT_ROADMAP.md`\n> o tom sám pochybuje. Bez něj nemá tahle kreativa co prodávat.\n\n---\n\n## 6. Black Friday (27. 11.) a měření\n\n**Black Friday padá doprostřed fáze 1.** Brand guide § 4 zakazuje \"sleva / akce / výprodej\" a\n`lint-copy.mjs` je blokuje. Doporučení z kalendáře platí: **bundle, ne sleva** — pastelky navíc,\ndruhá kopie pro babičku. Zvyšuje AOV místo aby snižoval cenu, což je přesně směr, který PNO\npotřebuje. Bundle kreativu tenhle brief nezahrnuje, protože je to Black Friday mechanika, ne\nvánoční sdělení, a \"sleva\" copy by stejně neprošla linterem.\n\n**Měření:** tři ze čtyř kreativ jsou `GIFT`, takže během Vánoc dostane `GIFT` hodně spendu.\nTo je v pořádku, ale vánoční výkon `GIFT` **není srovnatelný** s červencovým `GIFT` — sezóna je\njiná. `analyze.mjs` seskupuje podle angle přes okno; vánoční okno analyzuj zvlášť, ne slité\ns létem. Verdikty z 31. 10. odečtu platí pro *nasazení* přes Vánoce, ne pro srovnávání sezón.\n\n---\n\n## 7. Produkční seam a načasování\n\nPodle kalendáře se vánoční kreativy vyrábí **v říjnu** (fáze B), aby byly hotové před 1. 11.\nNež poběží, musí někdo:\n\n1. Natočit/sesbírat: letní rodinnou fotku + její omalovánku (X1), 3-krokový carousel (X2),\n   fotku zabalených balíčků (X3), vizualizaci poukazu (X4).\n2. **Ověřit datum uzávěrky** (X3) a **existenci poukazu** (X4) — bez toho dvě ze čtyř nemůžou ven.\n3. Sestavit reklamy v Meta ručně (nemáme `ads_management`).\n\n---\n\n## 8. Ověření\n\n```bash\nnode factory/lint-copy.mjs creatives/christmas-concepts.json\n# → 0 BLOCK\n```\n\nCopy všech čtyř kreativ prošla linterem bez chyby. Data a existence poukazu zůstávají `[OVĚŘIT]`.\n","blackfriday":"# Creative Brief — Black Friday 2026 (bundle, ne sleva)\n\n**Trh:** CZ · **Sezóna:** `BF` · **Datum:** pátek 27. 11. 2026 (víkend 27.–30. 11.)\n\n> Black Friday padá doprostřed vánoční fáze 1 (`calendar/2026-h2.md`). Brand guide § 4 zakazuje\n> **sleva, akce, výprodej, levný** a `lint-copy.mjs` je blokuje. Tenhle brief řeší Black Friday\n> **bez jediného z těch slov** — přes bundle, ne přes procenta.\n>\n> Kódy: **BF1, BF2**.\n\n---\n\n## 1. Proč bundle a ne sleva (a kde je háček)\n\nSleva a bundle nejsou totéž pro PNO:\n\n- **Sleva** sníží cenu → sníží obrat na objednávku → **PNO se zhorší**. A PNO potřebujeme dolů\n  (cíl < 35 %), ne nahoru. Sleva táhne přesně opačným směrem, než kam mají mířit celé Vánoce.\n- **Bundle** přidá hodnotu → zvedne AOV → **PNO se zlepší**, protože stejný ad spend se rozpustí\n  do většího obratu.\n\n**Háček, který nesmíme obejít:** bundle, který dá něco **zadarmo**, je sleva v převleku — sebere\nmarži úplně stejně. Bundle pomáhá AOV jen když je:\n\n1. **prahový** — dárek navíc až od určité útraty (tlačí lidi na 8-stránkovou, tu \"nejoblíbenější\"), nebo\n2. **placený add-on** — pastelky/druhá kopie za příplatek s dobrou marží.\n\n\"Ke každé objednávce pastelky zdarma\" AOV **nezvedne**, jen sebere marži. To je rozhodnutí, které\nmusí padnout dřív, než kreativa poběží. Viz `[OVĚŘIT]` v § 5.\n\n---\n\n## 2. Načasování: urgenci nemusíš kupovat slevou\n\nBlack Friday víkend je zároveň **poslední rozumné okno pro doručení na Mikuláše** (5. 12.).\nMikulášská objednávka potřebuje odejít zhruba do 30. 11. — což je neděle Black Friday víkendu.\n\nTo je **skutečná** urgence, ne vymyšlený odpočet. Nemusíš říkat \"akce končí o půlnoci\".\nMůžeš říct \"tenhle víkend je poslední, kdy to stihne na Mikuláše\" — a je to pravda.\n(Přesné datum uzávěrky = `[OVĚŘIT]`, viz vánoční brief.)\n\n---\n\n## 3. BF1 \"Celý dárek v jedné krabici\" — prospecting\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_GIFT_NONE_REAL_v02` |\n| **angle / subject / format** | GIFT / NONE / REAL |\n| **Fáze / persona** | DO / dárci · cold + broad |\n\n### Vizuál\nReálná flat-lay fotka: hotová osobní omalovánka, k ní prémiové pastelky, případně krabice/mašle.\n\"Kompletní dárek\" na jednom záběru. Teplé světlo, domácí, ne stock.\n\n### Copy\n**Primary text:**\n> Tenhle víkend nedáváte jen omalovánku.\n>\n> K osobní omalovánce z vaší fotky přibalíme i prémiové pastelky, aby se dalo malovat hned, jak dárek rozbalí.\n>\n> Celý dárek v jedné krabici, připravený pod stromeček.\n>\n> [OVĚŘIT: do kdy objednat, aby dárek přišel na Mikuláše a do Vánoc]\n\n**Headline:** Celý dárek v jedné krabici\n**Description:** Omalovánka a pastelky pohromadě\n**CTA:** Vytvořit omalovánku\n\n---\n\n## 4. BF2 \"Druhá kopie pro babičku\" — remarketing\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_TOGETHER_GRAND_REAL_v02` |\n| **angle / subject / format** | TOGETHER / GRAND / REAL |\n| **Fáze / persona** | CARE / prarodiče · remarketing na stávající zákazníky |\n\n### Proč zrovna tohle\nDruhá kopie je **levná na výrobu** (stejný soubor, jen dotisk), takže jako bundle sebere míň\nmarže než pastelky navíc. A tematicky sedí na `TOGETHER` — \"malujete každý u sebe a stejně spolu\".\nZároveň to dává angle `TOGETHER` sezónní aktivaci a otestuje ho na traffic-heavy víkendu.\nMarketingový plán tenhle upsell sám navrhoval (\"druhá kopie pro babičku\").\n\n### Vizuál\nDvě stejné omalovánky, dvě sady rukou, dva stoly — split nebo koláž. Babička u sebe doma, rodina\nu sebe, stejná stránka. Zdůraznit \"stejná vzpomínka na dvou místech\".\n\n### Copy\n**Primary text:**\n> Jednu omalovánku vybarvíte a je pryč. Co takhle dvě?\n>\n> Tenhle víkend k objednávce přibalíme druhou kopii, aby si stejnou vzpomínku vybarvila i babička u sebe doma.\n>\n> Dvě knihy, jedna vzpomínka. Malujete každý u svého stolu a stejně jste u toho spolu.\n\n**Headline:** Druhá kopie pro babičku\n**Description:** Stejná vzpomínka, dvakrát\n**CTA:** Vytvořit omalovánku\n\n---\n\n## 5. Co musí David rozhodnout, než to poběží\n\n- **`[OVĚŘIT]` Jaký bundle mechanismus?** Prahový dárek, nebo placený add-on? \"Zdarma ke všemu\"\n  je skrytá sleva a AOV nezvedne (§ 1). Tohle je ekonomické rozhodnutí, ne copywriting.\n- **`[OVĚŘIT]` Jsou prémiové pastelky k dispozici a za jakou nákladovou cenu?** BF1 je bez nich prázdný.\n- **`[OVĚŘIT]` Datum mikulášské/vánoční uzávěrky.** Bez něj nesmí do copy konkrétní termín.\n- **`[OVĚŘIT]` Kolik stojí druhý dotisk?** BF2 dává smysl, jen pokud je marginální náklad druhé kopie nízký.\n\nCopy **záměrně neobsahuje žádnou cenu ani procento** — jednak to § 4 zakazuje, jednak konkrétní\nčísla neznáme. Prahy a ceny patří na landing page, ne do reklamního textu.\n\n---\n\n## 6. Ověření\n\n```bash\nnode factory/lint-copy.mjs creatives/blackfriday-concepts.json\n# → 0 BLOCK\n```\n\nObě kreativy prošly linterem bez chyby — a to je pointa: Black Friday bez jediného slova \"sleva\".\nKdyby copy takové slovo obsahovalo, `lint-copy.mjs` ho zablokuje (ověřeno negativním testem).\n","mikulas":"# Creative Brief — Mikuláš 2026\n\n**Trh:** CZ · **Sezóna:** `MIK` · **Datum:** Mikuláš večer pá 5. 12., svátek so 6. 12. 2026\n\n> `calendar/2026-h2.md` značí Mikuláše jako mezeru: \"5. 12. Mikuláš (večer) — chybí kreativa\".\n> Produkt na Mikuláše sedí ideálně — malý osobní dárek pro dítě. Tohle tu mezeru zaplňuje.\n>\n> Kódy: **M1, M2**. DE ekvivalent Nikolaustag (6. 12.) viz `brand-guide.md` § 9 — až po spuštění DE.\n\n---\n\n## 1. Okno je krátké a navazuje na Black Friday\n\nMikuláš je 5. 12. Objednávka musí odejít zhruba do **30. 11.** (neděle Black Friday víkendu),\naby dorazila včas. Přesné datum = `[OVĚŘIT]`, stejně jako u vánoční uzávěrky.\n\nTo znamená: Mikuláš kreativa běží **cca 24. 11. – 3. 12.**, překrývá se s Black Friday a plynule\nnavazuje na vánoční fázi 1. Není to samostatná kampaň, je to krátký sezónní hook uvnitř běžícího provozu.\n\n---\n\n## 2. M1 \"Malý dárek od Mikuláše\" — GIFT\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_GIFT_KIDS_REAL_v01` |\n| **angle / subject / format** | GIFT / KIDS / REAL |\n| **Fáze / persona** | DO / rodiče, prarodiče |\n\n### Vizuál\nReálná fotka: hotová osobní omalovánka jako dárek od Mikuláše — u boty za oknem, u punčochy,\nnebo prostě v ruce dítěte. Teplé, domácí, prosincové. Ne stock.\n\n### Copy\n**Primary text:**\n> Co letos přinese Mikuláš? Něco lepšího než uhlí.\n>\n> Osobní omalovánka, na které se dítě pozná. Malý dárek, u kterého stráví celé prosincové odpoledne tvořením.\n>\n> [OVĚŘIT: do kdy objednat, aby dárek dorazil na Mikuláše 5. 12.]\n\n**Headline:** Malý dárek od Mikuláše\n**Description:** Osobní omalovánka z vaší fotky\n**CTA:** Vytvořit omalovánku\n\n---\n\n## 3. M2 \"Byl jste hodný?\" — FUN\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_FUN_KIDS_SPLIT_v02` |\n| **angle / subject / format** | FUN / KIDS / SPLIT |\n| **Fáze / persona** | SEE / broad, rodiče |\n\n### Proč FUN a proč zrovna teď\nMikuláš má hotový vtipný hook — čert, uhlí, \"byl jsi celý rok hodný?\". To je přesně `FUN`.\nA `FUN` je zatím nejméně ověřený angle s nejvíc rozpracovanými videi (E17, E18, VID4/6/8).\nStatický Mikuláš dá `FUN` levný sezónní test na traffic-heavy období, než se do něj naleje\nvideo budget. Soudí se podle CPA, ne podle zhlédnutí.\n\n### Vizuál\nHravé: split \"uhlí vs omalovánka\", nebo čertovsko-andělský motiv. Lehké, ne strašení. Dítě v záběru.\n\n### Copy\n**Primary text:**\n> Byl jste celý rok hodný? Skvělé.\n>\n> Byl jste občas trochu čert? No, my vás nesoudíme.\n>\n> Letos místo uhlí zkuste omalovánku z vaší nejlepší fotky. Mikuláš by souhlasil.\n>\n> [OVĚŘIT: do kdy objednat, aby dorazila na Mikuláše 5. 12.]\n\n**Headline:** Letos místo uhlí\n**Description:** Osobní omalovánka z fotky\n**CTA:** Vytvořit omalovánku\n\n---\n\n## 4. Produkční seam a načasování\n\n- Vyrobit v **říjnu/první půli listopadu** společně s vánočními kreativami.\n- **Ověřit mikulášskou uzávěrku** (`[OVĚŘIT]`) — bez ní nesmí do copy konkrétní datum.\n- Sestavit reklamy v Meta ručně (nemáme `ads_management`).\n\nKrátké okno znamená, že Mikuláš nestihne vlastní 25-konverzní odečet. Neber ho jako angle test,\nber ho jako sezónní aktivaci `GIFT` a `FUN`, které se testují celoročně.\n\n---\n\n## 5. Ověření\n\n```bash\nnode factory/lint-copy.mjs creatives/mikulas-concepts.json   # → 0 BLOCK\nnode factory/check-names.mjs                                 # → žádné kolize ad names napříč soubory\n```\n","backtoschool":"# Creative Brief — Zpátky do školy 2026\n\n**Trh:** CZ · **Sezóna:** `BTS` · **Datum:** út 1. 9. 2026 (nasazení konec srpna)\n\n> Nahrazuje rozbité `S5 \"Zpátky do školy\"` z `MARKETING PLAN v2.md`. To mělo v description\n> **\"Originální dárek od 249 Kč\"** — cena v copy porušuje brand guide § 4 a `lint-copy.mjs` ji\n> blokuje. Navíc 249 Kč neodpovídá ceníku (nejlevnější položka je 337 Kč). Ceny patří na\n> landing page, ne do reklamy. Tady žádná není.\n>\n> Kódy: **BTS1, BTS2**.\n\n---\n\n## 1. Proč je tahle sezóna jiná: dá se otestovat\n\nDneska je 10. 7., zpátky do školy je 1. 9. To je **7 týdnů**, celé před freeze (1. 11.). Na\nrozdíl od Vánoc a Mikuláše, kde je okno moc krátké na 25 konverzí, **BTS se stihne skutečně\nzměřit**. Ber ho jako plnohodnotný angle test, ne jen sezónní aktivaci.\n\nTo je taky důvod, proč jsou tu dva různé angles (`EMO`, `SCREEN`) — máme čas zjistit, který\nz nich pro tuhle sezónu funguje.\n\n---\n\n## 2. Co \"zpátky do školy\" pro tenhle produkt vlastně je\n\nNení to školní potřeba (omalovánky se do aktovky nebalí). Silné jsou dvě jiné roviny:\n\n- **Léto právě skončilo.** Mobil je plný prázdninových fotek a začíná rutina. \"Než ty vzpomínky\n  zapadnou, udělejte z nich něco, co zůstane.\" → `EMO`.\n- **Kratší večery, zpátky k tabletu.** Podzim = děti víc doma, víc u obrazovky. Kreativní\n  aktivita na tmavé podvečery. → `SCREEN`.\n\n---\n\n## 3. BTS1 \"Kus léta, který zůstane\" — EMO\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_EMO_KIDS_HYBRID_v01` |\n| **angle / subject / format** | EMO / KIDS / HYBRID |\n| **Fáze / persona** | SEE / rodiče |\n\n### Vizuál\nStůl, na něm mobil s letní fotkou (moře, mola, prázdniny) a vedle hotová omalovánka téže scény.\nKolem pár školních věcí — tužky, sešit — jako náznak, že léto končí. Kontrast \"léto v mobilu →\nhmatatelná vzpomínka na stole\".\n\n### Copy\n**Primary text:**\n> Prázdniny utekly jako voda. Ale ta fotka, kde skáčete z mola do vody, pořád existuje.\n>\n> Než zapadne mezi tisíci dalšími v mobilu, uděláme z ní omalovánku. Kus léta, který dítěti zůstane, i když venku prší a začíná škola.\n>\n> Dovolená, která nekončí.\n\n**Headline:** Kus léta, který zůstane\n**Description:** Omalovánka z prázdninových fotek\n**CTA:** Vytvořit omalovánku\n\n> \"Dovolená, která nekončí\" je ověřená tagline (brand guide § 4, Tier 3).\n\n---\n\n## 4. BTS2 \"Podvečer bez obrazovky\" — SCREEN\n\n| | |\n|---|---|\n| **adName** | `FM_CZ_SCREEN_FAM_REAL_v01` |\n| **angle / subject / format** | SCREEN / FAM / REAL |\n| **Fáze / persona** | SEE / rodiče |\n\n### Proč zrovna SCREEN\n`SCREEN` je jeden z nejsilnějších rodičovských hooků a jeden ze dvou \"negativních\" formátů, které\ndoc označuje za nejvýkonnější pro cold audience — a přesto má **jedinou** kreativu (`E19`). BTS2\ntu mezeru zaplňuje a sezóna sedí: podzim, kratší večery, zpátky k tabletu. Přirozený druhý test\nproti BTS1.\n\n### Vizuál\nPodvečerní domácí scéna, teplé světlo. Dítě (nebo víc dětí) u stolu s pastelkami a omalovánkou,\ntablet odložený stranou. Klid, ne guilt-tripping. Reálné, ne stock.\n\n### Copy\n**Primary text:**\n> Škola začala, večery se krátí a tablet je zase po ruce.\n>\n> Až příště uslyšíte \"nudím se\", vytáhněte omalovánku z vlastní fotky. Vlastní pastelky, vlastní vzpomínka, a klid na celý podvečer bez obrazovky.\n>\n> Kreativita, u které děti vydrží.\n\n**Headline:** Podvečer bez obrazovky\n**Description:** Osobní omalovánka z fotky\n**CTA:** Vytvořit omalovánku\n\n---\n\n## 5. Poznámka pro DE (až přijde čas)\n\nNěmecké **Einschulung** (srpen/září) je podle brand guide § 9 obrovská příležitost — děti dostávají\n\"Schultüte\" plnou dárků a osobní omalovánka do ní ideálně sedí. To je mnohem silnější BTS moment\nnež v CZ. Ale DE trh není spuštěný (`GERMANY_GTM_PLAN.md` chce Impressum, Datenschutz, PayPal).\nAž se spustí, Einschulung kreativa má přednost — je to jedno z mála míst, kde DE poptávka\npřevyšuje CZ.\n\n---\n\n## 6. Produkční seam\n\n- Vyrobit v **srpnu**, nasadit konec srpna, běžet přes 1. 9.\n- Žádné `[OVĚŘIT]` datum — BTS není o dodací uzávěrce, je o sezónní náladě. (Doručení do začátku\n  školy je nice-to-have, ne hard deadline jako Vánoce.)\n- Sestavit v Meta ručně.\n- **Cena zůstává na landing page, ne v reklamě.** Tím se řeší celý problém starého S5.\n\n---\n\n## 7. Ověření\n\n```bash\nnode factory/lint-copy.mjs creatives/backtoschool-concepts.json   # → 0 BLOCK\nnode factory/check-names.mjs                                       # → žádné kolize\n```\n"};
+  const MDFILE = {
+    together: "TOGETHER-brief.md", christmas: "CHRISTMAS-brief.md",
+    blackfriday: "BLACKFRIDAY-brief.md", mikulas: "MIKULAS-brief.md",
+    backtoschool: "BACKTOSCHOOL-brief.md"
+  };
+  const mdInline = s => esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  function mdToHtml(md) {
+    const L = md.replace(/\r\n/g, "\n").split("\n"); let h = ""; let i = 0;
+    const cells = r => r.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+    while (i < L.length) {
+      const ln = L[i];
+      if (/^```/.test(ln)) { i++; let c = ""; while (i < L.length && !/^```/.test(L[i])) { c += L[i] + "\n"; i++; } i++; h += `<pre class="md-code">${esc(c.replace(/\n$/, ""))}</pre>`; continue; }
+      if (/^\s*$/.test(ln)) { i++; continue; }
+      if (/^#{1,6}\s/.test(ln)) { const lv = ln.match(/^#+/)[0].length; h += `<h${lv} class="md-h">${mdInline(ln.replace(/^#+\s/, ""))}</h${lv}>`; i++; continue; }
+      if (/^---+\s*$/.test(ln)) { h += '<hr class="md-hr">'; i++; continue; }
+      if (/^>\s?/.test(ln)) { const q = []; while (i < L.length && /^>\s?/.test(L[i])) { q.push(L[i].replace(/^>\s?/, "")); i++; } h += `<blockquote class="md-q">${q.map(mdInline).join("<br>")}</blockquote>`; continue; }
+      if (/^\|/.test(ln)) { const rs = []; while (i < L.length && /^\|/.test(L[i])) { rs.push(L[i]); i++; } let t = '<div class="md-table"><table><thead><tr>' + cells(rs[0]).map(c => `<th>${mdInline(c)}</th>`).join("") + "</tr></thead><tbody>"; for (let r = 2; r < rs.length; r++) t += "<tr>" + cells(rs[r]).map(c => `<td>${mdInline(c)}</td>`).join("") + "</tr>"; h += t + "</tbody></table></div>"; continue; }
+      if (/^\s*[-*]\s/.test(ln)) { const it = []; while (i < L.length && /^\s*[-*]\s/.test(L[i])) { it.push(L[i].replace(/^\s*[-*]\s/, "")); i++; } h += '<ul class="md-ul">' + it.map(x => `<li>${mdInline(x)}</li>`).join("") + "</ul>"; continue; }
+      if (/^\s*\d+\.\s/.test(ln)) { const it = []; while (i < L.length && /^\s*\d+\.\s/.test(L[i])) { it.push(L[i].replace(/^\s*\d+\.\s/, "")); i++; } h += '<ol class="md-ol">' + it.map(x => `<li>${mdInline(x)}</li>`).join("") + "</ol>"; continue; }
+      h += `<p class="md-p">${mdInline(ln)}</p>`; i++;
+    }
+    return h;
+  }
+  const modal = document.getElementById("briefModal");
+  const modalBody = document.getElementById("modalBody");
+  const modalPath = document.getElementById("modalPath");
+  function openBrief(b) {
+    modalBody.innerHTML = mdToHtml(BRIEF_MD[b.key] || "Brief text unavailable.");
+    modalPath.innerHTML = `<a href="creatives/${MDFILE[b.key]}">creatives/${MDFILE[b.key]}</a>`;
+    modal.classList.add("show"); modalBody.scrollTop = 0;
+    document.getElementById("modalClose").focus();
+  }
+  const closeBrief = () => modal.classList.remove("show");
+  document.getElementById("modalClose").addEventListener("click", closeBrief);
+  modal.addEventListener("click", e => { if (e.target === modal) closeBrief(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeBrief(); });
+
+  // briefs
+  document.getElementById("brief-count").textContent = BRIEFS.length + " sets · 12 concepts";
+  const brwrap = document.getElementById("briefs");
+  BRIEFS.forEach((b, idx) => {
+    const items = CONCEPTS[b.file] || [];
+    const d = el("details", "brief");
+    if (idx === 0) d.open = true;
+    const sum = el("summary");
+    sum.append(el("span","season", esc(b.season)));
+    sum.append(el("span","subttl", esc(b.subttl)));
+    const badges = el("span","badges");
+    badges.append(el("span","pill ok","0 block"));
+    badges.append(el("span","pill brief","brief"));
+    const anyVerify = items.some(c => /\[OVĚŘIT/.test(c.primaryText||""));
+    if (anyVerify) badges.append(el("span","pill verify","needs OVĚŘIT"));
+    const fb = el("button","btn-brief","Full brief ↗");
+    fb.type = "button";
+    fb.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); openBrief(b); });
+    badges.append(fb);
+    sum.append(badges);
+    d.append(sum);
+
+    const body = el("div","body");
+    body.append(el("p","note", esc(b.note)));
+    items.forEach(c => {
+      const cc = el("div","concept");
+      cc.style.setProperty("--h", `var(--a-${c.angle})`);
+      cc.append(el("div","cn-top",
+        `<span class="pill angle" style="--h:var(--a-${c.angle})">${c.angle}</span>`+
+        `<span class="pill angle" style="--h:var(--muted)">${c.subject}·${c.format}</span>`+
+        `<span class="adname">${esc(c.adName)}</span>`));
+      cc.append(el("div","hl", esc(c.headline)));
+      cc.append(el("div","txt", markVerify(c.primaryText)));
+      body.append(cc);
+    });
+    d.append(body);
+    brwrap.append(d);
+  });
+
+  // orders panel
+  const grp = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  document.getElementById("ord-count").textContent = ORDERS.orders + " orders · " + ORDERS.span;
+  const OKPI = [
+    {k:"Paid revenue", v:grp(ORDERS.paidRevenue)+" <small>Kč</small>", sub:ORDERS.paid+" paid orders"},
+    {k:"AOV · paid, incl. shipping", v:ORDERS.aov+" <small>Kč</small>", cls:"ok", sub:"confirms the 628 Kč canonical"},
+    {k:"Every price confirmed", v:"337<small>→</small>1243 <small>Kč</small>", sub:"4p PDF → 16p print · matches the ceník"},
+    {k:"Median order", v:ORDERS.median+" <small>Kč</small>", sub:"most land on the 4-photo tier"}
+  ];
+  const okw = document.getElementById("ord-kpis");
+  OKPI.forEach(o => {
+    const c = el("div","ord-kpi");
+    c.append(el("div","k", esc(o.k)));
+    c.append(el("div","v"+(o.cls?" "+o.cls:""), o.v));
+    c.append(el("div","sub", esc(o.sub)));
+    okw.append(c);
+  });
+
+  // demand chart (SVG)
+  (function demand(){
+    const M = ORDERS.monthly, W=700, H=210, padL=12, padR=12, padT=18, padB=30;
+    const plotW=W-padL-padR, plotH=H-padT-padB, n=M.length, yBase=padT+plotH;
+    const maxOrd=Math.max(...M.map(m=>m[1])), maxRev=Math.max(...M.map(m=>m[3]));
+    const slot=plotW/n, bw=slot*0.56;
+    const bx=i=>padL+slot*i+(slot-bw)/2, bh=v=>(v/maxOrd)*plotH;
+    const rx=i=>padL+slot*i+slot/2, ry=v=>yBase-(v/maxRev)*plotH;
+    let bars="", path="", dots="", labs="";
+    M.forEach((m,i)=>{
+      const peak=m[1]>=60;
+      bars+=`<rect class="bar${peak?" peak":""}" x="${bx(i).toFixed(1)}" y="${(yBase-bh(m[1])).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh(m[1]).toFixed(1)}" rx="2"/>`;
+      const px=rx(i).toFixed(1), py=ry(m[3]).toFixed(1);
+      path+=(i?"L":"M")+px+" "+py+" ";
+      dots+=`<circle class="rdot" cx="${px}" cy="${py}" r="2.3"/>`;
+      labs+=`<text class="mlab" x="${rx(i).toFixed(1)}" y="${(yBase+13).toFixed(1)}" text-anchor="middle">${esc(m[0])}</text>`;
+    });
+    const di=M.findIndex(m=>m[0]==="Dec");
+    const peakLab=`<text class="peaklab" x="${rx(di).toFixed(1)}" y="${(ry(M[di][3])-8).toFixed(1)}" text-anchor="middle">Dec · 62k Kč</text>`;
+    document.getElementById("demand").innerHTML =
+      `<svg class="demand-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Orders and revenue by month">`+
+      `<line class="base" x1="${padL}" y1="${yBase}" x2="${W-padR}" y2="${yBase}"/>`+
+      bars+`<path class="rev" d="${path.trim()}"/>`+dots+peakLab+labs+`</svg>`;
+  })();
+
+  // format + bundle mix
+  (function mix(){
+    const f=ORDERS.format, tot=f.print.rev+f.pdf.rev, pPrint=f.print.rev/tot*100;
+    let h=`<div class="hbar"><div class="lab"><span>Print vs PDF <span style="color:var(--faint)">· by revenue</span></span><span class="r">${pPrint.toFixed(0)} / ${(100-pPrint).toFixed(0)}%</span></div>`+
+      `<div class="track"><i style="width:${pPrint}%;background:var(--a-GIFT)"></i><i style="width:${100-pPrint}%;background:var(--a-SIMPLE)"></i></div>`+
+      `<div class="split-note"><b>Print is the business</b> — ${grp(f.print.rev/1000)}k Kč vs ${grp(f.pdf.rev/1000)}k. PDF is the low-friction entry, not the main line.</div></div>`;
+    const bmax=Math.max(...ORDERS.bundle.map(b=>b[1]));
+    h+=`<div style="margin-top:15px"><div class="lab" style="font-size:12.5px;margin-bottom:7px"><span>Bundle size <span style="color:var(--faint)">· paid line items</span></span><span class="r">4-photo = anchor</span></div>`;
+    ORDERS.bundle.forEach((b,i)=>{
+      h+=`<div class="hbar" style="margin:6px 0"><div class="lab"><span>${esc(b[0])}</span><span class="r">${b[1]}</span></div>`+
+        `<div class="track" style="height:8px"><i style="width:${b[1]/bmax*100}%;background:${i===0?"var(--accent)":"var(--border-strong)"}"></i></div></div>`;
+    });
+    document.getElementById("mix").innerHTML = h+`</div>`;
+    document.getElementById("pend-v").textContent = grp(ORDERS.pending.czk)+" Kč pending";
+    document.getElementById("pend-t").innerHTML = `${ORDERS.pending.orders} orders (32%) unpaid — mostly bank-transfer / dobírka that never settled. Roughly a third of all revenue is stuck. An ops leak, not a marketing one.`;
+  })();
+
+  // season chart (SVG)
+  (function seasonChart(){
+    const D=SEASON.demand, W=720, H=215, padL=8, padR=8, padT=30, padB=24;
+    const plotW=W-padL-padR, plotH=H-padT-padB, n=D.length, yBase=padT+plotH;
+    const slot=plotW/n, maxV=Math.max(...D.map(d=>d[1]));
+    const cx=i=>padL+slot*i+slot/2, cy=v=>yBase-(v/maxV)*plotH, freezeX=padL+slot*4;
+    let s=`<rect class="ph-test" x="${padL}" y="${padT}" width="${slot*4}" height="${plotH}" rx="6"/>`+
+          `<rect class="ph-peak" x="${freezeX.toFixed(1)}" y="${padT}" width="${(slot*2).toFixed(1)}" height="${plotH}" rx="6"/>`+
+          `<text class="ph-lab test" x="${(padL+slot*2).toFixed(1)}" y="${padT-10}" text-anchor="middle">Testing · earn verdicts</text>`+
+          `<text class="ph-lab peak" x="${(freezeX+slot).toFixed(1)}" y="${padT-10}" text-anchor="middle">Freeze → peak</text>`;
+    let area=`M ${cx(0).toFixed(1)} ${yBase}`, line="";
+    D.forEach((d,i)=>{ area+=` L ${cx(i).toFixed(1)} ${cy(d[1]).toFixed(1)}`; line+=(i?"L":"M")+cx(i).toFixed(1)+" "+cy(d[1]).toFixed(1)+" "; });
+    area+=` L ${cx(n-1).toFixed(1)} ${yBase} Z`;
+    s+=`<path class="area" d="${area}"/><path class="line" d="${line.trim()}"/>`;
+    D.forEach((d,i)=>{ s+=`<circle class="mdot" cx="${cx(i).toFixed(1)}" cy="${cy(d[1]).toFixed(1)}" r="${i>=4?3.4:2.3}"/>`; });
+    s+=`<text class="val" x="${cx(5).toFixed(1)}" y="${(cy(150)-7).toFixed(1)}" text-anchor="middle">150 obj.</text>`+
+       `<text class="val" x="${cx(4).toFixed(1)}" y="${(cy(65)-7).toFixed(1)}" text-anchor="middle">65</text>`+
+       `<line class="freeze-line" x1="${freezeX.toFixed(1)}" y1="${padT}" x2="${freezeX.toFixed(1)}" y2="${yBase}"/>`+
+       `<text class="freeze-lab" x="${(freezeX+5).toFixed(1)}" y="${(padT+plotH/2).toFixed(1)}" transform="rotate(-90 ${(freezeX+5).toFixed(1)} ${(padT+plotH/2).toFixed(1)})" text-anchor="middle">1 Nov · FREEZE</text>`;
+    D.forEach((d,i)=>{ s+=`<text class="mo" x="${cx(i).toFixed(1)}" y="${(yBase+16).toFixed(1)}" text-anchor="middle">${esc(d[0])}</text>`; });
+    document.getElementById("season-chart").innerHTML=`<svg class="season-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="H2 2026 demand and phases">${s}</svg>`;
+  })();
+  document.getElementById("season-cap").innerHTML =
+    "The curve is <b>2025's actual orders</b> (Jul 17 → Dec 150 — an 8× jump). Demand peaks precisely when the freeze forbids new tests, so every angle has to earn its verdict by 31 Oct.";
+
+  // month grid
+  const mwrap = document.getElementById("months");
+  SEASON.months.forEach(m => {
+    const c = el("div","month");
+    const h = el("div","mh");
+    h.append(el("span","mn", esc(m.mo)), el("span","mp "+m.phase, esc(m.pl)));
+    c.append(h);
+    const mi = el("div","mi");
+    m.items.forEach(it => {
+      const r = el("div","mrow");
+      if (it.ang) r.style.setProperty("--h", `var(--a-${it.ang})`);
+      const t = el("div","rt");
+      if (it.date) t.append(el("span","date", esc(it.date)));
+      t.append(el("span", null, esc(it.t)));
+      if (it.code) t.append(el("span","code", esc(it.code)));
+      r.append(t);
+      if (it.s) r.append(el("div","rs", esc(it.s)));
+      mi.append(r);
+    });
+    c.append(mi);
+    mwrap.append(c);
+  });
+
+  // bi-weekly cadence
+  const cadwrap = document.getElementById("cadence");
+  BIWEEKLY.forEach(f => {
+    const c = el("div","fortnight" + (f.next ? " next" : ""));
+    c.style.setProperty("--h", `var(--a-${f.ang})`);
+    c.append(el("div","fn-d", esc(f.d)));
+    if (f.next) c.append(el("div","fn-now", "next up"));
+    c.append(el("div","fn-code", esc(f.code)));
+    c.append(el("div","fn-t", esc(f.t)));
+    c.append(el("span","fn-ang", esc(f.ang)));
+    cadwrap.append(c);
+  });
+
+  // shot list — grouped by production setup, not by season
+  const SHOTS = [
+    {
+      nm: "Table & hands", when: "Jul → Nov",
+      setup: "One warm table, window light, finished book(s) and crayons. Bring people in and shoot several in a row.",
+      shots: [
+        {code:"E23", ad:"FM_CZ_TOGETHER_FAM_REAL_v01", angle:"TOGETHER", meta:"FAM · REAL", when:"July",
+          cap:"3+ pairs of hands of different ages over one open book. Crayons scattered, nobody at the camera. Phone with the source photo beside the book, secondary."},
+        {code:"E24", ad:"FM_CZ_TOGETHER_GRAND_REAL_v01", angle:"TOGETHER", meta:"GRAND · REAL", when:"July",
+          cap:"Two hands, one big and one small, both with crayons over ONE page. Warm home. A moment of quiet, then a shared laugh."},
+        {code:"BF2", ad:"FM_CZ_TOGETHER_GRAND_REAL_v02", angle:"TOGETHER", meta:"GRAND · REAL", when:"Oct",
+          cap:"Two identical books, two sets of hands, two tables — the same page in two places.", need:"needs two copies of one book"},
+        {code:"M1", ad:"FM_CZ_GIFT_KIDS_REAL_v01", angle:"GIFT", meta:"KIDS · REAL", when:"Oct",
+          cap:"The finished book as a Mikuláš gift: by a boot in the window, or in a child’s hands. December warmth."},
+        {code:"BTS2", ad:"FM_CZ_SCREEN_FAM_REAL_v01", angle:"SCREEN", meta:"FAM · REAL", when:"Aug",
+          cap:"Evening home, warm light. Kids at the table with book and crayons, tablet set aside. Calm, not a guilt-trip."}
+      ]
+    },
+    {
+      nm: "Split-screen", when: "Aug → Oct",
+      setup: "A strong source photo and its coloring-page version, composited side by side. Barely any shooting — mostly selection and layout.",
+      shots: [
+        {code:"X1", ad:"FM_CZ_GIFT_FAM_SPLIT_v01", angle:"GIFT", meta:"FAM · SPLIT", when:"Oct",
+          cap:"Left: a real, laughing summer family photo. Right: the same as a coloring page. A hint of pine or lights at the edge."},
+        {code:"BTS1", ad:"FM_CZ_EMO_KIDS_HYBRID_v01", angle:"EMO", meta:"KIDS · HYBRID", when:"Aug",
+          cap:"A phone showing a summer photo next to the finished book on a desk, a few school things (pencils, a notebook) around."},
+        {code:"M2", ad:"FM_CZ_FUN_KIDS_SPLIT_v02", angle:"FUN", meta:"KIDS · SPLIT", when:"Oct",
+          cap:"Playful split — coal vs. coloring book, or a čert / anděl motif. Light, not scary. A kid in frame."}
+      ]
+    },
+    {
+      nm: "Product & flat-lay", when: "October",
+      setup: "Product only — no people. The book, crayons, a box, packed parcels. Flat-lay, warm light.",
+      shots: [
+        {code:"X3", ad:"FM_CZ_GIFT_NONE_REAL_v01", angle:"GIFT", meta:"NONE · REAL", when:"Oct",
+          cap:"Real photo of wrapped parcels ready to ship, crayons being tucked in. No people — it shows the thing is really happening."},
+        {code:"BF1", ad:"FM_CZ_GIFT_NONE_REAL_v02", angle:"GIFT", meta:"NONE · REAL", when:"Oct",
+          cap:"Flat-lay: finished book + premium crayons + box and ribbon. The whole gift in one frame.", need:"needs crayons sourced + bundle decision"},
+        {code:"X4", ad:"FM_CZ_GIFT_NONE_SCRAP_v02", angle:"GIFT", meta:"NONE · SCRAP", when:"Oct",
+          cap:"A dárková poukázka (Shopify gift card) visualization with coloring samples behind it.", need:"needs the Shopify gift card switched on + a card mockup"}
+      ]
+    },
+    {
+      nm: "How-it-works carousel", when: "October",
+      setup: "Three frames telling the three steps. Screen-record the upload; shoot the rest on the table.",
+      shots: [
+        {code:"X2", ad:"FM_CZ_SIMPLE_FAM_CAROUSEL_v01", angle:"SIMPLE", meta:"FAM · CAROUSEL", when:"Oct",
+          cap:"(1) phone with the photo, (2) the upload / a few taps, (3) the finished book on the table."}
+      ]
+    }
+  ];
+
+  const GATHER = [
+    "<b>Finished coloring books</b> — several, including two identical copies (BF2)",
+    "<b>Premium crayons</b> (pastelky) — also gates the Black Friday bundle",
+    "<b>A warm table</b> with window light",
+    "<b>People</b>: a family, a grandparent + grandchild, kids",
+    "<b>Source photos</b> + their coloring-page renders (a summer shot, a shared trip)",
+    "<b>Wrapped / packed parcels</b>",
+    "<b>A gift box + ribbon</b>",
+    "<b>School supplies</b> — pencils, a notebook",
+    "<b>A tablet</b>, used as a prop and set aside",
+    "<b>Mikuláš props</b>: a boot, December feel; a čert / coal motif",
+    "<b>Gift-card mockup</b> (dárková poukázka) — Shopify gift card, enable it + design the card"
+  ];
+
+  const TOTAL_SHOTS = SHOTS.reduce((n, c) => n + c.shots.length, 0);
+  const STORE = "fm-shots-done-v1";
+  let done = new Set();
+  try { done = new Set(JSON.parse(localStorage.getItem(STORE) || "[]")); } catch (e) {}
+  const persist = () => { try { localStorage.setItem(STORE, JSON.stringify([...done])); } catch (e) {} };
+
+  function updateShotCounts() {
+    document.getElementById("shot-count").textContent = done.size + "/" + TOTAL_SHOTS + " shot";
+    const stat = [...document.querySelectorAll(".stat")].find(s => /shot \//.test(s.querySelector(".l").textContent));
+    if (stat) {
+      const n = stat.querySelector(".n");
+      n.innerHTML = done.size + "<small>/" + TOTAL_SHOTS + "</small>";
+      stat.classList.toggle("alert", done.size < TOTAL_SHOTS);
+    }
+  }
+
+  const cwrap = document.getElementById("clusters");
+  SHOTS.forEach(cl => {
+    const c = el("div", "cluster");
+    const h = el("div", "ch");
+    h.append(el("span", "nm", esc(cl.nm)), el("span", "setup", esc(cl.setup)), el("span", "when", esc(cl.when)));
+    c.append(h);
+    cl.shots.forEach(s => {
+      const row = el("div", "shot" + (done.has(s.code) ? " done" : ""));
+      row.style.setProperty("--h", `var(--a-${s.angle})`);
+      const btn = el("button", "chk");
+      btn.type = "button";
+      btn.setAttribute("aria-pressed", done.has(s.code) ? "true" : "false");
+      btn.setAttribute("aria-label", "Mark " + s.code + " shot");
+      btn.addEventListener("click", () => {
+        if (done.has(s.code)) done.delete(s.code); else done.add(s.code);
+        const on = done.has(s.code);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+        row.classList.toggle("done", on);
+        persist(); updateShotCounts();
+      });
+      const main = el("div", "main");
+      const tags = `<span class="mini">${esc(s.meta)}</span><span class="mini">${esc(s.when)}</span>` +
+        (s.need ? `<span class="mini block">${esc(s.need)}</span>` : "");
+      main.append(el("div", "l1",
+        `<span class="code">${esc(s.code)}</span><span class="pill angle" style="--h:var(--a-${s.angle})">${s.angle}</span><span class="adname mono" style="font-size:11px;color:var(--faint)">${esc(s.ad)}</span>`));
+      main.append(el("div", "cap", esc(s.cap)));
+      main.append(el("div", "tags", tags));
+      row.append(btn, main);
+      c.append(row);
+    });
+    cwrap.append(c);
+  });
+
+  const gwrap = document.getElementById("gather");
+  gwrap.append(el("h3", null, "Gather once"));
+  gwrap.append(el("p", "gsub", "Everything the four sessions draw on. The gift card is decided (enable Shopify + a card mockup); the premium crayons still trace back to a decision on the Needs-you board."));
+  const ul = el("ul");
+  GATHER.forEach(g => ul.append(el("li", null, g)));
+  gwrap.append(ul);
+
+  updateShotCounts();
+
+  // open locally
+  const LOCAL_PATH = "file:///C:/Users/David/Desktop/Claude/Marketing%20Automatization/dashboard.html";
+  const local = document.getElementById("local");
+  const loctxt = document.getElementById("loctxt");
+  async function copyText(t) {
+    try { await navigator.clipboard.writeText(t); return true; }
+    catch (e) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        const ok = document.execCommand("copy"); ta.remove(); return ok;
+      } catch (_) { return false; }
+    }
+  }
+  if (location.protocol === "file:") {
+    local.classList.add("here"); local.removeAttribute("href");
+    loctxt.textContent = "Running locally"; local.title = "You’re viewing the local file — relative links work here";
+  } else {
+    local.addEventListener("click", async e => {
+      e.preventDefault();
+      const ok = await copyText(LOCAL_PATH);
+      const prev = loctxt.textContent;
+      local.classList.add("copied");
+      loctxt.textContent = ok ? "Path copied → paste in a tab" : "See path in footer";
+      setTimeout(() => { loctxt.textContent = prev; local.classList.remove("copied"); }, 2400);
+    });
+  }
+
+  // theme toggle
+  const root = document.documentElement;
+  const tg = document.getElementById("tg"), tgi = document.getElementById("tgi"), tgt = document.getElementById("tgt");
+  function apply(mode) {
+    if (mode === "system") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", mode);
+    const dark = mode === "dark" || (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+    tgi.textContent = dark ? "☾" : "☀";
+    tgt.textContent = mode === "system" ? "Auto" : (dark ? "Dark" : "Light");
+  }
+  let mode = "system"; apply(mode);
+  tg.addEventListener("click", () => { mode = mode === "system" ? "light" : mode === "light" ? "dark" : "system"; apply(mode); });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (mode === "system") apply("system"); });
+</script>

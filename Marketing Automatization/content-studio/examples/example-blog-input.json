@@ -1,0 +1,39 @@
+{
+  "_comment": "Example input for buildGenerateBlogPrompt. Source material contains only verified/placeholder facts. Unknown facts are intentionally omitted so the generator must mark them [OVĚŘIT].",
+  "topic": "Dárek pro maminku ke Dni matek",
+  "targetKeyword": "dárek pro maminku",
+  "searchIntent": "commercial",
+  "persona": "darci",
+  "journeyStage": "think",
+  "eventId": "den-matek",
+  "season": "jaro",
+  "sourceMaterial": {
+    "verifiedFacts": [
+      "Zákazník nahraje fotku na fotomalovanky.cz a my z ní vytvoříme osobní omalovánku.",
+      "Výsledkem je fyzický sešit na kvalitním papíře."
+    ],
+    "internalLinks": [
+      { "label": "Vytvořit omalovánku z fotky", "url": "/products/omalovanky-z-fotek", "note": "hlavní produktová stránka" },
+      { "label": "Jak to funguje", "url": "/pages/jak-to-funguje" },
+      { "label": "Dárkový poukaz", "url": "/products/darkovy-poukaz" }
+    ],
+    "notes": "CZ trh. Doplnit reálné recenze a dodací lhůtu před publikací."
+  },
+  "selectedIdea": {
+    "id": "den-matek-1",
+    "title": "Dárek pro maminku, který chytne za srdce: omalovánky z vašich společných fotek",
+    "angle": "Místo dalšího hrnečku osobní omalovánka ze společné fotky.",
+    "targetKeyword": "dárek pro maminku",
+    "searchIntent": "commercial",
+    "persona": "darci",
+    "journeyFit": "Think - čtenář zvažuje konkrétní originální dárek.",
+    "outline": [
+      "Úvod: hledání dárku pro mámu, která nic nepotřebuje",
+      "Proč osobní omalovánka funguje lépe než generický dárek",
+      "Jaké fotky se hodí",
+      "Jak to funguje ve 3 krocích",
+      "Sociální důkaz [OVĚŘIT]",
+      "Závěr + CTA"
+    ]
+  }
+}

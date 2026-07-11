@@ -1,0 +1,58 @@
+[
+  {
+    "adName": "FM_CZ_GIFT_FAM_SPLIT_v01",
+    "market": "CZ",
+    "angle": "GIFT",
+    "subject": "FAM",
+    "format": "SPLIT",
+    "funnel": "SEE",
+    "persona": "darci",
+    "sourceConcept": "X1",
+    "primaryText": "Ta fotka z léta, kde se všichni smějou? Pořád leží v mobilu. Do Vánoc z ní uděláme omalovánku. Dárek, který nikdo jiný pod stromečkem mít nebude. Nahrajete fotku, o zbytek se postaráme my.",
+    "headline": "Dárek, který nikdo jiný mít nebude",
+    "description": "Osobní vánoční dárek",
+    "rationale": "Awareness. Proměna letní vzpomínky ve vánoční dárek, angle GIFT."
+  },
+  {
+    "adName": "FM_CZ_SIMPLE_FAM_CAROUSEL_v01",
+    "market": "CZ",
+    "angle": "SIMPLE",
+    "subject": "FAM",
+    "format": "CAROUSEL",
+    "funnel": "THINK",
+    "persona": "darci",
+    "sourceConcept": "X2",
+    "primaryText": "Nahrát fotku je otázka pár minut, zbytek je na nás. Žádné vymýšlení, žádné shánění. Vyberete fotku, na které vám spolu bylo dobře, a uděláme z ní omalovánku. Objednejte do 16. 12. a přijde do Vánoc.",
+    "headline": "Ještě není pozdě",
+    "description": "Nahrajete fotku, zbytek je na nás",
+    "rationale": "Consideration bez PROOF, protože recenze nejsou ověřené. SIMPLE odbourá obavu. Uzávěrka 16. 12. potvrzena (David, 2026-07-10)."
+  },
+  {
+    "adName": "FM_CZ_GIFT_NONE_REAL_v01",
+    "market": "CZ",
+    "angle": "GIFT",
+    "subject": "NONE",
+    "format": "REAL",
+    "funnel": "DO",
+    "persona": "darci",
+    "sourceConcept": "X3",
+    "primaryText": "Balíčky se balí, pastelky přibalujeme. Tohle jsou poslední dny: objednejte omalovánku z vaší fotky do 16. 12. a dorazí pod stromeček včas.",
+    "headline": "Poslední dny na osobní dárek",
+    "description": "Vzpomínka, která se dá vybarvit",
+    "rationale": "Urgency přes reálnou fotku zabalených balíčků. Uzávěrka 16. 12. = doručení kolem 22. 12., dva dny rezervy před Štědrým dnem (24. 12.), při výrobě a přepravě do 3–4 pracovních dnů (potvrzeno Davidem 2026-07-10)."
+  },
+  {
+    "adName": "FM_CZ_GIFT_NONE_SCRAP_v02",
+    "market": "CZ",
+    "angle": "GIFT",
+    "subject": "NONE",
+    "format": "SCRAP",
+    "funnel": "DO",
+    "persona": "darci",
+    "sourceConcept": "X4",
+    "primaryText": "Nestihli jste objednat? Nevadí. Kupte dárkovou poukázku a osobní omalovánku z vašich fotek pak vytvoříte v klidu společně po svátcích.",
+    "headline": "Dárek na poslední chvíli",
+    "description": "Osobní omalovánka z vašich fotek",
+    "rationale": "Voucher push přes Shopify dárkovou poukázku (potvrzeno Davidem 2026-07-10, produkt se zapíná nativně). Obdarovaný poukázku promění za osobní omalovánku po svátcích, žádný slib doručení do Vánoc."
+  }
+]

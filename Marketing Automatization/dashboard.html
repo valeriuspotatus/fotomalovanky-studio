@@ -1,0 +1,472 @@
+<meta charset="utf-8">
+<title>Fotomalovánky · Studio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#EAEEF6; --bg2:#DFE5F1; --card:#FFFFFF; --soft:#F2F5FB;
+    --text:#161A22; --muted:#6C7486; --faint:#9AA2B4; --line:rgba(20,26,45,.08);
+    --shadow:0 12px 30px -14px rgba(30,42,90,.22), 0 4px 10px -6px rgba(30,42,90,.10);
+    --shadow-lg:0 30px 70px -22px rgba(30,42,90,.36);
+    --red:#FF3D3D; --blue:#1E9CF5; --amber:#FFB400; --green:#1FBE79; --yellow:#FFC947;
+    --pink:#F0476E; --purple:#7C4DE0; --orange:#FF6A2B; --teal:#12A99B;
+    --a-EMO:#F0476E; --a-GIFT:#E8960A; --a-PROOF:#12A99B; --a-SIMPLE:#1E9CF5;
+    --a-SCREEN:#7C4DE0; --a-TOGETHER:#1FBE79; --a-RELAX:#C05CC0; --a-FUN:#FF6A2B;
+    --font:"Nunito",ui-rounded,"SF Pro Rounded",-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0D1017; --bg2:#0A0C12; --card:#181D28; --soft:#212734;
+    --text:#EEF1F8; --muted:#98A1B3; --faint:#697086; --line:rgba(255,255,255,.09);
+    --shadow:0 16px 40px -18px rgba(0,0,0,.7), 0 4px 12px -6px rgba(0,0,0,.5);
+    --shadow-lg:0 34px 80px -22px rgba(0,0,0,.85);
+    --blue:#45B0FF; --green:#3FD98C; --amber:#FFC24D; --red:#FF6157;
+    --a-EMO:#FF6E90; --a-GIFT:#FFC24D; --a-PROOF:#2ED4C4; --a-SIMPLE:#59B6FF;
+    --a-SCREEN:#A98BF2; --a-TOGETHER:#4FE0A0; --a-RELAX:#D68AD6; --a-FUN:#FF8A52;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme]){
+    --bg:#0D1017; --bg2:#0A0C12; --card:#181D28; --soft:#212734;
+    --text:#EEF1F8; --muted:#98A1B3; --faint:#697086; --line:rgba(255,255,255,.09);
+    --shadow:0 16px 40px -18px rgba(0,0,0,.7), 0 4px 12px -6px rgba(0,0,0,.5);
+    --shadow-lg:0 34px 80px -22px rgba(0,0,0,.85);
+    --blue:#45B0FF; --green:#3FD98C; --amber:#FFC24D; --red:#FF6157;
+    --a-EMO:#FF6E90; --a-GIFT:#FFC24D; --a-PROOF:#2ED4C4; --a-SIMPLE:#59B6FF;
+    --a-SCREEN:#A98BF2; --a-TOGETHER:#4FE0A0; --a-RELAX:#D68AD6; --a-FUN:#FF8A52;
+  }}
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; font-family:var(--font); color:var(--text);
+    background:radial-gradient(1200px 600px at 15% -10%, var(--bg2), transparent), var(--bg);
+    -webkit-font-smoothing:antialiased; min-height:100vh; font-weight:600;
+  }
+  h1,h2,h3{margin:0; letter-spacing:-.02em; font-weight:800}
+  button{font-family:inherit; cursor:pointer}
+
+  /* header */
+  header{position:sticky; top:0; z-index:30; backdrop-filter:blur(14px);
+    background:color-mix(in srgb,var(--bg) 72%, transparent); border-bottom:1px solid var(--line)}
+  .bar{max-width:1080px; margin:0 auto; padding:16px 22px; display:flex; align-items:center; gap:14px}
+  .wm{font-size:21px; font-weight:900; letter-spacing:-.03em; cursor:pointer; user-select:none}
+  .wm .r{color:var(--red)} .wm .b{color:var(--blue)} .wm .a{color:var(--amber)} .wm .g{color:var(--green)}
+  .spacer{margin-left:auto}
+  .icon-btn{width:42px; height:42px; border-radius:50%; border:none; background:var(--card);
+    box-shadow:var(--shadow); color:var(--text); font-size:17px; display:grid; place-items:center; transition:.2s}
+  .icon-btn:hover{transform:translateY(-2px)}
+  .back{display:inline-flex; align-items:center; gap:8px; border:none; background:var(--card);
+    box-shadow:var(--shadow); color:var(--text); font-weight:800; font-size:14px; padding:9px 16px 9px 13px; border-radius:999px; transition:.2s}
+  .back:hover{transform:translateX(-3px)}
+
+  main{max-width:1080px; margin:0 auto; padding:26px 22px 90px}
+  .view{display:none; animation:pop .32s cubic-bezier(.2,.8,.25,1)}
+  .view.on{display:block}
+  @keyframes pop{from{opacity:0; transform:translateY(14px) scale(.985)} to{opacity:1; transform:none}}
+
+  .head{display:flex; align-items:baseline; gap:14px; margin:4px 2px 20px}
+  .head h1{font-size:30px}
+  .head .sub{color:var(--muted); font-size:14px; font-weight:700}
+
+  /* home hero + tiles */
+  .hero{margin:8px 2px 26px}
+  .hero h1{font-size:clamp(30px,6vw,46px); line-height:1.02}
+  .hero p{color:var(--muted); font-size:16px; margin:10px 0 0; max-width:32ch; font-weight:700}
+
+  .tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:18px}
+  .tile{position:relative; border:none; text-align:left; color:var(--text); background:var(--card);
+    border-radius:30px; padding:24px; box-shadow:var(--shadow); overflow:hidden; transition:.25s cubic-bezier(.2,.8,.25,1); min-height:190px; display:flex; flex-direction:column}
+  .tile:hover{transform:translateY(-6px); box-shadow:var(--shadow-lg)}
+  .tile .blob{position:absolute; width:150px; height:150px; border-radius:50%; right:-40px; top:-40px;
+    background:var(--c); opacity:.16; filter:blur(6px)}
+  .tile .em{font-size:30px; width:56px; height:56px; border-radius:20px; display:grid; place-items:center;
+    background:color-mix(in srgb,var(--c) 16%, transparent)}
+  .tile h3{font-size:21px; margin-top:16px}
+  .tile .stat{margin-top:auto; padding-top:12px; font-size:15px; color:var(--muted); font-weight:800}
+  .tile .stat b{color:var(--c); font-size:26px; font-variant-numeric:tabular-nums; margin-right:4px}
+  .tile .go{position:absolute; right:20px; bottom:20px; color:var(--c); font-size:20px; opacity:.65; transition:.25s}
+  .tile:hover .go{opacity:1; transform:translateX(4px)}
+
+  /* creatives gallery */
+  .gallery{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:20px}
+  .cw{border:none; background:transparent; padding:0; text-align:left; transition:.25s cubic-bezier(.2,.8,.25,1)}
+  .cw:hover{transform:translateY(-6px)}
+  .cw .frame{border-radius:24px; overflow:hidden; box-shadow:var(--shadow); background:var(--card); aspect-ratio:4/5; transition:.25s}
+  .cw:hover .frame{box-shadow:var(--shadow-lg)}
+  .cw img{display:block; width:100%; height:100%; object-fit:cover}
+  .cw .cap{display:flex; align-items:center; gap:8px; padding:12px 6px 2px}
+  .cw .cap .nm{font-weight:800; font-size:15px}
+  .chip{font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; white-space:nowrap;
+    color:var(--h); background:color-mix(in srgb,var(--h) 15%, transparent)}
+  .chip.solid{color:#fff; background:var(--h)}
+
+  /* modal */
+  .modal{position:fixed; inset:0; z-index:60; display:none; padding:4vh 18px; overflow-y:auto;
+    background:color-mix(in srgb,#0a0c12 62%, transparent); backdrop-filter:blur(6px)}
+  .modal.on{display:block; animation:fade .25s}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .sheet{max-width:860px; margin:0 auto; background:var(--card); border-radius:32px; box-shadow:var(--shadow-lg);
+    overflow:hidden; animation:pop .3s cubic-bezier(.2,.8,.25,1)}
+  .sheet .grid{display:grid; grid-template-columns:1fr 1fr; gap:0}
+  @media (max-width:680px){.sheet .grid{grid-template-columns:1fr}}
+  .sheet .stage{background:var(--soft); padding:26px; display:flex; flex-direction:column; align-items:center; gap:16px}
+  .sheet .stage img{width:100%; max-width:340px; border-radius:18px; box-shadow:var(--shadow)}
+  .fmts{display:flex; gap:8px}
+  .fmt{border:none; background:var(--card); box-shadow:var(--shadow); color:var(--muted); font-weight:800;
+    font-size:12px; padding:7px 14px; border-radius:999px; transition:.2s}
+  .fmt.on{color:#fff; background:var(--h)}
+  .sheet .info{padding:30px 30px 34px; position:relative}
+  .sheet .close{position:absolute; right:18px; top:18px; width:38px; height:38px; border-radius:50%;
+    border:none; background:var(--soft); color:var(--text); font-size:17px}
+  .sheet .tag{font-size:13px; font-weight:900; letter-spacing:.02em; color:var(--h)}
+  .sheet h2{font-size:26px; margin:8px 0 14px; line-height:1.1}
+  .sheet .idea{font-size:16px; color:var(--muted); font-weight:700; line-height:1.5}
+  .sheet .body{margin-top:16px; padding:14px 16px; background:var(--soft); border-radius:16px; font-size:14px; color:var(--text); font-weight:600; line-height:1.55}
+  .sheet .cta{margin-top:16px; display:inline-block; background:var(--h); color:#fff; font-weight:800; font-size:15px; padding:12px 22px; border-radius:999px}
+  .sheet .meta{margin-top:16px; display:flex; gap:8px; flex-wrap:wrap}
+
+  /* angles */
+  .bubbles{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:16px}
+  .bub{background:var(--card); border-radius:26px; padding:20px; box-shadow:var(--shadow); border-top:4px solid var(--h); transition:.25s}
+  .bub:hover{transform:translateY(-5px); box-shadow:var(--shadow-lg)}
+  .bub .top{display:flex; align-items:center; gap:9px}
+  .bub .dot{width:13px; height:13px; border-radius:5px; background:var(--h)}
+  .bub .code{font-weight:900; font-size:16px; letter-spacing:.01em}
+  .bub .n{margin-left:auto; font-size:13px; font-weight:800; color:var(--muted)}
+  .bub .claim{margin-top:10px; color:var(--muted); font-size:14px; font-weight:700; line-height:1.45}
+  .bub .track{height:7px; border-radius:5px; background:var(--soft); margin-top:14px; overflow:hidden}
+  .bub .track i{display:block; height:100%; background:var(--h); border-radius:5px}
+
+  /* orders */
+  .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:16px; margin-bottom:22px}
+  .kpi{background:var(--card); border-radius:24px; padding:20px; box-shadow:var(--shadow)}
+  .kpi .v{font-size:30px; font-weight:900; letter-spacing:-.02em; font-variant-numeric:tabular-nums; color:var(--c)}
+  .kpi .v small{font-size:15px; font-weight:800; color:var(--muted)}
+  .kpi .k{font-size:13px; color:var(--muted); font-weight:800; margin-top:4px}
+  .panel{background:var(--card); border-radius:26px; padding:22px; box-shadow:var(--shadow); margin-bottom:18px}
+  .panel h3{font-size:16px; margin-bottom:4px}
+  .panel .cap{color:var(--muted); font-size:13px; font-weight:700; margin-bottom:14px}
+  svg.chart{width:100%; height:auto; display:block; overflow:visible}
+  .hb{margin:11px 0}
+  .hb .l{display:flex; justify-content:space-between; font-size:13px; font-weight:800; margin-bottom:5px}
+  .hb .l .r{color:var(--muted); font-variant-numeric:tabular-nums}
+  .hb .t{height:11px; border-radius:6px; background:var(--soft); overflow:hidden; display:flex}
+  .hb .t i{height:100%}
+
+  /* calendar */
+  .lane{display:flex; gap:12px; overflow-x:auto; padding:6px 2px 14px; scroll-snap-type:x mandatory}
+  .fn{flex:0 0 auto; width:150px; background:var(--card); border-radius:22px; padding:15px; box-shadow:var(--shadow); border-top:4px solid var(--h); scroll-snap-align:start}
+  .fn .d{font-size:12px; font-weight:900; color:var(--muted); font-variant-numeric:tabular-nums}
+  .fn .code{font-weight:900; font-size:17px; color:var(--h); margin-top:6px}
+  .fn .t{font-size:13px; font-weight:700; margin-top:3px; line-height:1.35}
+  .fn.now{outline:3px solid var(--h); outline-offset:2px}
+  .fn .now-b{font-size:10px; font-weight:900; letter-spacing:.05em; text-transform:uppercase; color:var(--h)}
+
+  /* needs you */
+  .todo{display:flex; flex-direction:column; gap:14px}
+  .item{background:var(--card); border-radius:24px; padding:20px 22px; box-shadow:var(--shadow); border-left:5px solid var(--amber)}
+  .item .k{font-size:11px; font-weight:900; letter-spacing:.06em; text-transform:uppercase; color:var(--amber)}
+  .item h3{font-size:18px; margin:8px 0 6px}
+  .item p{margin:0; color:var(--muted); font-size:14px; font-weight:700; line-height:1.5}
+  .item .un{margin-top:10px; font-size:13px; font-weight:800; color:var(--faint)}
+  .item .un b{color:var(--text)}
+</style>
+
+<header>
+  <div class="bar">
+    <div class="wm" onclick="go('home')"><span class="r">Foto</span><span class="b">malo</span><span class="a">ván</span><span class="g">ky</span></div>
+    <button class="back" id="backBtn" onclick="go('home')" style="display:none">← Zpět</button>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="theme" title="Světlý / tmavý režim">◐</button>
+  </div>
+</header>
+
+<main>
+  <!-- HOME -->
+  <section class="view on" id="v-home">
+    <div class="hero">
+      <h1>Vaše studio.<br>Vidíte, ne čtete.</h1>
+      <p>Klikněte na cokoliv a projděte si to.</p>
+    </div>
+    <div class="tiles" id="homeTiles"></div>
+  </section>
+
+  <!-- CREATIVES -->
+  <section class="view" id="v-creatives">
+    <div class="head"><h1>Kreativy</h1><span class="sub" id="cCount"></span></div>
+    <div class="gallery" id="gallery"></div>
+  </section>
+
+  <!-- ANGLES -->
+  <section class="view" id="v-angles">
+    <div class="head"><h1>Angly</h1><span class="sub">8 sdělení · 1 se testuje</span></div>
+    <div class="bubbles" id="bubbles"></div>
+  </section>
+
+  <!-- CALENDAR -->
+  <section class="view" id="v-calendar">
+    <div class="head"><h1>Kalendář</h1><span class="sub">test → freeze → Vánoce</span></div>
+    <div class="panel">
+      <h3>Poptávka podle měsíce (loni)</h3>
+      <div class="cap">Křivka vrcholí přesně tam, kde už nejde testovat — proto freeze 1. 11.</div>
+      <div id="season"></div>
+    </div>
+    <h3 style="margin:22px 2px 4px; font-size:16px">Nová kreativa každé 2 týdny</h3>
+    <div class="cap" style="color:var(--muted); font-size:13px; font-weight:700; margin:4px 2px 8px">To, co automaticky připomíná robot každý 1. a 15.</div>
+    <div class="lane" id="lane"></div>
+  </section>
+
+  <!-- ORDERS -->
+  <section class="view" id="v-orders">
+    <div class="head"><h1>Objednávky</h1><span class="sub" id="oSpan"></span></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="panel">
+      <h3>Poptávka podle měsíce</h3>
+      <div class="cap">Objednávky (sloupce) a tržby (linka). Prosinec = 2× jakýkoliv jiný měsíc.</div>
+      <div id="demand"></div>
+    </div>
+    <div class="panel">
+      <h3>Co se prodává</h3>
+      <div class="cap">Placené položky podle formátu a velikosti balení.</div>
+      <div id="mix"></div>
+    </div>
+  </section>
+
+  <!-- NEEDS YOU -->
+  <section class="view" id="v-todo">
+    <div class="head"><h1>Potřebuje vás</h1><span class="sub">3 rozhodnutí</span></div>
+    <div class="todo" id="todo"></div>
+  </section>
+</main>
+
+<!-- creative modal -->
+<div class="modal" id="modal">
+  <div class="sheet">
+    <div class="grid">
+      <div class="stage">
+        <img id="mImg" alt="">
+        <div class="fmts" id="mFmts"></div>
+      </div>
+      <div class="info">
+        <button class="close" onclick="closeM()">✕</button>
+        <div class="tag" id="mTag"></div>
+        <h2 id="mHead"></h2>
+        <div class="idea" id="mIdea"></div>
+        <div class="body" id="mBody"></div>
+        <div class="meta" id="mMeta"></div>
+        <span class="cta" id="mCta"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const el=(t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+  const esc=s=>String(s).replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));
+  const grp=n=>String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g," ");
+  const AC=a=>`var(--a-${a})`;
+
+  // ---- data ----
+  const CREATIVES=[
+    {key:"christmas", tag:"VÁNOCE", angle:"GIFT", headline:"Dárek, který nikdo jiný mít nebude",
+     idea:"Letní vzpomínka proměněná v osobní vánoční dárek pod stromeček.",
+     body:"Z vaší letní fotky uděláme osobní omalovánku do Vánoc.", cta:"Vytvořit fotomalovánky"},
+    {key:"mikulas", tag:"MIKULÁŠ · 5. 12.", angle:"GIFT", headline:"Malý dárek od Mikuláše",
+     idea:"Malý osobní dárek k Mikuláši — něco lepšího než uhlí.",
+     body:"Osobní omalovánka, na které se dítě pozná.", cta:"Vytvořit fotomalovánky"},
+    {key:"blackfriday", tag:"BLACK FRIDAY", angle:"GIFT", headline:"Celý dárek v jedné krabici",
+     idea:"Bundle místo slevy — omalovánka a pastelky pohromadě, hotový dárek.",
+     body:"K omalovánce z vaší fotky přibalíme i pastelky.", cta:"Vytvořit fotomalovánky"},
+    {key:"backtoschool", tag:"ZPÁTKY DO ŠKOLY", angle:"EMO", headline:"Kus léta, který zůstane",
+     idea:"Prázdninová fotka jako hmatatelná vzpomínka, když začíná škola.",
+     body:"Než prázdninové fotky zapadnou v mobilu, uděláme z nich omalovánku.", cta:"Vytvořit fotomalovánky"},
+    {key:"together", tag:"SPOLEČNÝ ČAS", angle:"TOGETHER", headline:"Odpoledne, u kterého sedí celá rodina",
+     idea:"Aktivita, u které sedí celá rodina u jednoho stolu.",
+     body:"Omalovánka z vaší společné fotky. Malujete, a jste u toho spolu.", cta:"Vytvořit fotomalovánky"}
+  ];
+  const FMTS=[["","Feed 4:5"],["-square","Čtverec"],["-story","Story"]];
+
+  const ANGLES=[
+    {c:"EMO",claim:"Dítě se pozná na papíře.",n:14},
+    {c:"GIFT",claim:"Dárek, který nikdo jiný nedá.",n:13},
+    {c:"FUN",claim:"Humor zastaví scroll.",n:7},
+    {c:"PROOF",claim:"Ostatní už koupili.",n:5},
+    {c:"TOGETHER",claim:"Celá rodina u jednoho stolu.",n:3},
+    {c:"RELAX",claim:"Antistres pro dospělé.",n:3},
+    {c:"SIMPLE",claim:"Nahrajete fotku, zbytek je na nás.",n:3},
+    {c:"SCREEN",claim:"Od tabletu zpátky k papíru.",n:2}
+  ];
+  const maxA=Math.max(...ANGLES.map(a=>a.n));
+
+  const ORDERS={span:"duben 2025 – červenec 2026", paidRevenue:217710, aov:658, paid:331,
+    monthly:[["Apr'25",3,456],["Kvě",5,2878],["Črv",2,814],["Čvc",17,8029],["Srp",22,11053],
+      ["Zář",3,2841],["Říj",2,745],["Lis",65,26397],["Pro",150,62417],["Led'26",21,10307],
+      ["Úno",30,8562],["Bře",67,32185],["Dub",59,18754],["Kvě",50,15862],["Črv",22,10413],["Čvc",6,5997]],
+    format:{print:{rev:170259},pdf:{rev:36447}},
+    bundle:[["4 foto",236],["8 foto",74],["12 foto",30],["16 foto",22]],
+    pending:{orders:168,czk:109193}};
+
+  const SEASON={demand:[["Čvc",17],["Srp",22],["Zář",3],["Říj",2],["Lis",65],["Pro",150]]};
+  const LANE=[
+    {d:"14.7.",code:"E23",t:"TOGETHER — nedělní stůl",a:"TOGETHER",now:true},
+    {d:"28.7.",code:"E24",t:"TOGETHER — dvě generace",a:"TOGETHER"},
+    {d:"11.8.",code:"BTS1",t:"Kus léta, který zůstane",a:"EMO"},
+    {d:"25.8.",code:"BTS2",t:"Podvečer bez obrazovky",a:"SCREEN"},
+    {d:"6.10.",code:"X1",t:"Z léta pod stromeček",a:"GIFT"},
+    {d:"17.11.",code:"BF1",t:"Celý dárek v krabici",a:"GIFT"},
+    {d:"1.12.",code:"M1",t:"Dárek od Mikuláše",a:"GIFT"},
+    {d:"15.12.",code:"X4",t:"Poukaz na poslední chvíli",a:"GIFT"}
+  ];
+  const TODO=[
+    {sev:"amber",k:"fakt",h:"Je „Ivana z Loun“ reálná recenze?",p:"Plně atribuovaná 5★, ale její citace je zároveň ukázkou tónu v brand guide — podezřelý kruh.",u:"Odemkne R1, R2 a PROOF pro vánoční fázi 2."},
+    {sev:"amber",k:"fakt",h:"Zdroj německé 5★ recenze",p:"„Das beste Geschenk…“ nemá atribuci; RULES.md zakazuje vymyšlené recenze.",u:"Odemkne DE Evergreen 1."},
+    {sev:"amber",k:"rozhodnutí",h:"Mechanika Black Friday bundlu",p:"Práh, nebo placený add-on? Bundle zdarma je skrytá sleva a AOV nezvedne.",u:"Rozhodne, jestli BF1 / BF2 opravdu pomůžou PNO."}
+  ];
+
+  // ---- home ----
+  const TILES=[
+    {v:"generator", href:"/review", em:"🖍️", c:"var(--teal)", h:"Generátor", b:"Nové", s:"objednávky → omalovánky → PDF"},
+    {v:"creatives", em:"🎨", c:"var(--amber)", h:"Kreativy", b:CREATIVES.length, s:"hotových vizuálů"},
+    {v:"angles", em:"🎯", c:"var(--blue)", h:"Angly", b:8, s:"sdělení"},
+    {v:"calendar", em:"📅", c:"var(--green)", h:"Kalendář", b:"Q4", s:"cesta k Vánocům"},
+    {v:"orders", em:"📈", c:"var(--red)", h:"Objednávky", b:"218k", s:"Kč · AOV 658"},
+    {v:"todo", em:"✋", c:"var(--purple)", h:"Potřebuje vás", b:3, s:"rozhodnutí"}
+  ];
+  const ht=document.getElementById("homeTiles");
+  TILES.forEach(t=>{
+    const b=el("button","tile"); b.style.setProperty("--c",t.c);
+    b.onclick = t.href ? ()=>{ location.href=t.href; } : ()=>go(t.v);
+    b.append(el("span","blob"));
+    b.append(el("div","em",t.em));
+    b.append(el("h3",null,esc(t.h)));
+    b.append(el("div","stat",`<b>${t.b}</b>${esc(t.s)}`));
+    b.append(el("div","go","→"));
+    ht.append(b);
+  });
+
+  // ---- creatives gallery ----
+  document.getElementById("cCount").textContent=CREATIVES.length+" vizuálů · 3 formáty každý";
+  const gal=document.getElementById("gallery");
+  CREATIVES.forEach(c=>{
+    const b=el("button","cw"); b.onclick=()=>openM(c.key);
+    b.innerHTML=`<div class="frame"><img loading="lazy" src="creatives/graphics/${c.key}.svg" alt="${esc(c.headline)}"></div>
+      <div class="cap"><span class="nm">${esc(c.tag)}</span><span class="chip" style="--h:${AC(c.angle)}">${c.angle}</span></div>`;
+    gal.append(b);
+  });
+
+  // ---- modal ----
+  let curKey=null, curFmt="";
+  function openM(key){
+    const c=CREATIVES.find(x=>x.key===key); curKey=key; curFmt="";
+    document.getElementById("mTag").textContent=c.tag;
+    document.getElementById("mTag").style.setProperty("--h",AC(c.angle));
+    document.getElementById("mHead").textContent=c.headline;
+    document.getElementById("mIdea").textContent=c.idea;
+    document.getElementById("mBody").textContent="„"+c.body+"“";
+    const cta=document.getElementById("mCta"); cta.textContent=c.cta+" →"; cta.style.setProperty("--h",AC(c.angle));
+    document.getElementById("mMeta").innerHTML=`<span class="chip solid" style="--h:${AC(c.angle)}">${c.angle}</span><span class="chip" style="--h:var(--muted)">standalone · bez fotky</span>`;
+    const fw=document.getElementById("mFmts"); fw.innerHTML="";
+    FMTS.forEach(([sfx,lbl],i)=>{
+      const f=el("button","fmt"+(i===0?" on":""),esc(lbl)); f.style.setProperty("--h",AC(c.angle));
+      f.onclick=()=>{curFmt=sfx; [...fw.children].forEach(x=>x.classList.remove("on")); f.classList.add("on"); paint();};
+      fw.append(f);
+    });
+    paint();
+    document.getElementById("modal").classList.add("on"); document.body.style.overflow="hidden";
+  }
+  function paint(){ document.getElementById("mImg").src=`creatives/graphics/${curKey}${curFmt}.svg`; }
+  function closeM(){ document.getElementById("modal").classList.remove("on"); document.body.style.overflow=""; }
+  document.getElementById("modal").onclick=e=>{ if(e.target.id==="modal") closeM(); };
+
+  // ---- angles ----
+  const bw=document.getElementById("bubbles");
+  ANGLES.forEach(a=>{
+    const d=el("div","bub"); d.style.setProperty("--h",AC(a.c));
+    d.innerHTML=`<div class="top"><span class="dot"></span><span class="code">${a.c}</span><span class="n">${a.n}×</span></div>
+      <div class="claim">${esc(a.claim)}</div><div class="track"><i style="width:${Math.round(a.n/maxA*100)}%"></i></div>`;
+    bw.append(d);
+  });
+
+  // ---- orders ----
+  document.getElementById("oSpan").textContent=ORDERS.span;
+  const KPI=[
+    {v:grp(ORDERS.paidRevenue)+" <small>Kč</small>", k:"tržby (zaplacené)", c:"var(--green)"},
+    {v:ORDERS.aov+" <small>Kč</small>", k:"průměrná objednávka", c:"var(--blue)"},
+    {v:ORDERS.paid, k:"zaplacených objednávek", c:"var(--amber)"},
+    {v:grp(ORDERS.pending.czk)+" <small>Kč</small>", k:"nezaplaceno (dobírka)", c:"var(--red)"}
+  ];
+  const kw=document.getElementById("kpis");
+  KPI.forEach(o=>{const d=el("div","kpi"); d.style.setProperty("--c",o.c); d.innerHTML=`<div class="v">${o.v}</div><div class="k">${esc(o.k)}</div>`; kw.append(d);});
+
+  (function demand(){
+    const M=ORDERS.monthly,W=720,H=210,pL=12,pR=12,pT=18,pB=30,pw=W-pL-pR,ph=H-pT-pB,n=M.length,yB=pT+ph;
+    const mo=Math.max(...M.map(m=>m[1])),mr=Math.max(...M.map(m=>m[2])),slot=pw/n,bw2=slot*0.56;
+    const bx=i=>pL+slot*i+(slot-bw2)/2,bh=v=>v/mo*ph,rx=i=>pL+slot*i+slot/2,ry=v=>yB-v/mr*ph;
+    let bars="",path="",dots="",labs="";
+    M.forEach((m,i)=>{const pk=m[1]>=60;
+      bars+=`<rect x="${bx(i).toFixed(1)}" y="${(yB-bh(m[1])).toFixed(1)}" width="${bw2.toFixed(1)}" height="${bh(m[1]).toFixed(1)}" rx="4" fill="${pk?"var(--amber)":"var(--soft)"}"/>`;
+      const px=rx(i).toFixed(1),py=ry(m[2]).toFixed(1); path+=(i?"L":"M")+px+" "+py+" ";
+      dots+=`<circle cx="${px}" cy="${py}" r="2.6" fill="var(--red)"/>`;
+      labs+=`<text x="${rx(i).toFixed(1)}" y="${(yB+14).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--faint)">${esc(m[0])}</text>`;});
+    document.getElementById("demand").innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H}">${bars}<path d="${path.trim()}" fill="none" stroke="var(--red)" stroke-width="2.5" stroke-linejoin="round"/>${dots}${labs}</svg>`;
+  })();
+
+  (function mix(){
+    const f=ORDERS.format,tot=f.print.rev+f.pdf.rev,pp=f.print.rev/tot*100;
+    let h=`<div class="hb"><div class="l"><span>Tisk vs PDF</span><span class="r">${pp.toFixed(0)} / ${(100-pp).toFixed(0)}%</span></div>
+      <div class="t"><i style="width:${pp}%;background:var(--amber)"></i><i style="width:${100-pp}%;background:var(--blue)"></i></div></div>`;
+    const bm=Math.max(...ORDERS.bundle.map(b=>b[1]));
+    h+=`<div class="l" style="margin:16px 0 6px"><span>Velikost balení</span><span class="r">4 foto = kotva</span></div>`;
+    ORDERS.bundle.forEach((b,i)=>{h+=`<div class="hb" style="margin:6px 0"><div class="l"><span>${esc(b[0])}</span><span class="r">${b[1]}</span></div>
+      <div class="t" style="height:9px"><i style="width:${b[1]/bm*100}%;background:${i===0?"var(--green)":"var(--faint)"}"></i></div></div>`;});
+    document.getElementById("mix").innerHTML=h;
+  })();
+
+  // ---- calendar ----
+  (function season(){
+    const D=SEASON.demand,W=720,H=200,pL=8,pR=8,pT=26,pB=22,pw=W-pL-pR,ph=H-pT-pB,n=D.length,yB=pT+ph;
+    const slot=pw/n,mv=Math.max(...D.map(d=>d[1])),cx=i=>pL+slot*i+slot/2,cy=v=>yB-v/mv*ph,fx=pL+slot*4;
+    let s=`<rect x="${pL}" y="${pT}" width="${(slot*4).toFixed(1)}" height="${ph}" rx="10" fill="color-mix(in srgb,var(--blue) 10%,transparent)"/>`+
+      `<rect x="${fx.toFixed(1)}" y="${pT}" width="${(slot*2).toFixed(1)}" height="${ph}" rx="10" fill="color-mix(in srgb,var(--red) 12%,transparent)"/>`+
+      `<text x="${(pL+slot*2).toFixed(1)}" y="${pT-9}" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--blue)">TEST</text>`+
+      `<text x="${(fx+slot).toFixed(1)}" y="${pT-9}" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--red)">FREEZE → PEAK</text>`;
+    let area=`M ${cx(0).toFixed(1)} ${yB}`,line="";
+    D.forEach((d,i)=>{area+=` L ${cx(i).toFixed(1)} ${cy(d[1]).toFixed(1)}`; line+=(i?"L":"M")+cx(i).toFixed(1)+" "+cy(d[1]).toFixed(1)+" ";});
+    area+=` L ${cx(n-1).toFixed(1)} ${yB} Z`;
+    s+=`<path d="${area}" fill="color-mix(in srgb,var(--amber) 22%,transparent)"/><path d="${line.trim()}" fill="none" stroke="var(--amber)" stroke-width="3" stroke-linejoin="round"/>`;
+    D.forEach((d,i)=>s+=`<circle cx="${cx(i).toFixed(1)}" cy="${cy(d[1]).toFixed(1)}" r="${i>=4?4:2.6}" fill="var(--amber)"/>`);
+    s+=`<text x="${cx(5).toFixed(1)}" y="${(cy(150)-8).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="900" fill="var(--red)">150</text>`;
+    s+=`<line x1="${fx.toFixed(1)}" y1="${pT}" x2="${fx.toFixed(1)}" y2="${yB}" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    D.forEach((d,i)=>s+=`<text x="${cx(i).toFixed(1)}" y="${(yB+15).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="800" fill="var(--text)">${esc(d[0])}</text>`);
+    document.getElementById("season").innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H}">${s}</svg>`;
+  })();
+  const lane=document.getElementById("lane");
+  LANE.forEach(f=>{const d=el("div","fn"+(f.now?" now":"")); d.style.setProperty("--h",AC(f.a));
+    d.innerHTML=`<div class="d">${esc(f.d)}</div>${f.now?'<div class="now-b">nejbližší</div>':""}<div class="code">${esc(f.code)}</div><div class="t">${esc(f.t)}</div>`;
+    lane.append(d);});
+
+  // ---- needs you ----
+  const tw=document.getElementById("todo");
+  TODO.forEach(t=>{const d=el("div","item");
+    d.innerHTML=`<div class="k">${esc(t.k)}</div><h3>${esc(t.h)}</h3><p>${esc(t.p)}</p><div class="un"><b>Odemkne:</b> ${esc(t.u)}</div>`;
+    tw.append(d);});
+
+  // ---- router ----
+  const views=["home","creatives","angles","calendar","orders","todo"];
+  function go(v){
+    if(!views.includes(v)) v="home";
+    views.forEach(x=>document.getElementById("v-"+x).classList.toggle("on",x===v));
+    document.getElementById("backBtn").style.display = v==="home" ? "none" : "inline-flex";
+    if(location.hash!=="#"+v) history.pushState(null,"","#"+v);
+    window.scrollTo({top:0,behavior:"instant"});
+  }
+  window.addEventListener("popstate",()=>go((location.hash||"#home").slice(1)));
+  document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ if(document.getElementById("modal").classList.contains("on")) closeM(); else if((location.hash||"#home")!=="#home") go("home"); }});
+
+  // ---- theme ----
+  const root=document.documentElement, tb=document.getElementById("theme");
+  const saved=localStorage.getItem("fm-theme");
+  if(saved) root.setAttribute("data-theme",saved);
+  const paintTheme=()=>{const dark = root.getAttribute("data-theme")==="dark" || (!root.hasAttribute("data-theme") && matchMedia("(prefers-color-scheme:dark)").matches); tb.textContent=dark?"☾":"☀";};
+  paintTheme();
+  tb.onclick=()=>{const cur=root.getAttribute("data-theme")|| (matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light"); const nx=cur==="dark"?"light":"dark"; root.setAttribute("data-theme",nx); localStorage.setItem("fm-theme",nx); paintTheme();};
+
+  go((location.hash||"#home").slice(1));
+</script>

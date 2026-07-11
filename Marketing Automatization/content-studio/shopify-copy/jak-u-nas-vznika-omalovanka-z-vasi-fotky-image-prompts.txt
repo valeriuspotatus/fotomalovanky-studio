@@ -1,0 +1,25 @@
+Weavy cover prompt (English):
+Authentic behind-the-scenes UGC-style photo on a cozy wooden desk. A smartphone
+shows a family source photo, next to it a printed coloring booklet lies open on a
+hand-drawn line-art page of the same scene, with wooden colored pencils around it.
+Warm natural window light, lived-in workspace feel, shot-on-iPhone aesthetic,
+shallow depth of field. Not a stock photo, no fake office or factory. No text,
+no readable logos, no recognizable real faces.
+
+Weavy inline prompt (English):
+Close-up overhead shot of a smartphone displaying a family photo placed right next
+to the same scene as a clean black-and-white coloring page in an open booklet,
+a few wooden colored pencils beside them on a warm wooden desk. Soft daylight,
+authentic home workspace, shot-on-iPhone aesthetic. Not a stock photo. No text,
+no readable logos, no recognizable real faces.
+
+Alt text suggestion - cover (CZ):
+Mobil s rodinnou fotkou vedle otevřeného sešitu s omalovánkou stejného motivu a pastelek na stole.
+
+Alt text suggestion - inline (CZ):
+Fotka v mobilu a vedle ní stejná scéna jako čistá omalovánka k vybarvení, kolem pastelky.
+
+Note:
+Pro obrázky nepoužívejte rozpoznatelné tváře reálných zákazníků ani vymyšlené
+logo. Žádné prostředí falešné kanceláře nebo továrny. Alt text upravte podle
+skutečně použitého obrázku.

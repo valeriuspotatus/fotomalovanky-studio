@@ -1,0 +1,61 @@
+{
+  "_comment": "Example BlogPackage output. Compliant sample: author David, no fabricated reviews/numbers/prices/delivery, unknown facts marked [OVĚŘIT], no em dashes, CTA + internal links present, English Weavy prompts, CZ social/newsletter. Replace every [OVĚŘIT] with real data before publishing.",
+  "blogName": "Inspirace",
+  "blogHandle": "inspirace",
+  "author": "David",
+  "title": "Dárek pro maminku, který chytne za srdce: omalovánky z vašich společných fotek",
+  "seoTitle": "Dárek pro maminku, který chytne za srdce | Fotomalovánky",
+  "metaDescription": "Hledáte osobní dárek pro maminku ke Dni matek? Z vaší společné fotky vytvoříme omalovánku, u které se dojme. Podívejte se, jak na to.",
+  "handle": "darek-pro-maminku-omalovanky-z-fotek",
+  "excerpt": "Místo dalšího hrnečku letos vzpomínka, kterou si může vybarvit. Jak vybrat fotku a proměnit ji v osobní omalovánku pro maminku nebo babičku.",
+  "tags": ["Den matek", "dárek pro maminku", "omalovánky z fotek", "tipy na dárky", "inspirace"],
+  "targetKeyword": "dárek pro maminku",
+  "searchIntent": "commercial",
+  "funnelStage": "THINK / DO",
+  "selectedEvent": "den-matek",
+  "eventRelevanceReason": "Den matek je silná dárková příležitost a osobní omalovánka přímo odpovídá hledání originálního, emocionálního dárku pro mámu i babičku.",
+  "seasonalFitScore": 88,
+  "bestPublishWindow": "Od poloviny dubna do Dne matek",
+  "riskOfForcedSeasonality": "low",
+  "campaignAngle": "Místo věci, která zapadne, letos vzpomínka, kterou si maminka může vybarvit.",
+  "bodyHtml": "<p>Znáte to: blíží se Den matek a vy zase stojíte před otázkou, co dát mámě, která tvrdí, že nic nepotřebuje. Další hrneček zapadne do skříňky. Květiny za týden zvadnou. A přitom ten nejhezčí dárek máte celou dobu v mobilu.</p><h2>Proč osobní vzpomínka funguje lépe než věc</h2><p>Mámu nedojme předmět, ale moment. Společná fotka z dovolené, obyčejné odpoledne na lavičce, vnoučata u oběda. Když z takové fotky vznikne omalovánka, dostane maminka něco, co nikdo jiný mít nebude. A může si to navíc vybarvit, sama nebo s vnoučaty.</p><h2>Jaké fotky se hodí</h2><p>Nejlépe fungují fotky, kde jsou tváře dobře vidět a kde se děje něco osobního. Pár tipů:</p><ul><li>Společné momenty, ne jen portréty na občanku.</li><li>Fotky s vnoučaty, pokud vybíráte dárek pro babičku.</li><li>Vzpomínky z dovolené nebo rodinných oslav.</li></ul><p>Víc o výběru najdete na stránce <a href=\"/pages/jak-to-funguje\">Jak to funguje</a>.</p><h2>Jak to funguje ve třech krocích</h2><p>Není v tom žádná věda a nepotřebujete nic umět:</p><ul><li>Nahrajete oblíbenou fotku.</li><li>My z ní vytvoříme osobní omalovánku.</li><li>Doručíme vám hotový sešit na kvalitním papíře. [OVĚŘIT: konkrétní dodací lhůta v pracovních dnech]</li></ul><h2>Co na to říkají zákazníci</h2><p>[OVĚŘIT: doplnit jednu reálnou recenzi se jménem a zdrojem ze source material. Nevymýšlet.]</p><h2>Letos to nebude hrneček</h2><p>Dárek pro maminku nemusí být drahý ani velký. Musí být osobní. Vyberte fotku, u které se vám samotným zastaví dech, a nechte ji proměnit ve vzpomínku, která se dá vybarvit.</p>",
+  "internalLinksUsed": [
+    { "label": "Vytvořit omalovánku z fotky", "url": "/products/omalovanky-z-fotek" },
+    { "label": "Jak to funguje", "url": "/pages/jak-to-funguje" },
+    { "label": "Dárkový poukaz", "url": "/products/darkovy-poukaz" }
+  ],
+  "ctaBlock": {
+    "heading": "Proměňte vaši fotku v dárek pro maminku",
+    "body": "Vyberte společnou fotku a my z ní vytvoříme osobní omalovánku, u které se mamka dojme. Nestíháte? Pošlete dárkový poukaz.",
+    "buttonLabel": "Vytvořit omalovánku",
+    "buttonUrl": "/products/omalovanky-z-fotek"
+  },
+  "weavyCoverPrompt": "Authentic UGC-style overhead photo on a warm wooden table: an open coloring book showing a hand-drawn line-art portrait of a mother with a child, a smartphone next to it displaying the original family photo, scattered wooden colored pencils, a cup of coffee. Soft natural window light from the left, cozy home atmosphere, shot-on-iPhone feel, shallow depth of field. No text, no logos.",
+  "weavyInlineImagePrompt": "Close-up of a grandmother's and a child's hands coloring the same coloring book page together at a kitchen table, colored pencils around, warm afternoon light, authentic candid moment, shot-on-iPhone aesthetic. No text, no logos.",
+  "socialPostCZ": "Letos to nebude hrneček. Z vaší společné fotky uděláme omalovánku, u které se mamka dojme. Vyberte vzpomínku, my zařídíme kouzlo. Odkaz v biu. 🖍️",
+  "newsletterTeaserCZ": "Den matek se blíží. Místo dalšího hrnečku letos vzpomínka, kterou si maminka může vybarvit. Mrkněte na tipy, jak vybrat tu pravou fotku.",
+  "repurposeIdeas": [
+    { "channel": "instagram", "format": "carousel", "idea": "5 typů fotek, které se hodí na omalovánku pro mámu (poslední slide = CTA)." },
+    { "channel": "facebook", "format": "post", "idea": "Otázka do komentářů: Jakou společnou fotku s mámou byste nechali vybarvit?" },
+    { "channel": "pinterest", "format": "pin", "idea": "Vertikální pin 'Dárek pro maminku ke Dni matek' s odkazem na článek." },
+    { "channel": "tiktok", "format": "video", "idea": "Krátké před/po: fotka s mámou se mění v omalovánku, hudba feel-good." },
+    { "channel": "email", "format": "teaser", "idea": "Newsletter teaser výše + tlačítko na článek a produktovou stránku." }
+  ],
+  "qualityWarnings": [
+    { "code": "needs_verification", "severity": "info", "message": "Dodací lhůta označena [OVĚŘIT] v sekci 'Jak to funguje ve třech krocích'. Doplnit reálnou hodnotu před publikací.", "field": "bodyHtml" },
+    { "code": "needs_verification", "severity": "info", "message": "Sekce s recenzí obsahuje [OVĚŘIT]. Vložit jednu reálnou recenzi se jménem a zdrojem, nebo sekci odstranit.", "field": "bodyHtml" }
+  ],
+  "manualShopifyChecklist": [
+    "Shopify Admin > Obsah > Blogové příspěvky > Přidat příspěvek.",
+    "Blog: Inspirace (nebo zvolený blog). Autor: David.",
+    "Nahradit VŠECHNY [OVĚŘIT] reálnými údaji (recenze, dodací lhůta).",
+    "Vložit bodyHtml přes editor v režimu HTML (<>).",
+    "Vyplnit Výpis (excerpt) a Tagy.",
+    "Upravit SEO: titulek stránky = seoTitle, popis = metaDescription, URL handle = handle.",
+    "Nahrát titulní obrázek (vytvořený dle weavyCoverPrompt) a inline obrázek.",
+    "Zkontrolovat interní odkazy, že vedou na existující stránky.",
+    "Viditelnost nastavit na Skrytý (draft), NEPUBLIKOVAT.",
+    "Náhled zkontrolovat na mobilu.",
+    "Uložit. Publikaci provede David ručně po schválení."
+  ]
+}
