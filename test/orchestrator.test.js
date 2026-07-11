@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
@@ -8,7 +8,7 @@ import { runPipeline, buildabilityProblem, formatEvent, ORDER_STATUS } from '../
 import { approve, setOrderDedication, overrideIntake } from '../src/review.js';
 import { GeneratorError } from '../src/generator/driver.js';
 import { BuilderError } from '../src/builder/builderDriver.js';
-import { STATES, readManifest, getStatus, getDedication, emptyManifest, setDedication, writeManifest } from '../src/manifest.js';
+import { STATES, readManifest, getStatus, getDedication, emptyManifest, setDedication, writeManifest, manifestPath } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
 
 /** A stand-in coloring raster: 1px lines with white paper between them. Half ink, but nothing
@@ -111,6 +111,16 @@ const run = (f, opts = {}) =>
     signal: opts.signal,
     onEvent: opts.onEvent,
   });
+
+/** Force an order's state.json to read as newer than any PDF already built from it. A verdict or
+ *  dedication change and the prior print can land in the same coarse filesystem mtime tick (seen on
+ *  Windows), which would let a stale PDF count as current and skip the rebuild; in real use the
+ *  operator's edit comes long after the book was printed. Keeps the rebuild-on-change tests
+ *  deterministic without touching the production `pdfIsCurrent` semantics. */
+const markStateChanged = (orderDir) => {
+  const t = new Date(Date.now() + 5000);
+  utimesSync(manifestPath(orderDir), t, t);
+};
 
 /** A generator that trips the Stop button the moment it finishes a given photo, so a test can
  *  make cancellation land at an exact boundary without real timing. */
@@ -265,6 +275,7 @@ test('a verdict changed after the PDF was printed makes it stale, and it is rebu
 
     // The operator marks it bad and re-approves it after the print: state.json is now newer.
     approve(orderDir, 'a');
+    markStateChanged(orderDir); // the edit comes long after the print; don't race the mtime tick
     assert.ok(statSync(join(orderDir, 'state.json')).mtimeMs >= statSync(pdfPath).mtimeMs);
 
     const builder = new StubBuilder();
@@ -299,6 +310,37 @@ test('the builder is handed the configured layout options and the order-named ou
     assert.equal(options.addAllCovers, true);
     assert.equal(options.rotationMin, -2);
     assert.match(options.outPdfPath, /1510 Final\.pdf$/);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('U9: each order builds in the format its product maps to, with no config change mid-burst', async () => {
+  const f = fixture({ 1601: ['a'], 1602: ['b'] });
+  try {
+    // The shop's own record: 1601 sold full-page, 1602 galerie — the extension drops it beside
+    // the photos, and the format is derived from it, never re-read from Shopify.
+    writeFileSync(join(f.inbox, '1601', 'objednavka.json'), JSON.stringify({ order: '1601', products: [{ variant: 'celo', qty: 1 }] }));
+    writeFileSync(join(f.inbox, '1602', 'objednavka.json'), JSON.stringify({ order: '1602', products: [{ variant: 'gal', qty: 1 }] }));
+    const config = { ...CONFIG, delivery: { format: 'gallery', formatMap: { celo: 'fullpage', gal: 'gallery' } } };
+    const builder = new StubBuilder();
+    const formats = [];
+    await runPipeline({
+      config,
+      inboxRoot: f.inbox,
+      outboxRoot: f.outbox,
+      generator: new StubGenerator(),
+      builder,
+      qc: OK_QC,
+      intake: OK_INTAKE,
+      onEvent: (e) => { if (e.type === 'order-format') formats.push([e.orderId, e.mode, e.mapped]); },
+    });
+
+    const modeOf = (id) => builder.calls.find((c) => c.orderDir.endsWith(id)).options.mode;
+    assert.equal(modeOf('1601'), 'fullpage', 'the full-page order built full-page');
+    assert.equal(modeOf('1602'), 'gallery', 'the galerie order built galerie — in the same burst, no config edit');
+    formats.sort((a, b) => a[0].localeCompare(b[0]));
+    assert.deepEqual(formats, [['1601', 'fullpage', true], ['1602', 'gallery', true]]);
   } finally {
     f.cleanup();
   }
@@ -340,6 +382,7 @@ test("the operator's dedication reaches the builder and reprints the book", asyn
     const first = await run(f);
     assert.equal(first.orders[0].titled, false);
     setOrderDedication(first.orders[0].orderDir, '  Pro Barču, s láskou  ');
+    markStateChanged(first.orders[0].orderDir); // the edit comes long after the print
 
     const builder = new StubBuilder();
     const { orders } = await run(f, { builder });
