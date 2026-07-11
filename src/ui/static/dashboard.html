@@ -8,6 +8,29 @@
   .home-grid{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:26px;align-items:start}
   .col-work{min-width:0;display:flex;flex-direction:column;gap:22px}
   .rail{position:sticky;top:26px}
+  /* the Kalendář tab reuses the Přehled calendar, capped so its cells stay a sensible size */
+  #v-calendar{max-width:720px}
+  /* order-board row actions (mark sent / undo) + the "show done" toggle */
+  .act-cell{text-align:right;white-space:nowrap}
+  .btn.sm{padding:5px 11px;font-size:12px}
+  .btn-ghost{background:none;border:1px solid transparent;color:var(--ink-2)}
+  .btn-ghost:hover{background:var(--surface-2);color:var(--ink)}
+  .done-toggle{margin-top:14px}
+  .done-toggle:empty{margin:0}
+  /* Proton inbox tile */
+  #mailBody{margin-top:4px}
+  .mail-item{padding:9px 2px;border-bottom:1px solid var(--border)}
+  .mail-item:last-child{border-bottom:0}
+  .mail-line{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+  .mail-from{font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mail-item.unread .mail-from{color:var(--brand)}
+  .mail-date{font-size:11px;color:var(--ink-3);flex:none;font-variant-numeric:tabular-nums}
+  .mail-sub{font-size:12.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  .mail-item.unread .mail-sub{color:var(--ink)}
+  .mail-off{display:flex;gap:10px;align-items:flex-start;padding:6px 2px}
+  .mail-off svg{width:20px;height:20px;stroke:var(--ink-3);flex:none;margin-top:1px}
+  .mo-t{font-size:13px;color:var(--ink-2);font-weight:600}
+  .mo-s{font-size:12px;color:var(--ink-3);margin-top:2px;line-height:1.4}
   .preview-note{display:flex;align-items:center;gap:9px;color:var(--ink-3);font-size:12px;padding:2px}
   .preview-note svg{width:14px;height:14px;stroke:currentColor;flex-shrink:0}
 </style>
@@ -91,6 +114,10 @@
         </div>
 
         <aside class="rail">
+          <div class="card" style="padding:18px" id="mailCard">
+            <div class="sec-h"><h2>Pošta</h2><span class="chip c-neutral" id="mailUnread">–</span></div>
+            <div id="mailBody"><div class="empty">Načítám…</div></div>
+          </div>
           <div class="cal">
             <div class="top"><h2>Červenec 2026</h2><div class="nav-btns"><button aria-label="Předchozí"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button aria-label="Další"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
             <div class="cal-grid" id="calGrid"></div>
@@ -106,9 +133,10 @@
     <!-- ===== ORDERS ===== -->
     <section class="view" id="v-orders">
       <div class="table"><table>
-        <thead><tr><th>Objednávka</th><th>Fotky</th><th>Titulek</th><th>Stav</th></tr></thead>
+        <thead><tr><th>Objednávka</th><th>Fotky</th><th>Titulek</th><th>Stav</th><th></th></tr></thead>
         <tbody id="ordersBody"></tbody>
       </table></div>
+      <div id="doneToggle" class="done-toggle"></div>
     </section>
 
     <!-- ===== CREATIVES ===== -->
@@ -119,14 +147,15 @@
 
     <!-- ===== CALENDAR ===== -->
     <section class="view" id="v-calendar">
-      <div class="panel">
-        <h3>Poptávka podle měsíce (loni)</h3>
-        <div class="cap">Křivka vrcholí přesně tam, kde už nejde testovat — proto freeze 1. 11.</div>
-        <div id="season"></div>
+      <div class="cal">
+        <div class="top"><h2>Červenec 2026</h2><div class="nav-btns"><button aria-label="Předchozí"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button aria-label="Další"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
+        <div class="cal-grid" id="calGridBig"></div>
       </div>
-      <div class="sec-h" style="margin-top:22px"><h2>Nová kreativa každé 2 týdny</h2></div>
-      <div class="cap" style="color:var(--ink-2);font-size:13px;margin:0 2px 10px">To, co automaticky připomíná robot každý 1. a 15.</div>
-      <div class="lane" id="lane"></div>
+      <div class="card" style="margin-top:22px;padding:18px">
+        <div class="sec-h"><h2>Nadcházející kreativa</h2></div>
+        <div class="cap" style="color:var(--ink-2);font-size:13px;margin:0 2px 12px">Robot připomíná novou kreativu 1. a 15. každý měsíc.</div>
+        <div class="up-list" id="upListBig"></div>
+      </div>
     </section>
 
     <!-- ===== NEEDS YOU ===== -->
@@ -211,13 +240,18 @@
 
   function orderFaceSvg(){return '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="9" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>';}
 
-  function orderRow(o){
+  function orderRow(o,opts={}){
     const ph=o.photos.total?`${o.photos.eligible}/${o.photos.total}`:"–";
+    let act="";
+    if(opts.actions){
+      if(o.status==="ready-to-send") act=`<button class="btn btn-secondary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`;
+      else if(o.status==="sent") act=`<button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
+    }
     return `<tr>
       <td><span class="oid">${esc(o.orderId)}</span></td>
       <td class="mono">${ph}</td>
       <td><span class="ded-cell">${o.dedication?"„"+esc(o.dedication)+"“":"—"}</span></td>
-      <td>${chipHtml(o.status)}</td></tr>`;
+      <td>${chipHtml(o.status)}</td>${opts.actions?`<td class="act-cell">${act}</td>`:""}</tr>`;
   }
 
   function renderHome(d){
@@ -226,8 +260,8 @@
     document.getElementById("kpi-held").textContent=d.counts.held||0;
     document.getElementById("kpi-ready").textContent=d.counts["ready-to-send"]||0;
     document.getElementById("kpi-sent").textContent=d.counts.sent||0;
-    // sidebar counts
-    document.getElementById("nav-orders").textContent=d.counts.total||0;
+    // sidebar counts — active orders (everything except the ones already sent to Jirka)
+    document.getElementById("nav-orders").textContent=(d.counts.total||0)-(d.counts.sent||0);
     document.getElementById("nav-gen").textContent=d.counts.generating||0;
     document.getElementById("nav-todo").textContent=(d.needsYou||[]).length;
     renderContinue(d);
@@ -265,9 +299,16 @@
     row.innerHTML=c1+c2;
   }
 
+  // The active board hides orders already sent to Jirka ("done"); a toggle reveals them.
+  let showDone=false;
   function renderOrders(d){
     const b=document.getElementById("ordersBody");
-    b.innerHTML=d.orders.length?d.orders.map(orderRow).join(""):'<tr><td colspan="4" class="empty">Zatím žádné objednávky ve složce.</td></tr>';
+    const active=d.orders.filter(o=>o.status!=="sent");
+    const done=d.orders.filter(o=>o.status==="sent");
+    const rows=showDone?[...active,...done]:active;
+    b.innerHTML=rows.length?rows.map(o=>orderRow(o,{actions:true})).join(""):'<tr><td colspan="5" class="empty">Žádné aktivní objednávky.</td></tr>';
+    const tog=document.getElementById("doneToggle");
+    tog.innerHTML=done.length?`<button class="btn btn-secondary sm" id="toggleDone">${showDone?"Skrýt odeslané":"Zobrazit odeslané ("+done.length+")"}</button>`:"";
   }
 
   function renderNeedsYou(d){
@@ -301,6 +342,53 @@
     catch(e){/* offline / not the live server — keep the last board */}
   }
   setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["home","orders","todo"].includes(v))fetchStudio();},2500);
+
+  /* ---- board actions: mark a finished order as sent to Jirka, or undo; plus the done toggle ---- */
+  async function orderAction(id,action){
+    try{const r=await fetch(`/api/${encodeURIComponent(id)}/${action}`,{method:"POST"});if(r.ok)await fetchStudio();}
+    catch(e){/* offline — leave the board as-is */}
+  }
+  document.getElementById("ordersBody").addEventListener("click",e=>{
+    const s=e.target.closest(".act-sent");if(s){s.disabled=true;orderAction(s.dataset.sent,"sent");return;}
+    const u=e.target.closest(".act-unsent");if(u){u.disabled=true;orderAction(u.dataset.unsent,"unsent");}
+  });
+  document.getElementById("doneToggle").addEventListener("click",e=>{
+    if(e.target.closest("#toggleDone")){showDone=!showDone;if(studioData)renderOrders(studioData);}
+  });
+
+  /* ---- Proton inbox tile (read-only, via Proton Bridge over local IMAP) ---- */
+  function fmtMailDate(iso){
+    if(!iso) return "";
+    const d=new Date(iso), now=new Date();
+    if(d.toDateString()===now.toDateString()) return d.toLocaleTimeString("cs-CZ",{hour:"2-digit",minute:"2-digit"});
+    return d.toLocaleDateString("cs-CZ",{day:"numeric",month:"numeric"});
+  }
+  const MAIL_OFF={
+    "not-configured":["Proton e-mail není nastaven","Zapněte mail v config.json a spusťte Proton Bridge."],
+    "offline":["Proton Bridge neběží","Spusťte na tomto počítači aplikaci Proton Mail Bridge."],
+    "auth":["Přihlášení selhalo","Zkontrolujte přihlášení z Proton Bridge v config.json."]
+  };
+  function renderMail(m){
+    const badge=document.getElementById("mailUnread"), body=document.getElementById("mailBody");
+    if(!badge||!body) return;
+    if(!m||!m.available){
+      badge.textContent="–"; badge.className="chip c-neutral";
+      const [t,s]=MAIL_OFF[m&&m.reason]||["Schránku nelze načíst","Zkuste to prosím později."];
+      body.innerHTML=`<div class="mail-off"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="m3.5 6.5 8.5 7 8.5-7"/></svg><div><div class="mo-t">${esc(t)}</div><div class="mo-s">${esc(s)}</div></div></div>`;
+      return;
+    }
+    badge.textContent=m.unread; badge.className="chip "+(m.unread>0?"c-danger":"c-success");
+    if(!m.recent||!m.recent.length){body.innerHTML='<div class="empty">Žádné zprávy.</div>';return;}
+    body.innerHTML=m.recent.map(x=>`<div class="mail-item${x.seen?"":" unread"}">
+      <div class="mail-line"><span class="mail-from">${esc(x.from)}</span><span class="mail-date">${esc(fmtMailDate(x.date))}</span></div>
+      <div class="mail-sub">${esc(x.subject)}</div></div>`).join("");
+  }
+  async function fetchMail(){
+    try{const r=await fetch("/api/mail");if(!r.ok)return;renderMail(await r.json());}
+    catch(e){/* offline / not the live server — keep the last state */}
+  }
+  fetchMail();
+  setInterval(fetchMail,60000);
 
   /* ---- creatives gallery + modal ---- */
   const gal=document.getElementById("gallery");
@@ -340,32 +428,13 @@
     bw.append(d);
   });
 
-  /* ---- calendar: season chart + lane ---- */
-  (function season(){
-    const D=SEASON.demand,W=760,H=200,pL=8,pR=8,pT=26,pB=22,pw=W-pL-pR,ph=H-pT-pB,n=D.length,yB=pT+ph;
-    const slot=pw/n,mv=Math.max(...D.map(d=>d[1])),cx=i=>pL+slot*i+slot/2,cy=v=>yB-v/mv*ph,fx=pL+slot*4;
-    let s=`<rect x="${pL}" y="${pT}" width="${(slot*4).toFixed(1)}" height="${ph}" rx="10" fill="var(--info-soft)"/>`+
-      `<rect x="${fx.toFixed(1)}" y="${pT}" width="${(slot*2).toFixed(1)}" height="${ph}" rx="10" fill="var(--danger-soft)"/>`+
-      `<text x="${(pL+slot*2).toFixed(1)}" y="${pT-9}" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--info)">TEST</text>`+
-      `<text x="${(fx+slot).toFixed(1)}" y="${pT-9}" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--danger)">FREEZE → PEAK</text>`;
-    let area=`M ${cx(0).toFixed(1)} ${yB}`,line="";
-    D.forEach((d,i)=>{area+=` L ${cx(i).toFixed(1)} ${cy(d[1]).toFixed(1)}`;line+=(i?"L":"M")+cx(i).toFixed(1)+" "+cy(d[1]).toFixed(1)+" ";});
-    area+=` L ${cx(n-1).toFixed(1)} ${yB} Z`;
-    s+=`<path d="${area}" fill="var(--warning-soft)"/><path d="${line.trim()}" fill="none" stroke="var(--warning)" stroke-width="2.5" stroke-linejoin="round"/>`;
-    D.forEach((d,i)=>s+=`<circle cx="${cx(i).toFixed(1)}" cy="${cy(d[1]).toFixed(1)}" r="${i>=4?4:2.6}" fill="var(--warning)"/>`);
-    s+=`<line x1="${fx.toFixed(1)}" y1="${pT}" x2="${fx.toFixed(1)}" y2="${yB}" stroke="var(--danger)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
-    D.forEach((d,i)=>s+=`<text x="${cx(i).toFixed(1)}" y="${(yB+15).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--ink-2)">${esc(d[0])}</text>`);
-    document.getElementById("season").innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H}">${s}</svg>`;
-  })();
-  const lane=document.getElementById("lane");
-  LANE.forEach(f=>{const d=el("div","fn"+(f.now?" now":""));
-    d.innerHTML=`<div class="d">${esc(f.d)}</div>${f.now?'<div class="now-b">nejbližší</div>':""}<div class="code">${esc(f.code)}</div><div class="t">${esc(f.t)}</div>`;
-    lane.append(d);});
-
-  /* ---- mini month: July 2026 (1st = Wed; today = Sat 11) ---- */
-  (function(){
-    const wd=["PO","ÚT","ST","ČT","PÁ","SO","NE"],grid=document.getElementById("calGrid");
-    wd.forEach(w=>{const e=el("div","wd",w);grid.append(e);});
+  /* ---- month calendar: reused by the Přehled rail AND the Kalendář tab so they match.
+         July 2026 (1st = Wed; today = Sat 11). ---- */
+  function paintMonth(gridId){
+    const grid=document.getElementById(gridId); if(!grid) return;
+    grid.innerHTML="";
+    const wd=["PO","ÚT","ST","ČT","PÁ","SO","NE"];
+    wd.forEach(w=>grid.append(el("div","wd",w)));
     const cells=[];[29,30].forEach(n=>cells.push({n,mut:true}));
     for(let i=1;i<=31;i++)cells.push({n:i,mut:false});
     [1,2].forEach(n=>cells.push({n,mut:true}));
@@ -376,20 +445,25 @@
       if(!c.mut&&events[c.n]){let ev='<span class="ev">';events[c.n].forEach(col=>ev+=`<i style="background:var(${col})"></i>`);ev+="</span>";d.innerHTML+=ev;}
       grid.append(d);
     });
-  })();
+  }
+  paintMonth("calGrid");     // Přehled rail
+  paintMonth("calGridBig");  // Kalendář tab
 
-  /* ---- upcoming list (from the creative lane) ---- */
-  (function(){
-    const up=document.getElementById("upList");
-    LANE.slice(0,5).forEach(f=>{
+  /* ---- upcoming creative list: plain date + title, no internal codes. Shared by both views. ---- */
+  function paintUpcoming(listId,count){
+    const up=document.getElementById(listId); if(!up) return;
+    up.innerHTML="";
+    LANE.slice(0,count).forEach(f=>{
       const [day,mon]=f.d.replace(/\.$/,"").split(".").map(Number);
       const it=el("div","up-item");
       it.innerHTML=`<div class="up-date"><div class="dow">${MON[mon-1]||""}</div><div class="dnum">${day}</div></div>
-        <div class="up-body"><div class="tt"><b>${esc(f.t)}</b><span class="tag ${ANGLE_CHIP[f.a]||"c-neutral"}">${esc(f.code)}</span></div><span>Spuštění kreativy</span></div>
+        <div class="up-body"><div class="tt"><b>${esc(f.t)}</b></div><span>Spuštění kreativy</span></div>
         <div class="avatar" style="width:24px;height:24px;font-size:10px">D</div>`;
       up.append(it);
     });
-  })();
+  }
+  paintUpcoming("upList",5);     // Přehled rail (nearest 5)
+  paintUpcoming("upListBig",8);  // Kalendář tab (all)
 
   /* ---- router ---- */
   const views=["home","orders","creatives","sdeleni","calendar","todo"];

@@ -26,6 +26,7 @@
     "patch-extension": "node tools/patchExtension.mjs"
   },
   "dependencies": {
+    "imapflow": "^1.4.7",
     "playwright": "^1.48.0",
     "sharp": "^0.33.5"
   },

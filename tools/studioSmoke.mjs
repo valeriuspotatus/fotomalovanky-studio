@@ -10,7 +10,7 @@
 // vás with its draft email and a copy button, that the marketing tabs still render their static
 // content, and that the Generátor tile opens /review.
 
-import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
@@ -99,6 +99,13 @@ try {
   check('home is the dashboard, not the old analytics', !homeHtml.includes('217710') && !homeHtml.includes('AOV'));
   check('the studio token never reaches the page', !homeHtml.includes(TOKEN));
 
+  // --- the Proton inbox tile fetches /api/mail and renders its offline state when mail is off ---
+  await page.waitForFunction(() => /Proton/.test(document.querySelector('#mailBody')?.textContent || ''));
+  check(
+    'the Proton inbox tile shows a not-configured state when mail is off',
+    (await page.locator('#v-home.on #mailCard').textContent()).includes('není nastaven'),
+  );
+
   // The client STATUS map must label every server board state, or a real status renders as a raw
   // grey key and vanishes from the KPI strip. Guards the two lists against drift (Phase 2 adds states).
   const clientStates = await page.evaluate(() => Object.keys(STATUS));
@@ -117,22 +124,42 @@ try {
   await page.waitForSelector('#v-sdeleni.on .bubbles .bub');
   check('Sdělení still renders its static bubbles', (await page.locator('#v-sdeleni.on .bubbles .bub').count()) === 8);
 
-  // --- Objednávky: the live order table from /api/studio, oldest-first ---
+  // --- Objednávky: the live order table from /api/studio, oldest-first, with sent orders hidden ---
   await page.evaluate(() => go('orders'));
   await page.waitForSelector('#v-orders.on #ordersBody .oid');
-  const ids = await page.$$eval('#v-orders.on #ordersBody .oid', (ns) => ns.map((n) => n.textContent.trim()));
-  check('the orders table renders oldest-first from /api/studio', ids.join() === '1479,1521,1522,1523,1600', ids.join(' > '));
-
-  const badgeOf = async (id) => {
-    const i = ids.indexOf(id);
+  const badgeIn = async (idList, id) => {
+    const i = idList.indexOf(id);
     return (await page.locator('#v-orders.on #ordersBody tr').nth(i).locator('.chip').textContent()).trim();
   };
-  check('a built, undelivered order reads ready-to-send', (await badgeOf('1522')) === 'připraveno');
-  check('a delivered order reads sent', (await badgeOf('1523')) === 'odesláno');
-  check('a flagged order reads pending-review', (await badgeOf('1521')) === 'ke kontrole');
-  check('an ungenerated order reads queued', (await badgeOf('1600')) === 've frontě');
+
+  const activeIds = await page.$$eval('#v-orders.on #ordersBody .oid', (ns) => ns.map((n) => n.textContent.trim()));
+  // 1523 is delivered (sent); the active board hides it and lists the rest oldest-first.
+  check('the active board hides sent orders, oldest-first', activeIds.join() === '1479,1521,1522,1600', activeIds.join(' > '));
+  check('a built, undelivered order reads ready-to-send', (await badgeIn(activeIds, '1522')) === 'připraveno');
+  check('a flagged order reads pending-review', (await badgeIn(activeIds, '1521')) === 'ke kontrole');
+  check('an ungenerated order reads queued', (await badgeIn(activeIds, '1600')) === 've frontě');
+
+  // The "show done" toggle counts and reveals the sent orders.
+  check('a toggle counts the sent orders', (await page.locator('#doneToggle #toggleDone').textContent()).includes('(1)'));
+  await page.locator('#doneToggle #toggleDone').click();
+  await page.waitForFunction(() => document.querySelectorAll('#v-orders.on #ordersBody .oid').length === 5);
+  const allIds = await page.$$eval('#v-orders.on #ordersBody .oid', (ns) => ns.map((n) => n.textContent.trim()));
+  check('revealing done shows the delivered order as sent', (await badgeIn(allIds, '1523')) === 'odesláno');
 
   check('the board carries no hardcoded order data', !(await page.locator('#v-orders.on #ordersBody').textContent()).includes('218k'));
+
+  // --- mark-as-sent: a ready-to-send order can be marked delivered straight from the board ---
+  await page.locator('#doneToggle #toggleDone').click(); // hide done again
+  await page.waitForFunction(() => document.querySelectorAll('#v-orders.on #ordersBody .oid').length === 4);
+  await page
+    .locator('#v-orders.on #ordersBody tr', { has: page.locator('.oid', { hasText: '1522' }) })
+    .locator('.act-sent')
+    .click();
+  await page.waitForFunction(
+    () => !Array.from(document.querySelectorAll('#v-orders.on #ordersBody .oid')).some((n) => n.textContent.trim() === '1522'),
+  );
+  check('marking a ready order sent removes it from the active board', true);
+  check('marking sent writes the delivery marker to the outbox', existsSync(join(fx.outbox, '1522', 'delivered.json')));
 
   // --- Potřebuje vás: the held order with its draft email + copy action ---
   await page.evaluate(() => go('todo'));

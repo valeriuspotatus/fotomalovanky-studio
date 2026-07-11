@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildBoard, deriveOrderStatus, studioBoard, ORDER_BOARD_STATES } from '../src/studio.js';
+import { buildBoard, deriveOrderStatus, studioBoard, ORDER_BOARD_STATES, markDelivered, unmarkDelivered, deliveredMarkerPath } from '../src/studio.js';
 
 // Review-state-shaped fakes. buildBoard is pure over these, so the whole status machine is tested
 // without a filesystem or a running server.
@@ -170,6 +170,37 @@ test('studioBoard reads the built PDF and delivery marker off disk by the tool\'
     assert.equal(status['1521'], ORDER_BOARD_STATES.READY_TO_SEND);
     assert.equal(status['1522'], ORDER_BOARD_STATES.QUEUED);
     assert.equal(status['1523'], ORDER_BOARD_STATES.SENT);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---- firstLiveOrder floor + delivery marker --------------------------------
+
+test('firstLiveOrder hides test orders below it; counts follow, non-numeric ids are kept', () => {
+  const board = buildBoard([order('1231'), order('1524'), order('1525'), order('draft-x')], { firstLiveOrder: 1524 });
+  assert.deepEqual(board.orders.map((o) => o.orderId), ['1524', '1525', 'draft-x']); // 1231 dropped, letters kept
+  assert.equal(board.counts.total, 3);
+  // With no floor, nothing is hidden — the default must not change existing behaviour.
+  assert.equal(buildBoard([order('1231'), order('1524')]).counts.total, 2);
+});
+
+test('markDelivered writes the terminal marker (sent); unmarkDelivered removes it and is idempotent', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-mark-'));
+  try {
+    const dir = join(root, '1525');
+    mkdirSync(dir, { recursive: true });
+    assert.equal(existsSync(deliveredMarkerPath(dir)), false);
+
+    assert.equal(markDelivered(dir), ORDER_BOARD_STATES.SENT);
+    assert.equal(existsSync(deliveredMarkerPath(dir)), true);
+    const marker = JSON.parse(readFileSync(deliveredMarkerPath(dir), 'utf8'));
+    assert.equal(marker.by, 'operator');
+    assert.ok(marker.at, 'the marker is timestamped');
+
+    unmarkDelivered(dir);
+    assert.equal(existsSync(deliveredMarkerPath(dir)), false);
+    unmarkDelivered(dir); // no marker present -> must not throw
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

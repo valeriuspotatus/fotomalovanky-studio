@@ -116,6 +116,43 @@ export function validateConfig(cfg) {
     throw new ConfigError(`delivery.format must be "gallery" or "fullpage"; got ${JSON.stringify(deliveryFormat)}.`);
   }
   const formatMap = normalizeFormatMap(cfg.delivery?.formatMap);
+
+  // The dashboard's read-only Proton inbox tile, read over local IMAP through Proton Mail Bridge.
+  // Disabled by default so the tool runs with no mail config at all; when the operator turns it on,
+  // missing Bridge credentials are a clear error rather than a tile that silently never loads. The
+  // Bridge password is a full-mailbox credential and lives only in gitignored config.json — same
+  // posture as the generator token — never in source.
+  const mailRaw = cfg.mail && typeof cfg.mail === 'object' && !Array.isArray(cfg.mail) ? cfg.mail : {};
+  const mailEnabled = mailRaw.enabled === true;
+  const mailHost = typeof mailRaw.host === 'string' && mailRaw.host.trim() ? mailRaw.host.trim() : '127.0.0.1';
+  const mailPort = mailRaw.port ?? 1143;
+  if (!Number.isInteger(mailPort) || mailPort < 1 || mailPort > 65535) {
+    throw new ConfigError(`mail.port must be an integer 1-65535 (the Proton Bridge IMAP port); got ${JSON.stringify(mailRaw.port)}.`);
+  }
+  const mailUser = typeof mailRaw.user === 'string' && mailRaw.user.trim() ? mailRaw.user.trim() : null;
+  const mailPass = typeof mailRaw.pass === 'string' && mailRaw.pass ? mailRaw.pass : null;
+  const mailSecure = mailRaw.secure === true;
+  const mailLimit = Number.isInteger(mailRaw.recentLimit) && mailRaw.recentLimit > 0 ? mailRaw.recentLimit : 6;
+  if (mailEnabled && (!mailUser || !mailPass)) {
+    throw new ConfigError(
+      'mail.user and mail.pass are required when mail.enabled is true (the Proton Bridge IMAP username and its Bridge-generated password).',
+    );
+  }
+
+  // Board display: the first REAL order number. Older ids are test orders and are hidden from the
+  // board and its counts. Null (default) shows everything, so nothing changes until the operator
+  // sets it.
+  const studioRaw = cfg.studio && typeof cfg.studio === 'object' && !Array.isArray(cfg.studio) ? cfg.studio : {};
+  let firstLiveOrder = null;
+  if (studioRaw.firstLiveOrder != null) {
+    if (!Number.isInteger(studioRaw.firstLiveOrder) || studioRaw.firstLiveOrder < 0) {
+      throw new ConfigError(
+        `studio.firstLiveOrder must be a non-negative integer (order numbers below it are hidden as test orders); got ${JSON.stringify(studioRaw.firstLiveOrder)}.`,
+      );
+    }
+    firstLiveOrder = studioRaw.firstLiveOrder;
+  }
+
   const diffusionSteps = cfg.generator.diffusionSteps ?? 4;
   // A redo re-rolls by raising the step count (the generator takes no seed), so it needs a ceiling.
   const maxDiffusionSteps = cfg.generator.maxDiffusionSteps ?? 12;
@@ -158,6 +195,11 @@ export function validateConfig(cfg) {
     whatsapp: { enabled: whatsappEnabled, recipient, sessionDir },
     // Per-order build format (U9). `format` is the fallback layout; `formatMap` derives it per order.
     delivery: { format: deliveryFormat, formatMap },
+    // The dashboard's read-only Proton inbox tile (via Proton Bridge over local IMAP). `enabled`
+    // false means the tile shows an "offline" state and never connects.
+    mail: { enabled: mailEnabled, host: mailHost, port: mailPort, user: mailUser, pass: mailPass, secure: mailSecure, recentLimit: mailLimit },
+    // Board display. `firstLiveOrder` hides older test orders; null shows everything.
+    studio: { firstLiveOrder },
     retentionDays,
     manualTouchThreshold: cfg.manualTouchThreshold ?? null,
   };

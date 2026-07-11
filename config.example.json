@@ -28,10 +28,22 @@
     "inbox": "./inbox",
     "outbox": "./outbox"
   },
+  "studio": {
+    "firstLiveOrder": null
+  },
   "whatsapp": {
     "enabled": false,
     "recipient": "REPLACE_WITH_JIRKAS_WHATSAPP_NUMBER_OR_ID",
     "sessionDir": ""
+  },
+  "mail": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 1143,
+    "user": "REPLACE_WITH_YOUR_PROTON_ADDRESS",
+    "pass": "REPLACE_WITH_PROTON_BRIDGE_PASSWORD",
+    "secure": false,
+    "recentLimit": 6
   },
   "delivery": {
     "format": "gallery",

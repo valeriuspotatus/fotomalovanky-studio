@@ -8,7 +8,9 @@ import { loadConfig } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent } from '../orchestrator.js';
-import { studioBoard } from '../studio.js';
+import { studioBoard, markDelivered, unmarkDelivered } from '../studio.js';
+import { createBridgeClient, BridgeError } from '../proton/bridgeClient.js';
+import { summarizeInbox } from '../proton/mailbox.js';
 import { ingestOrders, IngestError } from '../ingest.js';
 import {
   reviewState,
@@ -282,7 +284,7 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
  *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
  *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
  *  double-click launcher, where a real operator is watching, turns it on. */
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR } = {}) {
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient } = {}) {
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
@@ -292,6 +294,13 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   let runController = null; // the live run's AbortController, or null between runs
   let generator = driver ?? null;
   let builderDriver = builder ?? null;
+
+  // The dashboard's read-only Proton inbox tile. A caller can inject a client (tests do); otherwise
+  // one is built from config only when mail is enabled, so an unconfigured tool never connects.
+  const mail = mailClient ?? (config?.mail?.enabled ? createBridgeClient(config.mail) : null);
+  const mailLimit = config?.mail?.recentLimit ?? 6;
+  let mailCache = null; // { at: epochMs, payload } — a successful read is reused briefly so the tile's
+  const MAIL_TTL = 30_000; // poll doesn't reopen an IMAP session every few seconds.
 
   // The spellings used to live in the outbox, which is the one folder that gets emptied. Carry
   // any that are still there across, once, before anything can read the wrong one.
@@ -469,8 +478,26 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           runningOrderId: run.active ? run.orderId : null,
           only: selected,
           memoryRoot,
+          firstLiveOrder: config.studio?.firstLiveOrder ?? null,
         });
         return json(res, 200, { ...board, inbox, run: { active: run.active, orderId: run.orderId } });
+      }
+
+      // GET /api/mail — the read-only Proton inbox tile. Always 200 with a stable shape: the tile
+      // renders an "offline" state from `available:false` rather than the fetch throwing. A good read
+      // is cached briefly; failures are not, so the tile recovers as soon as Bridge is back.
+      if (req.method === 'GET' && url.pathname === '/api/mail') {
+        if (!mail) return json(res, 200, { available: false, reason: 'not-configured' });
+        if (mailCache && Date.now() - mailCache.at < MAIL_TTL) return json(res, 200, mailCache.payload);
+        try {
+          const raw = await mail.fetchInbox({ limit: mailLimit });
+          const payload = { ...summarizeInbox(raw, { limit: mailLimit }), fetchedAt: new Date().toISOString() };
+          mailCache = { at: Date.now(), payload };
+          return json(res, 200, payload);
+        } catch (err) {
+          const reason = err instanceof BridgeError ? err.code : 'unknown';
+          return json(res, 200, { available: false, reason, detail: err.message });
+        }
       }
 
       // POST /api/_scan { path } — what orders are in that folder? Spends nothing, starts nothing.
@@ -572,6 +599,23 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         return json(res, 200, { override: overrideIntake(order.orderDir) });
+      }
+
+      // POST /api/<order>/sent — the operator confirms the finished book has gone to Jirka. Writes
+      // the delivery marker so the order derives to 'sent' and drops off the active board. Manual
+      // only: nothing here contacts anyone, it records that the operator already did.
+      if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'sent') {
+        const order = state().find((o) => o.orderId === parts[1]);
+        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+        return json(res, 200, { status: markDelivered(order.orderDir) });
+      }
+
+      // POST /api/<order>/unsent — undo a delivery mark set by mistake; the order returns to the board.
+      if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'unsent') {
+        const order = state().find((o) => o.orderId === parts[1]);
+        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+        unmarkDelivered(order.orderDir);
+        return json(res, 200, { ok: true });
       }
 
       // POST /api/<order>/<base>/<action>

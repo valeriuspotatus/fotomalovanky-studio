@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { reviewState } from './review.js';
 import { pdfPathFor } from './orchestrator.js';
@@ -15,6 +15,25 @@ import { intakeSummary } from './intake.js';
 /** The Jirka-delivery marker written into an order's outbox folder once the book is on its way to
  *  the printer (Phase 2). Its presence is the single source of truth for 'sent'. */
 export const deliveredMarkerPath = (orderDir) => join(orderDir, 'delivered.json');
+
+/** The operator confirms a finished book has gone to Jirka: write the terminal delivery marker so
+ *  the order derives to 'sent' and drops off the active board. This is a MANUAL acknowledgement —
+ *  nothing here contacts Jirka; it only records that the operator already did. Idempotent. Later,
+ *  automated WhatsApp delivery (Phase 2) would write the same marker in the operator's place. */
+export function markDelivered(orderDir, info = {}) {
+  writeFileSync(
+    deliveredMarkerPath(orderDir),
+    JSON.stringify({ at: new Date().toISOString(), by: 'operator', ...info }, null, 2),
+  );
+  return ORDER_BOARD_STATES.SENT;
+}
+
+/** Undo a delivery mark set by mistake — removes the marker so the order returns to the active
+ *  board (usually back to 'ready-to-send'). Safe when no marker is present. */
+export function unmarkDelivered(orderDir) {
+  rmSync(deliveredMarkerPath(orderDir), { force: true });
+  return true;
+}
 
 /** The order-level board statuses. Distinct from the per-photo STATES and from the photo-level
  *  `handoff` (manual repair) — this is where the whole order sits on its way to Jirka. The client
@@ -96,8 +115,17 @@ function boardEntry(order, status) {
 /** Build the whole board from review-state orders plus injected fact-providers. Pure over its
  *  inputs — `pdfBuilt`/`delivered` are predicates, `runningOrderId` a plain id — so the whole
  *  status machine is testable without a filesystem or a running server. */
-export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => false, delivered = () => false } = {}) {
-  const board = orders.map((order) => {
+export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => false, delivered = () => false, firstLiveOrder = null } = {}) {
+  // Hide old test orders: everything below the first real order number never reaches the board or
+  // its counts. Non-numeric ids are always kept — the floor only judges what it can compare.
+  const live =
+    firstLiveOrder == null
+      ? orders
+      : orders.filter((order) => {
+          const n = Number.parseInt(order.orderId, 10);
+          return Number.isNaN(n) || n >= firstLiveOrder;
+        });
+  const board = live.map((order) => {
     const status = deriveOrderStatus(order, {
       generating: runningOrderId != null && order.orderId === runningOrderId,
       pdfBuilt: pdfBuilt(order),
@@ -119,10 +147,11 @@ export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => fal
 
 /** The live board over a real inbox/outbox: reads the review state and stats each order's PDF and
  *  delivery marker. `state` is injected so a test can drive the wiring with a fake review state. */
-export function studioBoard({ inboxRoot, outboxRoot, runningOrderId = null, only = null, memoryRoot, state = reviewState } = {}) {
+export function studioBoard({ inboxRoot, outboxRoot, runningOrderId = null, only = null, memoryRoot, firstLiveOrder = null, state = reviewState } = {}) {
   const orders = state({ inboxRoot, outboxRoot, only, memoryRoot });
   return buildBoard(orders, {
     runningOrderId,
+    firstLiveOrder,
     pdfBuilt: (o) => existsSync(pdfPathFor(o.orderDir, o.orderId)),
     delivered: (o) => existsSync(deliveredMarkerPath(o.orderDir)),
   });
