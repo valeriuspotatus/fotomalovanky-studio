@@ -28,6 +28,18 @@
     "inbox": "./inbox",
     "outbox": "./outbox"
   },
+  "whatsapp": {
+    "enabled": false,
+    "recipient": "REPLACE_WITH_JIRKAS_WHATSAPP_NUMBER_OR_ID",
+    "sessionDir": ""
+  },
+  "delivery": {
+    "format": "gallery",
+    "formatMap": {
+      "Fotomalovánky 4 fotky": "gallery",
+      "Fotomalovánky celostránkové": "fullpage"
+    }
+  },
   "intake": {
     "minMegapixels": 0.5,
     "hardMinMegapixels": 0.15,

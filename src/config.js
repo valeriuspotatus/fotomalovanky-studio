@@ -1,10 +1,44 @@
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { homedir } from 'node:os';
 
 const PLACEHOLDER = /REPLACE_WITH|<TOKEN>/i;
 
+// The two print layouts the builder understands (BuilderDriver reads `options.mode`). Everything
+// downstream — the per-order build format (U9) and the delivery caption (U5) — speaks these two
+// internal names; the Czech display labels ("galerie"/"celostránkové") are a caption concern.
+const BUILD_MODES = new Set(['gallery', 'fullpage']);
+
 function defaultConfigPath() {
   return process.env.FMA_CONFIG ?? resolve(process.cwd(), 'config.json');
+}
+
+/** A per-user data directory OUTSIDE the repo tree for the WhatsApp LocalAuth store. That store is
+ *  a full-account bearer credential — anyone with it can send as this WhatsApp — so it must never
+ *  be able to land in the working tree. Defaults to the OS per-user data dir; the operator can
+ *  override with an absolute path in config.json. */
+export function defaultSessionDir(env = process.env, platform = process.platform, home = homedir()) {
+  if (platform === 'win32') {
+    return join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'fotomalovanky', 'whatsapp-session');
+  }
+  if (platform === 'darwin') {
+    return join(home, 'Library', 'Application Support', 'fotomalovanky', 'whatsapp-session');
+  }
+  return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'fotomalovanky', 'whatsapp-session');
+}
+
+/** The product/variant -> build-mode map (U9), dropping anything malformed and rejecting a typoed
+ *  mode rather than silently building the wrong layout. */
+function normalizeFormatMap(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [key, val] of Object.entries(raw)) {
+    if (!BUILD_MODES.has(val)) {
+      throw new ConfigError(`delivery.formatMap["${key}"] must be "gallery" or "fullpage"; got ${JSON.stringify(val)}.`);
+    }
+    out[key] = val;
+  }
+  return out;
 }
 
 export class ConfigError extends Error {}
@@ -49,6 +83,27 @@ export function validateConfig(cfg) {
   if (mode !== null && mode !== 'api' && mode !== 'browser') {
     throw new ConfigError(`generator.mode must be "api", "browser", or null (unset); got ${JSON.stringify(mode)}.`);
   }
+
+  // Jirka's WhatsApp handoff (Phase 2). Disabled by default so the tool runs with no delivery
+  // config at all; when the operator turns it on, a missing recipient is a clear error, not a
+  // silent no-op that quietly never delivers.
+  const wa = cfg.whatsapp && typeof cfg.whatsapp === 'object' && !Array.isArray(cfg.whatsapp) ? cfg.whatsapp : {};
+  const whatsappEnabled = wa.enabled === true;
+  const recipient = typeof wa.recipient === 'string' && wa.recipient.trim() ? wa.recipient.trim() : null;
+  if (whatsappEnabled && !recipient) {
+    throw new ConfigError("whatsapp.recipient is required when whatsapp.enabled is true (Jirka's WhatsApp number/id).");
+  }
+  const sessionDir =
+    typeof wa.sessionDir === 'string' && wa.sessionDir.trim() ? resolve(wa.sessionDir.trim()) : defaultSessionDir();
+
+  // The per-order build format (U9): a default layout, plus a product/variant -> layout map. The
+  // default mirrors the existing global builder mode so turning delivery on changes no output for
+  // an order the map does not cover.
+  const deliveryFormat = cfg.delivery?.format ?? cfg.builder?.pdf?.mode ?? 'gallery';
+  if (!BUILD_MODES.has(deliveryFormat)) {
+    throw new ConfigError(`delivery.format must be "gallery" or "fullpage"; got ${JSON.stringify(deliveryFormat)}.`);
+  }
+  const formatMap = normalizeFormatMap(cfg.delivery?.formatMap);
   const diffusionSteps = cfg.generator.diffusionSteps ?? 4;
   // A redo re-rolls by raising the step count (the generator takes no seed), so it needs a ceiling.
   const maxDiffusionSteps = cfg.generator.maxDiffusionSteps ?? 12;
@@ -87,6 +142,10 @@ export function validateConfig(cfg) {
     // over its own DEFAULT_INTAKE — so an absent block just means "use the defaults". Dropping it
     // here would silently ignore anything the operator tuned in config.json.
     intake: cfg.intake && typeof cfg.intake === 'object' && !Array.isArray(cfg.intake) ? cfg.intake : {},
+    // Jirka's WhatsApp handoff. `sessionDir` is always an absolute path outside the repo tree.
+    whatsapp: { enabled: whatsappEnabled, recipient, sessionDir },
+    // Per-order build format (U9). `format` is the fallback layout; `formatMap` derives it per order.
+    delivery: { format: deliveryFormat, formatMap },
     retentionDays,
     manualTouchThreshold: cfg.manualTouchThreshold ?? null,
   };
