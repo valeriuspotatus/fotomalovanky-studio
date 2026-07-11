@@ -83,6 +83,10 @@ export function validateConfig(cfg) {
       inbox: cfg.paths?.inbox ?? './inbox',
       outbox: cfg.paths?.outbox ?? './outbox',
     },
+    // Optional input-QC thresholds. Passed straight through to the intake pass, which merges them
+    // over its own DEFAULT_INTAKE — so an absent block just means "use the defaults". Dropping it
+    // here would silently ignore anything the operator tuned in config.json.
+    intake: cfg.intake && typeof cfg.intake === 'object' && !Array.isArray(cfg.intake) ? cfg.intake : {},
     retentionDays,
     manualTouchThreshold: cfg.manualTouchThreshold ?? null,
   };

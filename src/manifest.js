@@ -161,3 +161,27 @@ export function setAttempt(manifest, base, attempt) {
 export function getAttempt(manifest, base) {
   return manifest.photos?.[base]?.attempt ?? null;
 }
+
+// ---- input QC (intake) -----------------------------------------------------
+// The order-level intake block: the pre-generation photo checks and the operator's override. Kept
+// beside the per-photo statuses so one state.json stays the single source of truth.
+
+export function getIntake(manifest) {
+  return manifest.intake ?? null;
+}
+
+export function setIntake(manifest, intake) {
+  manifest.intake = intake;
+  return manifest;
+}
+
+/** Has the operator said "generate it anyway" despite a held intake verdict? */
+export function getIntakeOverride(manifest) {
+  return manifest.intake?.override === true;
+}
+
+/** Record (or clear) that override, preserving any intake block already written. */
+export function setIntakeOverride(manifest, on = true) {
+  manifest.intake = { ...(manifest.intake ?? {}), override: Boolean(on) };
+  return manifest;
+}

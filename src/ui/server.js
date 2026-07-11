@@ -17,6 +17,7 @@ import {
   acceptReplacement,
   redo,
   setOrderDedication,
+  overrideIntake,
   applyPhotoEdit,
   revertPhotoEdit,
   ReviewError,
@@ -64,6 +65,8 @@ function forClient(orders, inFlight) {
     dirName: o.dirName,
     orderDir: o.orderDir,
     inInbox: o.inInbox,
+    intake: o.intake,
+    draftEmail: o.draftEmail,
     dedication: o.dedication,
     suggestedDedication: o.suggestedDedication,
     suggestionRemembered: o.suggestionRemembered,
@@ -237,7 +240,7 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
  *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
  *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
  *  double-click launcher, where a real operator is watching, turns it on. */
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR } = {}) {
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR } = {}) {
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
@@ -312,6 +315,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       generator,
       builder: builderDriver,
       qc,
+      intake,
       force: Boolean(force),
       only: selected,
       memoryRoot,
@@ -493,6 +497,15 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         const { text } = await readJson(req);
         return json(res, 200, { dedication: setOrderDedication(order.orderDir, text, { memoryRoot }) });
+      }
+
+      // POST /api/<order>/intake-override — "generate it anyway" clears an intake hold, so the
+      // next Go generates the order despite the flagged photos.
+      if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'intake-override') {
+        requireIdle();
+        const order = state().find((o) => o.orderId === parts[1]);
+        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+        return json(res, 200, { override: overrideIntake(order.orderDir) });
       }
 
       // POST /api/<order>/<base>/<action>

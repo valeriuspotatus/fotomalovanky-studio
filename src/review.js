@@ -17,6 +17,9 @@ import {
   getDedication,
   setDedication,
   hasDedication,
+  getIntake,
+  setIntakeOverride,
+  getIntakeOverride,
   readManifest,
   writeManifest,
   summarizeOrder,
@@ -101,11 +104,20 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
       };
     });
 
+    // The pre-generation intake verdict, and the copy-paste email drafted for a held order (only
+    // while the hold stands and the operator has not said "generate it anyway").
+    const intake = getIntake(manifest);
+    const draftPath = join(orderDir, 'draft-email.txt');
+    const draftEmail =
+      intake && intake.verdict === 'hold' && !intake.override && existsSync(draftPath) ? readFileSync(draftPath, 'utf8') : '';
+
     orders.push({
       orderId,
       orderDir,
       dirName: order.dirName ?? orderId,
       inInbox: Boolean(order.inInbox),
+      intake,
+      draftEmail,
       dedication: getDedication(manifest),
       // Only ever a *suggestion* for an untouched order. Once the operator has decided — even
       // by emptying the box — the grid must show their decision, not talk them out of it.
@@ -154,6 +166,15 @@ export function setOrderDedication(orderDir, text, { memoryRoot = MEMORY_DIR } =
   if (slug) learnDedication(memoryRoot, slug, after);
 
   return after;
+}
+
+/** "Generate it anyway": clear an intake hold so the next run generates the order despite the
+ *  flagged photos. Order-level, like the dedication — the whole order was held, not one photo. */
+export function overrideIntake(orderDir, on = true) {
+  const manifest = readManifest(orderDir);
+  setIntakeOverride(manifest, on);
+  writeManifest(orderDir, manifest);
+  return getIntakeOverride(manifest);
 }
 
 // ---- verdicts -------------------------------------------------------------

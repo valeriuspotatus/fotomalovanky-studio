@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { runPipeline, buildabilityProblem, formatEvent, ORDER_STATUS } from '../src/orchestrator.js';
-import { approve, setOrderDedication } from '../src/review.js';
+import { approve, setOrderDedication, overrideIntake } from '../src/review.js';
 import { GeneratorError } from '../src/generator/driver.js';
 import { BuilderError } from '../src/builder/builderDriver.js';
 import { STATES, readManifest, getStatus, getDedication, emptyManifest, setDedication, writeManifest } from '../src/manifest.js';
@@ -26,6 +26,20 @@ const CONFIG = {
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0 L10 10"/></svg>';
 const OK_QC = async () => ({ verdict: 'ok', reason: 'ok' });
 const BAD_QC = async () => ({ verdict: 'flagged', reason: 'near-blank' });
+
+// Intake is injected like qc. The fixtures write fake 'photo' bytes no image library can decode,
+// so the real intake would hold every order as "unreadable"; these tests are about generation and
+// building, so they stub it ok. The gate itself is exercised with holdIntake below.
+const OK_INTAKE = async () => ({ verdict: 'ok', findings: [], expected: null, uploaded: 0, unique: 0, emailCase: null });
+const holdIntake = (over = {}) => async () => ({
+  verdict: 'hold',
+  emailCase: 'missing',
+  expected: 8,
+  uploaded: 5,
+  unique: 5,
+  findings: [{ check: 'count', verdict: 'hold', reason: 'missing-photos', expected: 8, uploaded: 5, unique: 5, missing: 3 }],
+  ...over,
+});
 
 class StubGenerator {
   constructor({ failOn = [] } = {}) {
@@ -91,6 +105,7 @@ const run = (f, opts = {}) =>
     generator: opts.generator ?? new StubGenerator(),
     builder: opts.builder ?? new StubBuilder(),
     qc: opts.qc ?? OK_QC,
+    intake: opts.intake ?? OK_INTAKE,
     force: opts.force ?? false,
     only: opts.only,
     signal: opts.signal,
@@ -277,7 +292,7 @@ test('the builder is handed the configured layout options and the order-named ou
   try {
     const builder = new StubBuilder();
     const config = { ...CONFIG, builder: { ...CONFIG.builder, pdf: { mode: 'gallery', addAllCovers: true, rotationMin: -2 } } };
-    await runPipeline({ config, inboxRoot: f.inbox, outboxRoot: f.outbox, generator: new StubGenerator(), builder, qc: OK_QC });
+    await runPipeline({ config, inboxRoot: f.inbox, outboxRoot: f.outbox, generator: new StubGenerator(), builder, qc: OK_QC, intake: OK_INTAKE });
 
     const { options } = builder.calls[0];
     assert.equal(options.mode, 'gallery');
@@ -373,7 +388,7 @@ test('a configured default title is used when the order has no dedication', asyn
   try {
     const builder = new StubBuilder();
     const config = { ...CONFIG, builder: { ...CONFIG.builder, pdf: { title: 'a global default' } } };
-    const { orders } = await runPipeline({ config, inboxRoot: f.inbox, outboxRoot: f.outbox, generator: new StubGenerator(), builder, qc: OK_QC });
+    const { orders } = await runPipeline({ config, inboxRoot: f.inbox, outboxRoot: f.outbox, generator: new StubGenerator(), builder, qc: OK_QC, intake: OK_INTAKE });
 
     assert.equal(orders[0].status, ORDER_STATUS.DONE);
     assert.equal(builder.calls[0].options.title, 'a global default');
@@ -411,7 +426,7 @@ test('a per-order dedication overrides a configured default title', async () => 
 
     const builder = new StubBuilder();
     const config = { ...CONFIG, builder: { ...CONFIG.builder, pdf: { title: 'a global default' } } };
-    await runPipeline({ config, inboxRoot: f.inbox, outboxRoot: f.outbox, generator: new StubGenerator(), builder, qc: OK_QC });
+    await runPipeline({ config, inboxRoot: f.inbox, outboxRoot: f.outbox, generator: new StubGenerator(), builder, qc: OK_QC, intake: OK_INTAKE });
 
     // BuilderDriver reads `dedication ?? title`, so the customer's text wins.
     assert.equal(builder.calls[0].options.dedication, 'Pro Barču');
@@ -514,6 +529,7 @@ test('a run works through only the ticked orders, one after another', async () =
       generator,
       builder,
       qc: OK_QC,
+      intake: OK_INTAKE,
       only: ['1510', '1479'],
     });
 
@@ -538,6 +554,7 @@ test('the run says how many orders it left alone', async () => {
       generator: new StubGenerator(),
       builder: new StubBuilder(),
       qc: OK_QC,
+      intake: OK_INTAKE,
       only: ['1510'],
       onEvent: (e) => lines.push(formatEvent(e)),
     });
@@ -553,7 +570,7 @@ test('ticking nothing is not the same as ticking everything', async () => {
     const builder = new StubBuilder();
     const { counts } = await runPipeline({
       config: CONFIG, inboxRoot: f.inbox, outboxRoot: f.outbox,
-      generator: new StubGenerator(), builder, qc: OK_QC, only: [],
+      generator: new StubGenerator(), builder, qc: OK_QC, intake: OK_INTAKE, only: [],
     });
     assert.deepEqual(counts, { done: 0, held: 0, failed: 0 });
     assert.equal(builder.calls.length, 0);
@@ -639,6 +656,79 @@ test('a run that is never stopped does not report itself stopped', async () => {
   try {
     const { stopped } = await run(f, { signal: new AbortController().signal });
     assert.ok(!stopped);
+  } finally {
+    f.cleanup();
+  }
+});
+
+// ---- the intake gate -------------------------------------------------------
+
+test('an order held at intake is not generated, and a draft email is written', async () => {
+  const f = fixture({ 1510: ['a'] }, { dedication: null });
+  try {
+    const generator = new StubGenerator();
+    const builder = new StubBuilder();
+    const { orders, counts } = await run(f, { generator, builder, intake: holdIntake() });
+
+    assert.equal(orders[0].status, ORDER_STATUS.HELD);
+    assert.equal(orders[0].pdfPath, null);
+    assert.deepEqual(generator.calls, [], 'nothing reached the GPU');
+    assert.equal(builder.calls.length, 0);
+    assert.deepEqual(counts, { done: 0, held: 1, failed: 0 });
+
+    const draft = join(orders[0].orderDir, 'draft-email.txt');
+    assert.ok(existsSync(draft), 'a copy-paste email is left beside the order');
+    const text = readFileSync(draft, 'utf8');
+    assert.match(text, /objednávka 1510/);
+    assert.match(text, /8 fotek/);
+    assert.match(text, /odpovědí na tento e-mail s fotkou v příloze/);
+
+    const intake = readManifest(orders[0].orderDir).intake;
+    assert.equal(intake.verdict, 'hold');
+    assert.equal(intake.override, false);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('"generate it anyway" clears the hold on the next run', async () => {
+  const f = fixture({ 1510: ['a'] });
+  try {
+    const first = await run(f, { intake: holdIntake() });
+    assert.equal(first.orders[0].status, ORDER_STATUS.HELD);
+
+    overrideIntake(first.orders[0].orderDir);
+
+    const generator = new StubGenerator();
+    const builder = new StubBuilder();
+    const { orders } = await run(f, { generator, builder, intake: holdIntake() });
+
+    assert.equal(orders[0].status, ORDER_STATUS.DONE, 'the override lets it through despite the hold');
+    assert.deepEqual(generator.calls, ['a']);
+    assert.ok(existsSync(orders[0].pdfPath));
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('force bypasses an intake hold', async () => {
+  const f = fixture({ 1510: ['a'] });
+  try {
+    const generator = new StubGenerator();
+    const { orders } = await run(f, { generator, intake: holdIntake(), force: true });
+    assert.equal(orders[0].status, ORDER_STATUS.DONE);
+    assert.deepEqual(generator.calls, ['a']);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a held order says so in the run log', async () => {
+  const f = fixture({ 1510: ['a'] });
+  try {
+    const lines = [];
+    await run(f, { intake: holdIntake(), onEvent: (e) => lines.push(formatEvent(e)) });
+    assert.ok(lines.some((l) => l && /intake hold/.test(l)), `expected an intake line, got: ${lines.filter(Boolean).join(' | ')}`);
   } finally {
     f.cleanup();
   }

@@ -33,7 +33,20 @@ export function readOrderInfo(orderDir) {
 
   const dedication = typeof parsed.dedication === 'string' ? parsed.dedication.trim() : '';
   const order = typeof parsed.order === 'string' ? parsed.order.trim() : '';
-  return { dedication, order };
+  // The product's expected photo count and the customer, both written by a newer extension. An
+  // older download has neither, and that is not an error — the count check goes advisory and the
+  // email greeting stays neutral. Only positive integers and non-empty strings are trusted.
+  const expectedPhotos = Number.isInteger(parsed.expectedPhotos) && parsed.expectedPhotos > 0 ? parsed.expectedPhotos : null;
+  return { dedication, order, expectedPhotos, customer: parseCustomer(parsed.customer) };
+}
+
+/** The customer's surname and email, when the shop recorded them — for the title-page greeting is
+ *  none of this tool's business, but a photo-request email is addressed to a person. */
+function parseCustomer(c) {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
+  const surname = typeof c.surname === 'string' ? c.surname.trim() : '';
+  const email = typeof c.email === 'string' ? c.email.trim() : '';
+  return surname || email ? { surname, email } : null;
 }
 
 /** The title-page text the shop recorded, or '' — never a guess. */

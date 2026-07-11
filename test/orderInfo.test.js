@@ -13,7 +13,7 @@ test('the shop\'s own spelling reaches the title page with its accents', () => {
   try {
     write(dir, { order: '1366', dedication: 'Pro Jiříčka', photos: ['1366_img0001 - pro jiříčka.jpg'] });
     assert.equal(shopDedication(dir), 'Pro Jiříčka');
-    assert.deepEqual(readOrderInfo(dir), { order: '1366', dedication: 'Pro Jiříčka' });
+    assert.deepEqual(readOrderInfo(dir), { order: '1366', dedication: 'Pro Jiříčka', expectedPhotos: null, customer: null });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -58,7 +58,7 @@ test('a customer who wrote nothing said nothing', () => {
   try {
     write(dir, { order: '1479', dedication: '' });
     assert.equal(shopDedication(dir), '');
-    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '' });
+    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '', expectedPhotos: null, customer: null });
 
     write(dir, { order: '1479', dedication: '   ' });
     assert.equal(shopDedication(dir), '', 'whitespace is not a dedication');
@@ -70,6 +70,35 @@ test('a customer who wrote nothing said nothing', () => {
 test('a missing folder is not a crash', () => {
   assert.equal(readOrderInfo(null), null);
   assert.equal(shopDedication(join(tmpdir(), 'fma-not-here-at-all')), '');
+});
+
+test('the expected photo count and customer are read when a newer extension wrote them', () => {
+  const dir = fixture();
+  try {
+    write(dir, { order: '1523', dedication: 'Pro Aničku', expectedPhotos: 8, customer: { surname: 'Hofbauer', email: 'h@example.cz' } });
+    const info = readOrderInfo(dir);
+    assert.equal(info.expectedPhotos, 8);
+    assert.deepEqual(info.customer, { surname: 'Hofbauer', email: 'h@example.cz' });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a bad expected count or customer is dropped, not trusted', () => {
+  const dir = fixture();
+  try {
+    write(dir, { order: '1', expectedPhotos: 0, customer: 'Hofbauer' });
+    let info = readOrderInfo(dir);
+    assert.equal(info.expectedPhotos, null, 'zero is not a real count');
+    assert.equal(info.customer, null, 'a string is not a customer object');
+
+    write(dir, { order: '1', expectedPhotos: 4.5, customer: { surname: 42 } });
+    info = readOrderInfo(dir);
+    assert.equal(info.expectedPhotos, null, 'a non-integer count is dropped');
+    assert.equal(info.customer, null, 'a customer with no usable fields is dropped');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('the file sits inside the order folder, beside the photographs', () => {

@@ -1,9 +1,11 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.js';
 import { ingestOrders } from './ingest.js';
 import { generateOrder, describeFailure } from './batch.js';
+import { assessIntake, intakeSummary } from './intake.js';
+import { renderEmail } from './emailDrafts.js';
 import { createGeneratorDriver } from './generator/factory.js';
 import { BuilderDriver, collectPairs } from './builder/builderDriver.js';
 import { photoBase } from './organize.js';
@@ -13,12 +15,15 @@ import {
   getDedication,
   hasDedication,
   setDedication,
+  readManifest,
   writeManifest,
+  setIntake,
+  getIntakeOverride,
   isBuilderEligible,
   manifestPath,
 } from './manifest.js';
 import { deriveDedication, deriveSlug } from './dedication.js';
-import { shopDedication } from './orderInfo.js';
+import { shopDedication, readOrderInfo } from './orderInfo.js';
 import { recallDedication, migrateDedications, MEMORY_DIR } from './dedications.js';
 
 // U6: the single "Go" run. ingest -> generate -> QC -> [review gate] -> builder -> PDF.
@@ -107,13 +112,54 @@ export function titleTextFor(config, dedication) {
   return dedication || fallback.dedication || fallback.title || '';
 }
 
+// ---- intake (input QC) gate ------------------------------------------------
+
+/** The photo count the product includes, from the shop's own record. Null until a newer extension
+ *  writes it — at which point the count check is advisory, never a hold on a guess. */
+function resolveExpected(order) {
+  return (order.dir ? readOrderInfo(order.dir) : null)?.expectedPhotos ?? null;
+}
+
+/** The copy-paste email for a held order, or null when the hold has no email case. Reads the
+ *  customer from the shop record for the greeting and address; both are optional. */
+function draftEmailFor(result, order) {
+  if (!result.emailCase) return null;
+  const info = (order.dir && readOrderInfo(order.dir)) || {};
+  return renderEmail(result.emailCase, {
+    order: order.orderId,
+    surname: info.customer?.surname ?? '',
+    email: info.customer?.email ?? '',
+    expected: result.expected,
+    uploaded: result.uploaded,
+    missing: result.expected != null ? Math.max(0, result.expected - result.unique) : null,
+    photos: problemPhotos(result),
+  });
+}
+
+/** The photo(s) a held order's email is about, for the templates that name a file. */
+function problemPhotos(result) {
+  const bases = new Set();
+  for (const f of result.findings) {
+    if (f.verdict !== 'hold') continue;
+    if (f.base) bases.add(f.base);
+    if (f.bases) for (const b of f.bases) bases.add(b);
+  }
+  return [...bases].join(', ');
+}
+
+/** The draft as it lands on disk: a copy-paste block, recipient and subject included. */
+function formatDraft(mail) {
+  const to = mail.to ? `Komu: ${mail.to}\n` : '';
+  return `${to}Předmět: ${mail.subject}\n\n${mail.body}\n`;
+}
+
 /** Run every order end to end. Never throws for a single order; returns a report.
  *
  *  `signal` is how the operator's Stop button reaches the loop. Stopping is cooperative and lands
  *  at an order or photo boundary: whatever is on the GPU finishes, then nothing new begins. Books
  *  already built stay built; an order left half-generated simply has pending photos, and the next
  *  Go continues it. */
-export async function runPipeline({ config, inboxRoot, outboxRoot, generator, builder, qc, onEvent = noop, force = false, only = null, memoryRoot = MEMORY_DIR, signal }) {
+export async function runPipeline({ config, inboxRoot, outboxRoot, generator, builder, qc, intake = assessIntake, onEvent = noop, force = false, only = null, memoryRoot = MEMORY_DIR, signal }) {
   const inbox = inboxRoot ?? config.paths.inbox;
   const outbox = outboxRoot ?? config.paths.outbox;
   // `only` is the operator ticking a few orders out of a folder that holds many. Orders still run
@@ -142,6 +188,29 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
     }
     const { orderId } = order;
     onEvent({ type: 'order-start', orderId, dirName: order.dirName, photos: order.photos.length });
+
+    // Input QC before any GPU spend. A blocking problem — too few photos, a duplicate upload, a
+    // file that will not open — holds the whole order and drafts a copy-paste email; nothing is
+    // generated until the photos are put right. The verdict is re-derived here every run, so once
+    // the customer sends a replacement the hold lifts on its own. `force` and an operator override
+    // ("generate it anyway") clear it too.
+    const intakeDir = join(outbox, orderId);
+    const overridden = getIntakeOverride(readManifest(intakeDir));
+    const intakeResult = await intake({ order, config, expected: resolveExpected(order) });
+    onEvent({ type: 'intake', orderId, verdict: intakeResult.verdict, findings: intakeResult.findings, expected: intakeResult.expected, uploaded: intakeResult.uploaded });
+
+    if (intakeResult.verdict === 'hold' && !overridden && !force) {
+      mkdirSync(intakeDir, { recursive: true });
+      const m = readManifest(intakeDir);
+      setIntake(m, { ...intakeResult, checkedAt: new Date().toISOString(), override: false });
+      writeManifest(intakeDir, m);
+      const mail = draftEmailFor(intakeResult, order);
+      if (mail) writeFileSync(join(intakeDir, 'draft-email.txt'), formatDraft(mail), 'utf8');
+      const reason = `${intakeSummary(intakeResult)}${mail ? ' (email drafted)' : ''}`;
+      report.push({ orderId, orderDir: intakeDir, summary: null, held: [], failed: [], pdfPath: null, reason, status: ORDER_STATUS.HELD, titled: false });
+      onEvent({ type: 'order-done', orderId, status: ORDER_STATUS.HELD, pdfPath: null, reason });
+      continue;
+    }
 
     gen ??= createGeneratorDriver(config);
     const { orderDir, manifest, summary } = await generateOrder({
@@ -229,6 +298,12 @@ export function formatEvent(e) {
     case 'order-start': {
       const from = e.dirName && e.dirName !== e.orderId ? ` (from the photo names; folder is "${e.dirName}")` : '';
       return `\norder ${e.orderId} — ${e.photos} photo(s)${from}`;
+    }
+    case 'intake': {
+      if (e.verdict === 'ok') return null; // a clean order says nothing; the photos speak next
+      const where = e.expected != null ? ` — ${e.uploaded} of ${e.expected} photos` : '';
+      const n = e.findings?.length ?? 0;
+      return `  intake ${e.verdict}${where} (${n} note${n === 1 ? '' : 's'})`;
     }
     case 'photo-start': return `  ${e.base}${e.redo ? ' (redo)' : ''}…`;
     case 'progress': return `    [${e.step}] ${e.message}`;

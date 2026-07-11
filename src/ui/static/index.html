@@ -123,6 +123,16 @@
  dialog img{max-width:96vw;max-height:96vh;cursor:zoom-out;display:block;background:#fff}
  dialog::backdrop{background:rgba(0,0,0,.86)}
 
+ /* the intake hold: photos held before generation, with the drafted customer email */
+ .intake{margin:0 16px 14px;background:rgba(90,169,247,.08);border:1px solid rgba(90,169,247,.4);border-radius:8px;padding:11px 13px}
+ .intake .ihead{font-size:13px;color:#cfe0f5}
+ .intake ul.ilist{margin:8px 0 0;padding-left:20px;font-size:13px}
+ .intake .imail{margin-top:9px}
+ .intake .imail summary{cursor:pointer;font-size:12.5px;color:var(--muted)}
+ .intake .imail pre{white-space:pre-wrap;background:var(--sunken);border:1px solid var(--line);border-radius:6px;
+      padding:9px 11px;margin:8px 0;font:12.5px/1.5 ui-monospace,monospace;max-height:280px;overflow:auto}
+ .intake .iacts{margin-top:9px;display:flex;gap:8px;flex-wrap:wrap}
+
  /* the fix-by-hand editor */
  #editor{width:min(1200px,96vw);max-width:96vw}
  #editor img,#editor canvas{max-width:none;max-height:none;cursor:crosshair}
@@ -210,6 +220,19 @@ const LABEL = {
   pending_review: 'repaired — needs approval', manual_in_progress: 'out for manual repair',
   failed: 'failed', pending: 'not generated yet',
 };
+
+// Human text for one intake finding, mirroring intake.js describeFinding on the server.
+const FINDING = {
+  'missing-photos': (f) => `only ${f.unique} of ${f.expected} photos — ${f.missing} missing`,
+  'extra-photos': (f) => `${f.uploaded} photos, more than the ${f.expected} the product includes`,
+  'duplicate-identical': (f) => `the same photo appears more than once (${(f.bases || []).join(', ')})`,
+  'possible-duplicate': (f) => `two photos look like the same shot (${(f.bases || []).join(', ')})`,
+  unreadable: (f) => `${f.base} will not open`,
+  'low-resolution': (f) => `${f.base} is too small to print (${f.mp} MP)`,
+  blurry: (f) => `${f.base} looks blurry`,
+  dark: (f) => `${f.base} is very dark`,
+};
+const describeFinding = (f) => (FINDING[f.reason] ? FINDING[f.reason](f) : `${f.base ?? ''} ${f.reason}`.trim());
 
 // Photos that need the operator come first — that is the entire job of this page. Within a
 // group, keep the order's natural photo order (img0001, img0002, …).
@@ -485,6 +508,20 @@ async function saveDedication(orderId, text) {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'could not save the title page text');
     toast(body.dedication ? 'Title page saved.' : 'Title page cleared — this book will print without a dedication.');
+  } catch (err) {
+    toast(err.message, true);
+  }
+  await refresh(true);
+}
+
+/** "Generate it anyway": clear an intake hold. The order generates on the next Go, not now — a run
+ *  is what spends the GPU, and the operator may want to clear several holds before pressing it. */
+async function intakeProceed(orderId) {
+  try {
+    const res = await fetch(`/api/${enc(orderId)}/intake-override`, { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'could not update this order');
+    toast('It will generate on the next Go.');
   } catch (err) {
     toast(err.message, true);
   }
@@ -853,6 +890,26 @@ async function saveEdit() {
   await refresh(true);
 }
 
+/** The pre-generation hold: why the order was held, the drafted customer email, and the one way
+ *  past it. Only shown while the hold stands and the operator has not overridden it. */
+function intakePanel(o, locked) {
+  const k = o.intake;
+  if (!k || k.verdict !== 'hold' || k.override) return '';
+  const items = (k.findings || [])
+    .filter((f) => f.verdict === 'hold')
+    .map((f) => `<li>${esc(describeFinding(f))}</li>`)
+    .join('');
+  const mail = o.draftEmail
+    ? `<details class="imail"><summary>Draft email to the customer</summary><pre>${esc(o.draftEmail)}</pre><button data-copy-email>Copy email</button></details>`
+    : '';
+  return `<div class="intake" data-order="${esc(o.orderId)}">
+      <div class="ihead"><b>Held — check the photos before generating.</b> Nothing was made for this order.</div>
+      <ul class="ilist">${items}</ul>
+      ${mail}
+      <div class="iacts"><button data-intake-proceed${locked ? ' disabled' : ''}>Generate it anyway</button></div>
+    </div>`;
+}
+
 function orderSection(o, locked) {
   const s = o.summary;
   const note = o.dirName && o.dirName !== o.orderId ? `<span class="note">folder: ${esc(o.dirName)}</span>` : '';
@@ -887,6 +944,7 @@ function orderSection(o, locked) {
     </div>`;
   return `<section class="order">
     <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}${ded}</header>
+    ${intakePanel(o, locked)}
     <div class="grid">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
   </section>`;
 }
@@ -927,7 +985,10 @@ function render(data, force) {
   }
 
   let held = 0, ready = 0;
-  for (const o of primary) { held += o.summary.held + o.summary.failed; if (o.summary.ready) ready++; }
+  for (const o of primary) {
+    held += o.summary.held + o.summary.failed + (o.intake?.verdict === 'hold' && !o.intake.override ? 1 : 0);
+    if (o.summary.ready) ready++;
+  }
   $('#c-orders').textContent = `${primary.length} order${primary.length > 1 ? 's' : ''}`;
   $('#c-hold').hidden = !held;
   $('#c-hold').textContent = `${held} need${held === 1 ? 's' : ''} you`;
@@ -1027,6 +1088,22 @@ document.addEventListener('click', (e) => {
   if (fix) {
     const t = fix.closest('.tile');
     openEditor(t.dataset.order, t.dataset.base, t.dataset.edited === '1');
+    return;
+  }
+
+  const proceed = e.target.closest('button[data-intake-proceed]');
+  if (proceed) {
+    intakeProceed(proceed.closest('.intake').dataset.order);
+    return;
+  }
+
+  const copyEmail = e.target.closest('button[data-copy-email]');
+  if (copyEmail) {
+    const text = copyEmail.closest('.imail').querySelector('pre').textContent;
+    navigator.clipboard?.writeText(text).then(
+      () => toast('Email copied — paste it into your mail app.'),
+      () => toast('Could not copy it here — select the text and copy it.', true),
+    );
     return;
   }
 

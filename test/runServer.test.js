@@ -50,6 +50,11 @@ const stubBuilder = {
   },
 };
 
+// These tests use tiny stand-in JPEGs that real intake would hold as too small to print. They are
+// about run / stop / reveal mechanics, not the input QC, so intake is stubbed ok — the gate itself
+// is covered in intake.test.js and orchestrator.test.js.
+const OK_INTAKE = async () => ({ verdict: 'ok', findings: [], expected: null, uploaded: 0, unique: 0, emailCase: null });
+
 let root, inbox, outbox, orderDir, server, origin, generator;
 
 before(async () => {
@@ -64,7 +69,7 @@ before(async () => {
   writeManifest(orderDir, setDedication(emptyManifest('1510'), 'Pro Barču'));
 
   generator = new GatedGenerator();
-  ({ server } = createReviewServer({ config: CONFIG, inboxRoot: inbox, outboxRoot: outbox, memoryRoot: outbox, driver: generator, builder: stubBuilder }));
+  ({ server } = createReviewServer({ config: CONFIG, inboxRoot: inbox, outboxRoot: outbox, memoryRoot: outbox, driver: generator, builder: stubBuilder, intake: OK_INTAKE }));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   origin = `http://127.0.0.1:${server.address().port}`;
 });
@@ -177,6 +182,7 @@ async function runOnce(opts) {
     outboxRoot: outb,
     driver: gen,
     builder: stubBuilder,
+    intake: OK_INTAKE,
     reveal: (p) => revealed.push(p),
     ...opts,
   });
@@ -230,7 +236,7 @@ test('Stop ends a run in flight, and the tool comes back to rest', async () => {
   }
 
   const gen = new GatedGenerator(); // parks on the first photo until released
-  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: inb, outboxRoot: outb, memoryRoot: outb, driver: gen, builder: stubBuilder });
+  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: inb, outboxRoot: outb, memoryRoot: outb, driver: gen, builder: stubBuilder, intake: OK_INTAKE });
   await new Promise((done) => s.listen(0, '127.0.0.1', done));
   const o = `http://127.0.0.1:${s.address().port}`;
   const state = async () => (await fetch(`${o}/api/state`)).json();

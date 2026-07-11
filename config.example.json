@@ -28,6 +28,16 @@
     "inbox": "./inbox",
     "outbox": "./outbox"
   },
+  "intake": {
+    "minMegapixels": 0.5,
+    "hardMinMegapixels": 0.15,
+    "minShortSidePx": 600,
+    "blurVarianceMin": 60,
+    "darkMeanMax": 40,
+    "brightMeanMin": 225,
+    "clipFractionMax": 0.35,
+    "dupHammingMax": 5
+  },
   "retentionDays": 30,
   "manualTouchThreshold": null
 }
