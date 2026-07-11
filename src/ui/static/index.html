@@ -3,189 +3,219 @@
 <head>
 <meta charset="utf-8">
 <title>Fotomalovánky — review</title>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/components.css">
 <style>
- /* Dark by default. The operator reviews photographs for an hour at a stretch; a white page
-    beside a white coloring page is the wrong thing to stare at. The one surface that stays
-    white is the artwork itself — that white *is* the paper, and judging ink on it is the job. */
- :root{color-scheme:dark;
-       --bg:#14161a;--panel:#1c1f25;--sunken:#22262e;--line:#333842;
-       --text:#e6e8ec;--muted:#9aa1ac;--faint:#7a828d;
-       --bad:#ff6b6b;--good:#3ecf78;--hold:#5aa9f7;--manual:#e0a33e;--on-accent:#0d1117}
- *{box-sizing:border-box}
- body{font:15px/1.55 system-ui,-apple-system,sans-serif;margin:0;background:var(--bg);color:var(--text)}
- .bar{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);
-      padding:11px 22px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;
-      box-shadow:0 1px 4px rgba(0,0,0,.5)}
- .bar h1{font-size:17px;margin:0;font-weight:600}
- .bar .grow{flex:1}
- .chip{font-size:13px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);background:var(--sunken)}
- .chip.hold{border-color:var(--bad);color:var(--bad)}
- .chip.ready{border-color:var(--good);color:var(--good)}
- .wrap{max-width:1560px;margin:0 auto;padding:20px 22px 90px}
- .empty{background:var(--panel);border:1px dashed var(--line);border-radius:10px;padding:44px;text-align:center;color:var(--muted)}
- .empty code{background:var(--sunken);padding:2px 6px;border-radius:4px}
- .order{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin:18px 0;overflow:hidden}
- .order>header{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
- .order h2{font-size:16px;margin:0}
- .order .note{font-size:12px;color:var(--faint)}
- .ded{display:flex;align-items:center;gap:7px;flex:1;min-width:320px}
- .ded label{font-size:12px;color:var(--muted);white-space:nowrap}
- .ded input{flex:1;font:inherit;font-size:13px;padding:5px 9px;border:1px solid var(--line);border-radius:6px;
-      background:var(--sunken);color:var(--text)}
- .ded input:focus{background:#171a20;outline:2px solid rgba(90,169,247,.45);border-color:var(--hold)}
- .ded .warn{font-size:11.5px;color:var(--manual);white-space:nowrap}
- .ded .restore{font:inherit;font-size:11.5px;padding:3px 8px;border:1px solid var(--line);border-radius:5px;
-               background:var(--sunken);color:var(--text);cursor:pointer;white-space:nowrap}
- .ded .restore:hover:not(:disabled){border-color:var(--hold)}
- #queue{margin:0 18px 10px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
- #queue .head{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted);margin-bottom:8px}
+ /* Order Review — restyled onto the shared design system (tokens.css + components.css).
+    Light Mode is primary: per the brief, the artwork sits on a light paper background. Dark
+    Mode stays available for long review sessions via the shared theme toggle. */
+ :root{color-scheme:light}
+ :root[data-theme="dark"]{color-scheme:dark}
+ @media (prefers-color-scheme:dark){:root:not([data-theme]){color-scheme:dark}}
+
+ .review .sub{display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap}
+ .grow{flex:1}
+
+ /* go bar */
+ .go{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);
+     padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+ .go label{font-size:13px;color:var(--ink-2);white-space:nowrap}
+ .go input[type=text]{flex:1;min-width:300px;font:13px/1.4 var(--font-mono);padding:8px 11px;
+     border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--surface);color:var(--ink)}
+ .go input[type=text]::placeholder{color:var(--ink-3)}
+ .go input[type=text]:focus{outline:2px solid var(--brand-ring);border-color:var(--brand)}
+ .go .primary{font-weight:600;padding:8px 22px;font-size:14px}
+ .go .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2)}
+
+ /* buttons — base secondary; primary(approve)=success, danger(reject)=danger */
+ button{padding:7px 12px;border-radius:var(--r-sm);border:1px solid var(--border-strong);background:var(--surface);
+        color:var(--ink);cursor:pointer;font:inherit;font-size:13px;
+        transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),color var(--dur) var(--ease)}
+ button:hover:not(:disabled){background:var(--surface-2);border-color:var(--ink-3)}
+ button:disabled{opacity:.45;cursor:default}
+ button.primary{border-color:var(--success);color:#fff;background:var(--success);font-weight:600}
+ button.primary:hover:not(:disabled){background:#1c8f5d;border-color:#1c8f5d}
+ button.danger{border-color:var(--danger);color:var(--danger);background:var(--danger-soft)}
+ button.danger:hover:not(:disabled){background:var(--danger);color:#fff}
+
+ /* run log */
+ #runpanel{background:var(--surface-2);color:var(--ink);border:1px solid var(--border);border-radius:var(--r-lg);
+     max-height:230px;overflow:auto;padding:12px 14px;font:12px/1.5 var(--font-mono);white-space:pre-wrap}
+ #runpanel .hdr{color:var(--success);font-weight:600}
+ #runpanel .err{color:var(--danger)}
+ #runpanel .warn{color:var(--warning)}
+
+ /* queue */
+ #queue{padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-sm)}
+ #queue .head{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--ink-2);margin-bottom:8px}
  #queue .head .grow{flex:1}
- #queue .head button{font:inherit;font-size:11.5px;padding:2px 8px;border:1px solid var(--line);
-                     border-radius:5px;background:var(--sunken);color:var(--text);cursor:pointer}
+ #queue .head b{color:var(--ink);font-weight:600}
+ #queue .head button{font-size:11.5px;padding:3px 9px}
  #queue .list{display:flex;flex-wrap:wrap;gap:6px 16px}
- #queue .more{margin-top:10px;font:inherit;font-size:11.5px;padding:3px 10px;border:1px solid var(--line);
-              border-radius:5px;background:var(--sunken);color:var(--muted);cursor:pointer}
- #queue .more:hover{color:var(--text);border-color:#565e6a}
- /* An author `display` beats the browser's own rule for [hidden], so the folded list would still
-    be on screen — visible, and telling the operator its own `hidden` property was a lie. */
  #queue .list[hidden]{display:none}
+ #queue .more{margin-top:10px;font-size:11.5px;padding:4px 10px;color:var(--ink-2)}
  #queue label{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
- #queue label.off{color:var(--muted)}
- #queue .n{font-size:11.5px;color:var(--muted)}
- #earlier{margin:26px 0 40px}
- #earlier .divider{display:flex;align-items:center;gap:10px;margin:0 0 14px;color:var(--muted);font-size:12.5px}
- #earlier .divider hr{flex:1;border:0;border-top:1px solid var(--line)}
- #earlier .divider button{font:inherit;font-size:11.5px;padding:3px 9px;border:1px solid var(--line);
-                          border-radius:5px;background:var(--sunken);color:var(--text);cursor:pointer}
+ #queue label.off{color:var(--ink-3)}
+ #queue .n{font-size:11.5px;color:var(--ink-3)}
+
+ /* order card + sticky header */
+ .wrap{padding:0 0 90px}
+ .empty{background:var(--surface);border:1px dashed var(--border-strong);border-radius:var(--r-lg);padding:44px;text-align:center;color:var(--ink-2)}
+ .empty code{background:var(--surface-2);padding:2px 6px;border-radius:4px;font-family:var(--font-mono)}
+ .order{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);margin:18px 0;box-shadow:var(--shadow-sm)}
+ .order>header{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:12px;padding:13px 16px;
+     border-bottom:1px solid var(--border);flex-wrap:wrap;background:var(--surface);border-radius:var(--r-lg) var(--r-lg) 0 0}
+ .order h2{font-family:var(--font-display);font-size:16px;margin:0;font-weight:600}
+ .order .note{font-size:12px;color:var(--ink-3)}
+ .mode-toggle{font-size:12px;padding:5px 11px;margin-left:auto}
+ .chip.ready{background:var(--info-soft);color:var(--info)}
+ .chip.hold{background:var(--danger-soft);color:var(--danger)}
+
+ .ded{display:flex;align-items:center;gap:7px;flex:1;min-width:280px}
+ .ded label{font-size:12px;color:var(--ink-2);white-space:nowrap}
+ .ded input{flex:1;font:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--border-strong);border-radius:var(--r-sm);
+     background:var(--surface);color:var(--ink)}
+ .ded input:focus{outline:2px solid var(--brand-ring);border-color:var(--brand)}
+ .ded input:disabled{background:var(--surface-2)}
+ .ded .warn{font-size:11.5px;color:var(--warning);white-space:nowrap}
+ .ded .restore{font-size:11.5px;padding:4px 9px;white-space:nowrap}
+
+ /* photo grid + tiles */
  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;padding:16px;align-items:start}
- .tile{border:1px solid var(--line);border-radius:8px;padding:11px;position:relative;background:var(--sunken)}
- .tile.flagged,.tile.failed{border-color:var(--bad);box-shadow:0 0 0 2px rgba(255,107,107,.16) inset}
- .tile.pending_review{border-color:var(--hold);box-shadow:0 0 0 2px rgba(90,169,247,.16) inset}
- .tile.manual_in_progress{border-color:var(--manual);box-shadow:0 0 0 2px rgba(224,163,62,.16) inset}
- .tile.approved{border-color:var(--good);box-shadow:0 0 0 2px rgba(62,207,120,.16) inset}
- .tile.pending{border-style:dashed;background:#1a1d23}
+ .grid.focus{grid-template-columns:1fr;gap:20px;max-width:940px}
+ .tile{border:1px solid var(--border);border-radius:var(--r-md);padding:12px;position:relative;background:var(--surface);box-shadow:var(--shadow-xs)}
+ .tile.flagged,.tile.failed{border-color:var(--danger);box-shadow:0 0 0 2px var(--danger-soft) inset}
+ .tile.pending_review{border-color:var(--info);box-shadow:0 0 0 2px var(--info-soft) inset}
+ .tile.manual_in_progress{border-color:var(--warning);box-shadow:0 0 0 2px var(--warning-soft) inset}
+ .tile.approved{border-color:var(--success);box-shadow:0 0 0 2px var(--success-soft) inset}
+ .tile.pending{border-style:dashed;background:var(--surface-2)}
  .imgs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
  .imgs figure{margin:0;min-height:90px;display:flex;flex-direction:column}
- /* The artwork keeps its white paper: this is what the operator is judging. */
- .imgs img{width:100%;height:auto;border:1px solid var(--line);border-radius:4px;background:#fff;display:block;cursor:zoom-in}
- .ph{flex:1;display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);
-     border-radius:4px;color:var(--faint);font-size:13px;min-height:120px;text-align:center;padding:8px}
- figcaption{font-size:11px;color:var(--faint);text-align:center;margin-top:4px}
- .name{font:12px/1.4 ui-monospace,monospace;color:var(--muted);margin:9px 0 2px;word-break:break-all}
- .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;border:1px solid}
- .pill.ok{color:var(--good);border-color:var(--good)}
- .pill.approved{color:var(--on-accent);background:var(--good);border-color:var(--good)}
- .pill.flagged,.pill.failed{color:var(--on-accent);background:var(--bad);border-color:var(--bad)}
- .pill.pending_review{color:var(--on-accent);background:var(--hold);border-color:var(--hold)}
- .pill.manual_in_progress{color:var(--on-accent);background:var(--manual);border-color:var(--manual)}
- .pill.pending{color:var(--faint);border-color:#4a515b}
- .why{font-size:12px;color:var(--muted);margin:5px 0 0}
- .why.err{color:var(--bad);font-family:ui-monospace,monospace;word-break:break-word}
- .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line)}
- button{padding:6px 12px;border-radius:6px;border:1px solid #454c56;background:#2a2f38;color:var(--text);
-        cursor:pointer;font:inherit;font-size:13px}
- button:hover:not(:disabled){background:#343a45;border-color:#565e6a}
- button:disabled{opacity:.4;cursor:default}
- button.primary{border-color:var(--good);color:var(--good);font-weight:600;background:rgba(62,207,120,.10)}
- button.primary:hover:not(:disabled){background:rgba(62,207,120,.18)}
- button.danger{border-color:var(--bad);color:var(--bad);background:rgba(255,107,107,.10)}
- button.danger:hover:not(:disabled){background:rgba(255,107,107,.18)}
- .busy{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line);
-       font-size:12px;color:var(--muted);font-family:ui-monospace,monospace}
- /* Same shape as .busy, deliberately without a wheel: this photo is queued, not working. */
- .idle{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line);
-       font-size:12px;color:var(--faint);font-family:ui-monospace,monospace}
- .spin{width:13px;height:13px;border:2px solid #3d434d;border-top-color:var(--hold);border-radius:50%;animation:s .8s linear infinite;flex:none}
+ /* the artwork keeps its white paper — this is what the operator is judging */
+ .imgs img{width:100%;height:auto;border:1px solid var(--border-strong);border-radius:6px;background:#fff;display:block;cursor:zoom-in}
+ .grid.focus .imgs{gap:16px}
+ .grid.focus .imgs img{max-height:72vh;object-fit:contain}
+ .ph{flex:1;display:flex;align-items:center;justify-content:center;border:1px dashed var(--border-strong);
+     border-radius:6px;color:var(--ink-3);font-size:13px;min-height:120px;text-align:center;padding:8px}
+ figcaption{font-size:11px;color:var(--ink-3);text-align:center;margin-top:4px}
+ .name{font:12px/1.4 var(--font-mono);color:var(--ink-2);margin:9px 0 2px;word-break:break-all}
+ .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;border:1px solid}
+ .pill.ok{color:var(--success);border-color:var(--success)}
+ .pill.approved{color:#fff;background:var(--success);border-color:var(--success)}
+ .pill.flagged,.pill.failed{color:#fff;background:var(--danger);border-color:var(--danger)}
+ .pill.pending_review{color:#fff;background:var(--info);border-color:var(--info)}
+ .pill.manual_in_progress{color:#fff;background:var(--warning);border-color:var(--warning)}
+ .pill.pending{color:var(--ink-3);border-color:var(--border-strong)}
+ .why{font-size:12px;color:var(--ink-2);margin:5px 0 0}
+ .why.err{color:var(--danger);font-family:var(--font-mono);word-break:break-word}
+ .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px dashed var(--border)}
+ .busy{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--border);
+       font-size:12px;color:var(--ink-2);font-family:var(--font-mono)}
+ .idle{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--border);
+       font-size:12px;color:var(--ink-3);font-family:var(--font-mono)}
+ .spin{width:13px;height:13px;border:2px solid var(--surface-3);border-top-color:var(--info);border-radius:50%;animation:s .8s linear infinite;flex:none}
  @keyframes s{to{transform:rotate(360deg)}}
- .manualbox{background:rgba(224,163,62,.10);border:1px solid rgba(224,163,62,.35);border-radius:6px;
-      padding:9px 10px;margin-top:9px;font-size:12.5px;color:#f0d4a0}
- .manualbox code{background:var(--bg);border:1px solid rgba(224,163,62,.30);border-radius:3px;padding:1px 5px;font-size:11.5px}
- .go{background:var(--panel);border-bottom:1px solid var(--line);padding:12px 22px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
- .go label{font-size:13px;color:var(--muted);white-space:nowrap}
- .go input[type=text]{flex:1;min-width:300px;font:13px/1.4 ui-monospace,monospace;padding:7px 10px;
-      border:1px solid var(--line);border-radius:6px;background:var(--sunken);color:var(--text)}
- .go input[type=text]::placeholder{color:var(--faint)}
- .go input[type=text]:focus{background:#171a20;outline:2px solid rgba(90,169,247,.45);border-color:var(--hold)}
- .go .primary{font-weight:600;padding:8px 22px;font-size:14px}
- .go .chk{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted)}
- #runpanel{background:#0c0e12;color:#c9ced6;border-bottom:1px solid #000;max-height:230px;overflow:auto;
-      padding:11px 22px;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap}
- #runpanel .hdr{color:#8fd6a0;font-weight:600}
- #runpanel .err{color:#ff8b8b}
- #runpanel .warn{color:#ffcf7a}
- #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#2b313a;color:#fff;
-        border:1px solid #454c56;
-        padding:11px 17px;border-radius:8px;max-width:min(760px,92vw);box-shadow:0 6px 22px rgba(0,0,0,.6);
-        opacity:0;pointer-events:none;transition:opacity .18s;z-index:20;font-size:14px}
- #toast.show{opacity:1}
- #toast.err{background:#7a2020;border-color:#a13030}
- dialog{border:none;border-radius:8px;padding:0;max-width:96vw;max-height:96vh;background:var(--panel)}
- dialog img{max-width:96vw;max-height:96vh;cursor:zoom-out;display:block;background:#fff}
- dialog::backdrop{background:rgba(0,0,0,.86)}
+ .manualbox{background:var(--warning-soft);border:1px solid var(--warning);border-radius:var(--r-sm);
+       padding:9px 10px;margin-top:9px;font-size:12.5px;color:var(--ink)}
+ .manualbox code{background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:11.5px;font-family:var(--font-mono)}
 
- /* the intake hold: photos held before generation, with the drafted customer email */
- .intake{margin:0 16px 14px;background:rgba(90,169,247,.08);border:1px solid rgba(90,169,247,.4);border-radius:8px;padding:11px 13px}
- .intake .ihead{font-size:13px;color:#cfe0f5}
- .intake ul.ilist{margin:8px 0 0;padding-left:20px;font-size:13px}
+ /* intake hold */
+ .intake{margin:0 16px 14px;background:var(--info-soft);border:1px solid var(--info);border-radius:var(--r-md);padding:11px 13px}
+ .intake .ihead{font-size:13px;color:var(--ink)}
+ .intake ul.ilist{margin:8px 0 0;padding-left:20px;font-size:13px;color:var(--ink)}
  .intake .imail{margin-top:9px}
- .intake .imail summary{cursor:pointer;font-size:12.5px;color:var(--muted)}
- .intake .imail pre{white-space:pre-wrap;background:var(--sunken);border:1px solid var(--line);border-radius:6px;
-      padding:9px 11px;margin:8px 0;font:12.5px/1.5 ui-monospace,monospace;max-height:280px;overflow:auto}
+ .intake .imail summary{cursor:pointer;font-size:12.5px;color:var(--ink-2)}
+ .intake .imail pre{white-space:pre-wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);
+     padding:9px 11px;margin:8px 0;font:12.5px/1.5 var(--font-mono);max-height:280px;overflow:auto}
  .intake .iacts{margin-top:9px;display:flex;gap:8px;flex-wrap:wrap}
 
- /* the fix-by-hand editor */
+ /* toast */
+ #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:var(--paper);
+        border:1px solid var(--ink);padding:11px 17px;border-radius:var(--r-md);max-width:min(760px,92vw);box-shadow:var(--shadow-lg);
+        opacity:0;pointer-events:none;transition:opacity .18s;z-index:80;font-size:14px}
+ #toast.show{opacity:1}
+ #toast.err{background:var(--danger);border-color:var(--danger);color:#fff}
+
+ /* lightbox + editor dialogs */
+ dialog{border:none;border-radius:var(--r-lg);padding:0;max-width:96vw;max-height:96vh;background:var(--surface);color:var(--ink)}
+ dialog img{max-width:96vw;max-height:96vh;cursor:zoom-out;display:block;background:#fff}
+ dialog::backdrop{background:rgba(20,18,16,.6)}
+
+ /* the fix-by-hand editor — chrome restyled; the ewrap/img/canvas geometry is functional, kept verbatim */
  #editor{width:min(1200px,96vw);max-width:96vw}
  #editor img,#editor canvas{max-width:none;max-height:none;cursor:crosshair}
- #editor .etop{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+ #editor .etop{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap}
  #editor .etop .grow{flex:1}
  #editor .etop b{font-size:13px}
- #editor .etop .n{font-size:11.5px;color:var(--muted)}
- #editor button{font:inherit;font-size:12.5px;padding:5px 10px;border:1px solid var(--line);border-radius:6px;
-                background:var(--sunken);color:var(--text);cursor:pointer}
- #editor button:hover:not(:disabled){border-color:var(--hold)}
- #editor button.on{background:var(--hold);color:var(--on-accent);border-color:var(--hold)}
- #editor button.primary{background:var(--good);color:var(--on-accent);border-color:var(--good)}
- #editor button.danger{color:var(--manual)}
- #editor button:disabled{opacity:.45;cursor:default}
- #editor label.size{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
- /* fitEditor() sizes this frame in pixels: it is the viewport, and the page moves inside it.
-    Leave width and height to CSS and the page comes out squashed — max-width and max-height clamp
-    each axis on its own, and neither one preserves the other. */
+ #editor .etop .n{font-size:11.5px;color:var(--ink-2)}
+ #editor button{font-size:12.5px;padding:6px 10px}
+ #editor button.on{background:var(--info);color:#fff;border-color:var(--info)}
+ #editor button.primary{background:var(--success);color:#fff;border-color:var(--success)}
+ #editor button.danger{color:var(--warning);border-color:var(--warning);background:var(--warning-soft)}
+ #editor label.size{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2)}
  #editor .ewrap{position:relative;line-height:0;background:#fff;margin:0 auto;overflow:hidden}
- /* The page is placed by applyView(); the canvas stays the viewport, so it never has to hold a
-    zoomed-in page's worth of pixels. */
  #editor .ewrap img{position:absolute;left:0;top:0;display:block;background:#fff}
  #editor .ewrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
  #editor .ewrap canvas.grab{cursor:grab}
  #editor .ewrap canvas.grabbing{cursor:grabbing}
- #editor .hint{padding:8px 12px;font-size:12px;color:var(--muted);border-top:1px solid var(--line)}
+ #editor .hint{padding:8px 12px;font-size:12px;color:var(--ink-2);border-top:1px solid var(--border)}
 </style>
 </head>
 <body>
-<div class="bar">
-  <h1>Review</h1>
-  <span class="chip" id="c-orders">—</span>
-  <span class="chip hold" id="c-hold" hidden></span>
-  <span class="chip ready" id="c-ready" hidden></span>
-  <span class="grow"></span>
-  <button id="history" hidden></button>
-  <span class="chip" id="c-live">live</span>
+<div class="app">
+  <aside class="sidebar">
+    <a class="brand" href="/"><span class="r">F</span><span class="a">o</span><span class="g">t</span><span class="bl">o</span><b>malovánky</b></a>
+    <nav class="nav">
+      <a href="/#home"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>Přehled</a>
+      <a href="/#orders"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>Objednávky</a>
+      <a class="active" href="/review"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6"/><path d="m14 4 6 6"/><path d="M14.5 4.5 19 9l-9 9-4.5-4.5z"/><path d="M18 2v3M21 4h-3"/></svg>Generátor</a>
+      <a href="/#creatives"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg>Kreativy</a>
+      <a href="/#sdeleni"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 15-7v16l-15-7z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/><path d="M18 8a5 5 0 0 1 0 8"/></svg>Sdělení</a>
+      <a href="/#calendar"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Kalendář</a>
+      <a href="/#todo"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2a8 8 0 0 1-6.5-3.3L3 15"/></svg>Potřebuje vás</a>
+    </nav>
+    <div class="sb-art">
+      <svg width="150" height="80" viewBox="0 0 150 80" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="18" y="20" width="70" height="46" rx="4"/><path d="M28 34h50M28 43h50M28 52h34"/>
+        <path d="M96 60 118 30l10 7-22 30-13 4z"/><path d="M118 30l10 7"/><path d="M93 71l4-11"/>
+      </svg>
+    </div>
+    <div class="sb-foot">
+      <div class="user"><div class="avatar">D</div><div class="who"><b>David</b><br><span>Studio</span></div></div>
+      <button class="mini" id="themeBtn"><svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></svg><span id="themeLabel">Tmavý režim</span></button>
+    </div>
+  </aside>
+  <main class="main review">
+    <div class="topbar">
+      <div>
+        <h1>Generátor</h1>
+        <div class="sub">
+          <span class="chip c-neutral" id="c-orders">—</span>
+          <span class="chip c-danger" id="c-hold" hidden></span>
+          <span class="chip c-info" id="c-ready" hidden></span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="history" hidden></button>
+        <span class="chip c-neutral" id="c-live">live</span>
+        <button class="icon-btn" id="themeBtn2" aria-label="Přepnout režim"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+      </div>
+    </div>
+
+    <div class="go">
+      <label for="inbox">Order photos</label>
+      <input type="text" id="inbox" spellcheck="false" placeholder="the folder your Chrome extension downloads into">
+      <button id="browse">Browse…</button>
+      <button class="primary" id="run">Go</button>
+      <button class="danger" id="stop" hidden>Stop</button>
+      <label class="chk"><input type="checkbox" id="force"> reprint finished PDFs</label>
+    </div>
+
+    <div id="queue" hidden></div>
+    <div id="runpanel" hidden></div>
+    <div class="wrap"><div id="root"></div><div id="earlier"></div></div>
+  </main>
 </div>
-
-<div class="go">
-  <label for="inbox">Order photos</label>
-  <input type="text" id="inbox" spellcheck="false" placeholder="the folder your Chrome extension downloads into">
-  <button id="browse">Browse…</button>
-  <button class="primary" id="run">Go</button>
-  <button class="danger" id="stop" hidden>Stop</button>
-  <label class="chk"><input type="checkbox" id="force"> reprint finished PDFs</label>
-</div>
-
-<div id="queue" hidden></div>
-
-<div id="runpanel" hidden></div>
-
-<div class="wrap"><div id="root"></div><div id="earlier"></div></div>
 
 <div id="toast"></div>
 <dialog id="lb"><img id="lbimg" alt=""></dialog>
@@ -281,6 +311,7 @@ const QUEUE_OPEN_MAX = 8;
 const QUEUE_RECENT = 20;
 let queueOpen = null;
 let queueAll = false; // show every order in the folder, not just the most recent
+const focusOrders = new Set(); // orders shown one-photo-at-a-time (Focus mode)
 
 // Clicking Go blurs the title-page box, so its save is already in flight when the run starts.
 // The server refuses a dedication once a run is active, so let the save land first — otherwise
@@ -943,9 +974,9 @@ function orderSection(o, locked) {
       ${hint}
     </div>`;
   return `<section class="order">
-    <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}${ded}</header>
+    <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}${ded}<button class="mode-toggle" data-focus="${esc(o.orderId)}">${focusOrders.has(o.orderId) ? 'Grid' : 'Focus'}</button></header>
     ${intakePanel(o, locked)}
-    <div class="grid">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
+    <div class="grid${focusOrders.has(o.orderId) ? ' focus' : ''}">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
   </section>`;
 }
 
@@ -1135,6 +1166,14 @@ document.addEventListener('click', (e) => {
     return;
   }
 
+  const focusBtn = e.target.closest('button[data-focus]');
+  if (focusBtn) {
+    const id = focusBtn.dataset.focus;
+    if (focusOrders.has(id)) focusOrders.delete(id); else focusOrders.add(id);
+    refresh(true);
+    return;
+  }
+
   const btn = e.target.closest('button[data-a],button[data-open]');
   if (!btn) return;
   const t = btn.closest('.tile');
@@ -1294,6 +1333,21 @@ $('#inbox').addEventListener('keydown', (e) => {
 // The configured folder is offered, not opened. Reopening the tool starts on a clean page:
 // last week's orders are in Order history, and nothing is ticked until they say so.
 // Left empty here so the first paint fills it from the server's configured folder (data.inbox).
+// Shared light/dark theme toggle (same fm-theme key as the dashboard).
+(function(){
+  const root=document.documentElement,label=document.getElementById('themeLabel'),icon=document.getElementById('themeIcon');
+  const sun='<circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+  const moon='<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+  const saved=localStorage.getItem('fm-theme');if(saved)root.setAttribute('data-theme',saved);
+  function isDark(){const t=root.getAttribute('data-theme');if(t)return t==='dark';return matchMedia('(prefers-color-scheme:dark)').matches;}
+  function sync(){const d=isDark();if(label)label.textContent=d?'Světlý režim':'Tmavý režim';if(icon)icon.innerHTML=d?sun:moon;}
+  function toggle(){const nx=isDark()?'light':'dark';root.setAttribute('data-theme',nx);localStorage.setItem('fm-theme',nx);sync();}
+  const b1=document.getElementById('themeBtn'),b2=document.getElementById('themeBtn2');
+  if(b1)b1.addEventListener('click',toggle);if(b2)b2.addEventListener('click',toggle);
+  matchMedia('(prefers-color-scheme:dark)').addEventListener('change',sync);
+  sync();
+})();
+
 $('#inbox').value = '';
 refresh();
 setInterval(refresh, 1500);
