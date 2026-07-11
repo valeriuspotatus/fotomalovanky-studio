@@ -39,13 +39,25 @@ test('the missing-photos draft carries the counts and the reply instruction', ()
   assert.match(mail.subject, /1523/);
   assert.match(mail.body, /8 fotek/);
   assert.match(mail.body, /sešlo 5/);
+  assert.match(mail.body, /3 chybějících fotek/); // genitive plural agreement
   assert.match(mail.body, /odpovědí na tento e-mail s fotkou v příloze/);
   assert.match(mail.body, /David\nFotomalovánky\.cz$/);
 });
 
-test('a known surname makes the greeting formal; an unknown one stays neutral', () => {
-  assert.match(renderEmail('missing', { order: '1', surname: 'Hofbauer' }).body, /^Dobrý den, paní\/pane Hofbauer,/);
-  assert.match(renderEmail('missing', { order: '1' }).body, /^Dobrý den,/);
+test('the missing count agrees for a single photo', () => {
+  const mail = renderEmail('missing', { order: '1', expected: 3, uploaded: 2, missing: 1 });
+  assert.match(mail.body, /1 chybějící fotky/); // genitive singular, not "1 chybějících"
+  assert.doesNotMatch(mail.body, /1 chybějících/);
+});
+
+test('a female surname greets formally; anything else stays neutral', () => {
+  // -ová / -á are unambiguously female and take the same form in the vocative.
+  assert.match(renderEmail('missing', { order: '1', surname: 'Nováková' }).body, /^Dobrý den, paní Nováková,/);
+  assert.match(renderEmail('missing', { order: '1', surname: 'Novotná' }).body, /^Dobrý den, paní Novotná,/);
+  // A male or foreign surname is left out rather than risk a wrong vocative form.
+  assert.match(renderEmail('missing', { order: '1', surname: 'Novák' }).body, /^Dobrý den,\n/);
+  assert.match(renderEmail('missing', { order: '1', surname: 'Hofbauer' }).body, /^Dobrý den,\n/);
+  assert.match(renderEmail('missing', { order: '1' }).body, /^Dobrý den,\n/);
 });
 
 test('drafts obey the no-em-dash style rule', () => {

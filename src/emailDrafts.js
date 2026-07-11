@@ -18,6 +18,11 @@ export function czPhotos(n) {
 
 const withCount = (n) => `${n} ${czPhotos(n)}`;
 
+/** Genitive agreement after "doplnění": 1 chybějící fotky, otherwise N chybějících fotek. */
+function czMissing(n) {
+  return n === 1 ? '1 chybějící fotky' : `${n} chybějících fotek`;
+}
+
 /** Which hold reason drives the email. Missing beats the rest: if photos are absent, that is the
  *  ask; the other cases are about the photos that did arrive. Returns null when nothing holds
  *  (a warn/ok order is generated, not emailed). */
@@ -30,46 +35,54 @@ export function pickEmailCase(findings) {
   return null;
 }
 
+// Czech female surnames end in -ová or -á, and greet cleanly as "paní <surname>" (the form is the
+// same in the vocative, so it is always safe). For anything else — male, foreign, ambiguous — we
+// drop the name rather than risk a wrong form: the vocative of Czech male surnames is a minefield
+// (Novák -> Nováku, Svoboda -> Svobodo), and a plain "Dobrý den," is never wrong.
 function greeting(surname) {
-  return surname ? `Dobrý den, paní/pane ${surname},` : 'Dobrý den,';
+  if (surname && /(ová|á)$/.test(surname)) return `Dobrý den, paní ${surname},`;
+  return 'Dobrý den,';
 }
 
 const SIGNOFF = 'Děkuji a přeji hezký den,\nDavid\nFotomalovánky.cz';
 const REPLY = 'odpovědí na tento e-mail s fotkou v příloze';
 
+// The photo-specific cases never name the file: "2099_img0002.jpeg" is our internal name and means
+// nothing to the customer, who uploaded through a form. Generic phrasing is clearer and also keeps
+// the pronoun agreement clean ("jednu z fotek ... ji").
 const BODIES = {
   missing: (c, g) =>
 `${g}
 
-děkujeme za Vaši objednávku ${c.order}. Vybraný produkt obsahuje ${withCount(c.expected)}, zatím se nám jich ale sešlo ${c.uploaded}. Prosíme o doplnění ${c.missing} chybějících ${REPLY}, abychom mohli knihu připravit.
+děkujeme za Vaši objednávku ${c.order}. Vybraný produkt obsahuje ${withCount(c.expected)}, zatím se nám jich ale sešlo ${c.uploaded}. Prosíme o doplnění ${czMissing(c.missing)} ${REPLY}, abychom mohli knihu připravit.
 
 ${SIGNOFF}`,
 
   unreadable: (c, g) =>
 `${g}
 
-děkujeme za Vaši objednávku ${c.order}. Bohužel se nám nepodařilo otevřít ${c.photos ? `soubor ${c.photos}` : 'jednu z nahraných fotek'}. Mohli byste nám ji prosím poslat znovu ${REPLY}?
+děkujeme za Vaši objednávku ${c.order}. Bohužel se nám nepodařilo otevřít jednu z nahraných fotek. Mohli byste nám ji prosím poslat znovu ${REPLY}?
 
 ${SIGNOFF}`,
 
   duplicate: (c, g) =>
 `${g}
 
-děkujeme za Vaši objednávku ${c.order}. Zdá se, že se ${c.photos ? `fotka ${c.photos}` : 'jedna z fotek'} v objednávce opakuje. Chtěli byste ji nahradit jinou fotkou, nebo je to takto v pořádku? Případnou náhradu nám můžete poslat ${REPLY}.
+děkujeme za Vaši objednávku ${c.order}. Zdá se, že se jedna z fotek v objednávce opakuje. Chtěli byste ji nahradit jinou fotkou, nebo je to takto v pořádku? Případnou náhradu nám můžete poslat ${REPLY}.
 
 ${SIGNOFF}`,
 
   quality: (c, g) =>
 `${g}
 
-děkujeme za Vaši objednávku ${c.order}. ${c.photos ? `Fotka ${c.photos} je bohužel` : 'Jedna z fotek je bohužel'} v nižší kvalitě, než abychom z ní mohli udělat pěknou omalovánku. Mohli byste nám prosím poslat ostřejší nebo kvalitnější verzi ${REPLY}?
+děkujeme za Vaši objednávku ${c.order}. Jedna z fotek je bohužel v nižší kvalitě, než abychom z ní mohli udělat pěknou omalovánku. Mohli byste nám prosím poslat ostřejší nebo kvalitnější verzi ${REPLY}?
 
 ${SIGNOFF}`,
 };
 
 /** Build { subject, body, to } for a held order, or null if the case has no template.
- *  `ctx` = { order, surname, email, expected, uploaded, missing, photos } — `photos` is a short
- *  human label for the problem file(s), used where the case points at a specific photo. */
+ *  `ctx` = { order, surname, email, expected, uploaded, missing }. Emails never name a specific
+ *  file: the customer-facing text stays generic ("jedna z fotek"). */
 export function renderEmail(caseName, ctx = {}) {
   const body = BODIES[caseName]?.(ctx, greeting(ctx.surname));
   if (!body) return null;
