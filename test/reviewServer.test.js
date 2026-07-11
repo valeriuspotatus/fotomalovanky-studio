@@ -58,11 +58,35 @@ after(() => {
 const get = (p) => fetch(`${origin}${p}`);
 const post = (p) => fetch(`${origin}${p}`, { method: 'POST' });
 
-test('the grid serves its page', async () => {
-  const res = await get('/');
+test('home serves the studio dashboard; the review grid moves to /review', async () => {
+  const home = await get('/');
+  assert.equal(home.status, 200);
+  assert.match(home.headers.get('content-type'), /text\/html/);
+  const homeHtml = await home.text();
+  assert.match(homeHtml, /Fotomalovánky · Studio|id="homeTiles"/, 'home is the dashboard, not the grid');
+
+  const review = await get('/review');
+  assert.equal(review.status, 200);
+  assert.match(review.headers.get('content-type'), /text\/html/);
+  const reviewHtml = await review.text();
+  assert.match(reviewHtml, /id="inbox"|id="run"/, 'the review grid is served at /review');
+  assert.ok(!reviewHtml.includes('id="homeTiles"'), 'the grid is not the dashboard');
+});
+
+test('a dashboard asset under static/ is served, with its content type', async () => {
+  const res = await get('/creatives/graphics/christmas.svg');
   assert.equal(res.status, 200);
-  assert.match(res.headers.get('content-type'), /text\/html/);
-  assert.match(await res.text(), /<title>Fotomalov/);
+  assert.match(res.headers.get('content-type'), /image\/svg\+xml/);
+  assert.match(await res.text(), /<svg/);
+});
+
+test('a path outside static/ is a 404, never a way to reach a secret or source file', async () => {
+  // %2e%2e%2f survives URL parsing as ../, then resolves outside static/ and is refused.
+  const escape = await get('/%2e%2e%2f%2e%2e%2f%2e%2e%2fpackage.json');
+  assert.equal(escape.status, 404);
+  assert.ok(!(await escape.text()).includes('fotomalovanky-automation'), 'no file content leaked');
+
+  assert.equal((await get('/does-not-exist.svg')).status, 404);
 });
 
 test('the state endpoint reports each photo with its status and reason', async () => {

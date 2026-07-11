@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { readFileSync, statSync, existsSync } from 'node:fs';
+import { join, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { loadConfig } from '../config.js';
@@ -35,10 +35,51 @@ import { migrateDedications, MEMORY_DIR } from '../dedications.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const THUMB_WIDTH = 720;
 
+// The studio's own served tree. The dashboard (home) and the assets it loads live here, and copying
+// them out of the secrets-laden Marketing Automatization/ folder is what lets the whole tree be
+// served with a plain containment check instead of an asset whitelist (KTD2).
+const STATIC_DIR = join(HERE, 'static');
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.svg': 'image/svg+xml; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+};
+
 const json = (res, code, body) => {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(body));
 };
+
+/** Serve a file from the studio's static tree, and only from there. The resolved path must stay
+ *  inside static/, so a crafted request (../../config.json) resolves outside it and gets a 404
+ *  rather than the file — no secret, source, or order data is reachable through here. */
+function serveStatic(pathname, res) {
+  let candidate;
+  try {
+    const rel = decodeURIComponent(pathname).replace(/^\/+/, '');
+    candidate = resolve(STATIC_DIR, rel);
+  } catch {
+    return json(res, 404, { error: 'Not found.' }); // a malformed/percent-encoded path is just not found
+  }
+  if (candidate !== STATIC_DIR && !candidate.startsWith(STATIC_DIR + sep)) {
+    return json(res, 404, { error: 'Not found.' });
+  }
+  if (!existsSync(candidate) || !statSync(candidate).isFile()) {
+    return json(res, 404, { error: 'Not found.' });
+  }
+  const ext = candidate.slice(candidate.lastIndexOf('.')).toLowerCase();
+  res.writeHead(200, { 'Content-Type': MIME[ext] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
+  return res.end(readFileSync(candidate));
+}
 
 /** Read a small JSON body. Bounded — this is a local tool, but an unbounded read is still a bug. */
 async function readJson(req, limit = 64 * 1024) {
@@ -406,10 +447,13 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
 
     try {
+      // Home is the studio dashboard; the review grid moved to /review. Both are served from the
+      // static tree through the same contained path.
       if (req.method === 'GET' && url.pathname === '/') {
-        const html = readFileSync(join(HERE, 'static', 'index.html'));
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        return res.end(html);
+        return serveStatic('/dashboard.html', res);
+      }
+      if (req.method === 'GET' && url.pathname === '/review') {
+        return serveStatic('/index.html', res);
       }
 
       if (req.method === 'GET' && url.pathname === '/api/state') {
@@ -559,6 +603,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         }
         return json(res, 404, { error: `Unknown action "${action}".` });
       }
+
+      // Any other GET is a dashboard asset (the creatives SVGs it loads, its favicon, etc.), served
+      // from static/ or 404. Every explicit route above has already returned, so this shadows none.
+      if (req.method === 'GET') return serveStatic(url.pathname, res);
 
       return json(res, 404, { error: 'Not found.' });
     } catch (err) {
