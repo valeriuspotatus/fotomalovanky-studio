@@ -1,0 +1,82 @@
+/* Fotomalovánky Studio — design tokens (see docs/design/DESIGN_SYSTEM.md).
+   Light Mode is the primary identity (paper); dark is an optional working mode.
+   Style components through these tokens — never hard-code a colour/radius/shadow/spacing value. */
+
+:root{
+  /* neutrals — the paper canvas */
+  --paper:#FBFAF8; --surface:#FFFFFF; --surface-2:#F6F4F1; --surface-3:#EFECE7;
+  --border:#EAE6E0; --border-strong:#DCD6CE;
+  --ink:#22262E; --ink-2:#565D69; --ink-3:#8A909B; --ink-inv:#FFFFFF;
+
+  /* brand */
+  --brand:#F1543F; --brand-hover:#E0442F; --brand-soft:#FDECE8; --brand-ring:#F1543F33;
+
+  /* semantic status (solid + soft) */
+  --info:#3B82F6; --info-soft:#E8F0FE;
+  --success:#22A06B; --success-soft:#E3F5EC;
+  --running:#12B76A; --running-soft:#E4F7EE;
+  --warning:#E5920B; --warning-soft:#FCF0DA;
+  --danger:#E5533D; --danger-soft:#FCE9E5;
+  --neutral:#6B7280; --neutral-soft:#EFEDEA;
+  --purple:#7C5CFC; --purple-soft:#EEE9FE;
+
+  /* elevation */
+  --shadow-xs:0 1px 2px rgba(40,33,28,.05);
+  --shadow-sm:0 1px 2px rgba(40,33,28,.05), 0 2px 8px rgba(40,33,28,.05);
+  --shadow-md:0 4px 16px rgba(40,33,28,.08);
+  --shadow-lg:0 12px 40px rgba(40,33,28,.14);
+
+  /* radius */
+  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-xl:20px; --r-full:999px;
+
+  /* spacing (4px base) */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px;
+  --sp-8:32px; --sp-10:40px; --sp-12:48px; --sp-16:64px;
+
+  /* motion */
+  --ease:cubic-bezier(.2,.7,.2,1); --dur-fast:.12s; --dur:.18s; --dur-slow:.26s;
+
+  /* type — self-hosted in production; system fallbacks here keep CSP/offline safe */
+  --font-ui:"Manrope","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+  --font-display:"Fredoka","Baloo 2",ui-rounded,"Segoe UI",system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"Cascadia Code",Consolas,monospace;
+}
+
+/* dark — warm charcoal, "paper at night" */
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme]){
+    --paper:#17181B; --surface:#1E2024; --surface-2:#26282D; --surface-3:#2E3136;
+    --border:#2E3136; --border-strong:#3A3E44;
+    --ink:#ECEAE6; --ink-2:#A8ADB5; --ink-3:#767B84;
+    --brand-soft:rgba(241,84,63,.17); --brand-ring:#F1543F44;
+    --info-soft:rgba(59,130,246,.16); --success-soft:rgba(34,160,107,.16);
+    --running-soft:rgba(18,183,106,.16); --warning-soft:rgba(229,146,11,.16);
+    --danger-soft:rgba(229,83,61,.16); --neutral-soft:rgba(148,152,160,.16);
+    --purple-soft:rgba(124,92,252,.18);
+    --shadow-xs:0 1px 2px rgba(0,0,0,.3);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.3), 0 2px 8px rgba(0,0,0,.28);
+    --shadow-md:0 4px 16px rgba(0,0,0,.4); --shadow-lg:0 14px 44px rgba(0,0,0,.55);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#17181B; --surface:#1E2024; --surface-2:#26282D; --surface-3:#2E3136;
+  --border:#2E3136; --border-strong:#3A3E44;
+  --ink:#ECEAE6; --ink-2:#A8ADB5; --ink-3:#767B84;
+  --brand-soft:rgba(241,84,63,.17); --brand-ring:#F1543F44;
+  --info-soft:rgba(59,130,246,.16); --success-soft:rgba(34,160,107,.16);
+  --running-soft:rgba(18,183,106,.16); --warning-soft:rgba(229,146,11,.16);
+  --danger-soft:rgba(229,83,61,.16); --neutral-soft:rgba(148,152,160,.16);
+  --purple-soft:rgba(124,92,252,.18);
+  --shadow-xs:0 1px 2px rgba(0,0,0,.3);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.3), 0 2px 8px rgba(0,0,0,.28);
+  --shadow-md:0 4px 16px rgba(0,0,0,.4); --shadow-lg:0 14px 44px rgba(0,0,0,.55);
+}
+:root[data-theme="light"]{
+  --paper:#FBFAF8; --surface:#FFFFFF; --surface-2:#F6F4F1; --surface-3:#EFECE7;
+  --border:#EAE6E0; --border-strong:#DCD6CE; --ink:#22262E; --ink-2:#565D69; --ink-3:#8A909B;
+  --brand-soft:#FDECE8; --info-soft:#E8F0FE; --success-soft:#E3F5EC; --running-soft:#E4F7EE;
+  --warning-soft:#FCF0DA; --danger-soft:#FCE9E5; --neutral-soft:#EFEDEA; --purple-soft:#EEE9FE;
+  --shadow-xs:0 1px 2px rgba(40,33,28,.05);
+  --shadow-sm:0 1px 2px rgba(40,33,28,.05), 0 2px 8px rgba(40,33,28,.05);
+  --shadow-md:0 4px 16px rgba(40,33,28,.08); --shadow-lg:0 12px 40px rgba(40,33,28,.14);
+}

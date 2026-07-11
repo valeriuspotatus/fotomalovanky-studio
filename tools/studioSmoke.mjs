@@ -88,9 +88,13 @@ page.on('console', (m) => {
 
 try {
   await page.goto(`${origin}/`);
-  await page.waitForSelector('.tile');
+  await page.waitForSelector('#v-home.on .kpis .kpi');
+  // The KPI strip is live from /api/studio: the fixture has exactly one ready-to-send order (1522).
+  await page.waitForFunction(() => document.querySelector('#kpi-ready')?.textContent === '1');
 
-  // --- home shows the dashboard, and the order tiles carry live counts, not the old analytics ---
+  // --- home is the operational dashboard: a 5-KPI strip bound to the board, not the old analytics ---
+  check('the home KPI strip shows the board states', (await page.locator('#v-home.on .kpis .kpi').count()) === 5);
+  check('the home KPIs bind live counts (ready-to-send = 1)', (await page.locator('#kpi-ready').textContent()).trim() === '1');
   const homeHtml = await page.content();
   check('home is the dashboard, not the old analytics', !homeHtml.includes('217710') && !homeHtml.includes('AOV'));
   check('the studio token never reaches the page', !homeHtml.includes(TOKEN));
@@ -105,31 +109,30 @@ try {
     `server: ${serverStates.join(',')} | client: ${clientStates.join(',')}`,
   );
 
-  // --- marketing tabs still render their static content (left untouched) ---
+  // --- marketing tabs still render their static content (restyled, left functional) ---
   await page.evaluate(() => go('creatives'));
-  await page.waitForSelector('.gallery .cw');
-  check('Kreativy still renders its static gallery', (await page.locator('.gallery .cw').count()) === 5);
-  await page.evaluate(() => go('angles'));
-  await page.waitForSelector('.bubbles .bub');
-  check('Angly still renders its static bubbles', (await page.locator('.bubbles .bub').count()) === 8);
+  await page.waitForSelector('#v-creatives.on .gallery .cw');
+  check('Kreativy still renders its static gallery', (await page.locator('#v-creatives.on .gallery .cw').count()) === 5);
+  await page.evaluate(() => go('sdeleni'));
+  await page.waitForSelector('#v-sdeleni.on .bubbles .bub');
+  check('Sdělení still renders its static bubbles', (await page.locator('#v-sdeleni.on .bubbles .bub').count()) === 8);
 
-  // --- Objednávky: the live queue from /api/studio ---
+  // --- Objednávky: the live order table from /api/studio, oldest-first ---
   await page.evaluate(() => go('orders'));
-  await page.waitForSelector('#v-orders.on .orow');
-  const ids = await page.$$eval('#queue .orow .id', (ns) => ns.map((n) => n.textContent.trim()));
-  check('the queue renders oldest-first from /api/studio', ids.join() === '1479,1521,1522,1523,1600', ids.join(' > '));
+  await page.waitForSelector('#v-orders.on #ordersBody .oid');
+  const ids = await page.$$eval('#v-orders.on #ordersBody .oid', (ns) => ns.map((n) => n.textContent.trim()));
+  check('the orders table renders oldest-first from /api/studio', ids.join() === '1479,1521,1522,1523,1600', ids.join(' > '));
 
   const badgeOf = async (id) => {
     const i = ids.indexOf(id);
-    return (await page.locator('#queue .orow').nth(i).locator('.badge').textContent()).trim();
+    return (await page.locator('#v-orders.on #ordersBody tr').nth(i).locator('.chip').textContent()).trim();
   };
-  check('a built, undelivered order reads ready-to-send', (await badgeOf('1522')) === 'k odeslání');
+  check('a built, undelivered order reads ready-to-send', (await badgeOf('1522')) === 'připraveno');
   check('a delivered order reads sent', (await badgeOf('1523')) === 'odesláno');
   check('a flagged order reads pending-review', (await badgeOf('1521')) === 'ke kontrole');
   check('an ungenerated order reads queued', (await badgeOf('1600')) === 've frontě');
 
-  check('the board carries no hardcoded order data', !(await page.locator('#queue').textContent()).includes('218k'));
-  check('the KPI strip shows the board states', (await page.locator('#v-orders.on #kpis .kpi').count()) === 5);
+  check('the board carries no hardcoded order data', !(await page.locator('#v-orders.on #ordersBody').textContent()).includes('218k'));
 
   // --- Potřebuje vás: the held order with its draft email + copy action ---
   await page.evaluate(() => go('todo'));
@@ -146,17 +149,17 @@ try {
   check('no page errors while the board is live', errors.length === 0, errors.join('; '));
 
   if (shot) {
-    await page.evaluate(() => go('orders'));
-    await page.waitForSelector('#v-orders.on .orow');
+    await page.evaluate(() => go('home'));
+    await page.waitForSelector('#v-home.on .kpis .kpi');
     await page.screenshot({ path: shot, fullPage: true });
     console.log(`\nscreenshot: ${shot}`);
   }
 
-  // --- the Generátor tile opens the review grid (navigates away, so do it last) ---
+  // --- the Generátor nav opens the review grid (navigates away, so do it last) ---
   await page.evaluate(() => go('home'));
-  await page.click('.tile[data-tile="generator"]');
+  await page.click('#nav a[data-view="generator"]');
   await page.waitForURL(/\/review$/, { timeout: 5000 }).catch(() => {});
-  check('the Generátor tile opens /review', /\/review$/.test(page.url()), page.url());
+  check('the Generátor nav opens /review', /\/review$/.test(page.url()), page.url());
 } finally {
   await browser.close();
   server.close();

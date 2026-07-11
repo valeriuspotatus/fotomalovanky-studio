@@ -1,330 +1,191 @@
 <meta charset="utf-8">
 <title>Fotomalovánky · Studio</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/components.css">
 <style>
-  :root{
-    --bg:#EAEEF6; --bg2:#DFE5F1; --card:#FFFFFF; --soft:#F2F5FB;
-    --text:#161A22; --muted:#6C7486; --faint:#9AA2B4; --line:rgba(20,26,45,.08);
-    --shadow:0 12px 30px -14px rgba(30,42,90,.22), 0 4px 10px -6px rgba(30,42,90,.10);
-    --shadow-lg:0 30px 70px -22px rgba(30,42,90,.36);
-    --red:#FF3D3D; --blue:#1E9CF5; --amber:#FFB400; --green:#1FBE79; --yellow:#FFC947;
-    --pink:#F0476E; --purple:#7C4DE0; --orange:#FF6A2B; --teal:#12A99B;
-    --a-EMO:#F0476E; --a-GIFT:#E8960A; --a-PROOF:#12A99B; --a-SIMPLE:#1E9CF5;
-    --a-SCREEN:#7C4DE0; --a-TOGETHER:#1FBE79; --a-RELAX:#C05CC0; --a-FUN:#FF6A2B;
-    --font:"Nunito",ui-rounded,"SF Pro Rounded",-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;
-  }
-  :root[data-theme="dark"]{
-    --bg:#0D1017; --bg2:#0A0C12; --card:#181D28; --soft:#212734;
-    --text:#EEF1F8; --muted:#98A1B3; --faint:#697086; --line:rgba(255,255,255,.09);
-    --shadow:0 16px 40px -18px rgba(0,0,0,.7), 0 4px 12px -6px rgba(0,0,0,.5);
-    --shadow-lg:0 34px 80px -22px rgba(0,0,0,.85);
-    --blue:#45B0FF; --green:#3FD98C; --amber:#FFC24D; --red:#FF6157;
-    --a-EMO:#FF6E90; --a-GIFT:#FFC24D; --a-PROOF:#2ED4C4; --a-SIMPLE:#59B6FF;
-    --a-SCREEN:#A98BF2; --a-TOGETHER:#4FE0A0; --a-RELAX:#D68AD6; --a-FUN:#FF8A52;
-  }
-  @media (prefers-color-scheme:dark){:root:not([data-theme]){
-    --bg:#0D1017; --bg2:#0A0C12; --card:#181D28; --soft:#212734;
-    --text:#EEF1F8; --muted:#98A1B3; --faint:#697086; --line:rgba(255,255,255,.09);
-    --shadow:0 16px 40px -18px rgba(0,0,0,.7), 0 4px 12px -6px rgba(0,0,0,.5);
-    --shadow-lg:0 34px 80px -22px rgba(0,0,0,.85);
-    --blue:#45B0FF; --green:#3FD98C; --amber:#FFC24D; --red:#FF6157;
-    --a-EMO:#FF6E90; --a-GIFT:#FFC24D; --a-PROOF:#2ED4C4; --a-SIMPLE:#59B6FF;
-    --a-SCREEN:#A98BF2; --a-TOGETHER:#4FE0A0; --a-RELAX:#D68AD6; --a-FUN:#FF8A52;
-  }}
-
-  *{box-sizing:border-box}
-  html{scroll-behavior:smooth}
-  body{
-    margin:0; font-family:var(--font); color:var(--text);
-    background:radial-gradient(1200px 600px at 15% -10%, var(--bg2), transparent), var(--bg);
-    -webkit-font-smoothing:antialiased; min-height:100vh; font-weight:600;
-  }
-  h1,h2,h3{margin:0; letter-spacing:-.02em; font-weight:800}
-  button{font-family:inherit; cursor:pointer}
-
-  /* header */
-  header{position:sticky; top:0; z-index:30; backdrop-filter:blur(14px);
-    background:color-mix(in srgb,var(--bg) 72%, transparent); border-bottom:1px solid var(--line)}
-  .bar{max-width:1080px; margin:0 auto; padding:16px 22px; display:flex; align-items:center; gap:14px}
-  .wm{font-size:21px; font-weight:900; letter-spacing:-.03em; cursor:pointer; user-select:none}
-  .wm .r{color:var(--red)} .wm .b{color:var(--blue)} .wm .a{color:var(--amber)} .wm .g{color:var(--green)}
-  .spacer{margin-left:auto}
-  .icon-btn{width:42px; height:42px; border-radius:50%; border:none; background:var(--card);
-    box-shadow:var(--shadow); color:var(--text); font-size:17px; display:grid; place-items:center; transition:.2s}
-  .icon-btn:hover{transform:translateY(-2px)}
-  .back{display:inline-flex; align-items:center; gap:8px; border:none; background:var(--card);
-    box-shadow:var(--shadow); color:var(--text); font-weight:800; font-size:14px; padding:9px 16px 9px 13px; border-radius:999px; transition:.2s}
-  .back:hover{transform:translateX(-3px)}
-
-  main{max-width:1080px; margin:0 auto; padding:26px 22px 90px}
-  .view{display:none; animation:pop .32s cubic-bezier(.2,.8,.25,1)}
-  .view.on{display:block}
-  @keyframes pop{from{opacity:0; transform:translateY(14px) scale(.985)} to{opacity:1; transform:none}}
-
-  .head{display:flex; align-items:baseline; gap:14px; margin:4px 2px 20px}
-  .head h1{font-size:30px}
-  .head .sub{color:var(--muted); font-size:14px; font-weight:700}
-
-  /* home hero + tiles */
-  .hero{margin:8px 2px 26px}
-  .hero h1{font-size:clamp(30px,6vw,46px); line-height:1.02}
-  .hero p{color:var(--muted); font-size:16px; margin:10px 0 0; max-width:32ch; font-weight:700}
-
-  .tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:18px}
-  .tile{position:relative; border:none; text-align:left; color:var(--text); background:var(--card);
-    border-radius:30px; padding:24px; box-shadow:var(--shadow); overflow:hidden; transition:.25s cubic-bezier(.2,.8,.25,1); min-height:190px; display:flex; flex-direction:column}
-  .tile:hover{transform:translateY(-6px); box-shadow:var(--shadow-lg)}
-  .tile .blob{position:absolute; width:150px; height:150px; border-radius:50%; right:-40px; top:-40px;
-    background:var(--c); opacity:.16; filter:blur(6px)}
-  .tile .em{font-size:30px; width:56px; height:56px; border-radius:20px; display:grid; place-items:center;
-    background:color-mix(in srgb,var(--c) 16%, transparent)}
-  .tile h3{font-size:21px; margin-top:16px}
-  .tile .stat{margin-top:auto; padding-top:12px; font-size:15px; color:var(--muted); font-weight:800}
-  .tile .stat b{color:var(--c); font-size:26px; font-variant-numeric:tabular-nums; margin-right:4px}
-  .tile .go{position:absolute; right:20px; bottom:20px; color:var(--c); font-size:20px; opacity:.65; transition:.25s}
-  .tile:hover .go{opacity:1; transform:translateX(4px)}
-
-  /* creatives gallery */
-  .gallery{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:20px}
-  .cw{border:none; background:transparent; padding:0; text-align:left; transition:.25s cubic-bezier(.2,.8,.25,1)}
-  .cw:hover{transform:translateY(-6px)}
-  .cw .frame{border-radius:24px; overflow:hidden; box-shadow:var(--shadow); background:var(--card); aspect-ratio:4/5; transition:.25s}
-  .cw:hover .frame{box-shadow:var(--shadow-lg)}
-  .cw img{display:block; width:100%; height:100%; object-fit:cover}
-  .cw .cap{display:flex; align-items:center; gap:8px; padding:12px 6px 2px}
-  .cw .cap .nm{font-weight:800; font-size:15px}
-  .chip{font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; white-space:nowrap;
-    color:var(--h); background:color-mix(in srgb,var(--h) 15%, transparent)}
-  .chip.solid{color:#fff; background:var(--h)}
-
-  /* modal */
-  .modal{position:fixed; inset:0; z-index:60; display:none; padding:4vh 18px; overflow-y:auto;
-    background:color-mix(in srgb,#0a0c12 62%, transparent); backdrop-filter:blur(6px)}
-  .modal.on{display:block; animation:fade .25s}
-  @keyframes fade{from{opacity:0}to{opacity:1}}
-  .sheet{max-width:860px; margin:0 auto; background:var(--card); border-radius:32px; box-shadow:var(--shadow-lg);
-    overflow:hidden; animation:pop .3s cubic-bezier(.2,.8,.25,1)}
-  .sheet .grid{display:grid; grid-template-columns:1fr 1fr; gap:0}
-  @media (max-width:680px){.sheet .grid{grid-template-columns:1fr}}
-  .sheet .stage{background:var(--soft); padding:26px; display:flex; flex-direction:column; align-items:center; gap:16px}
-  .sheet .stage img{width:100%; max-width:340px; border-radius:18px; box-shadow:var(--shadow)}
-  .fmts{display:flex; gap:8px}
-  .fmt{border:none; background:var(--card); box-shadow:var(--shadow); color:var(--muted); font-weight:800;
-    font-size:12px; padding:7px 14px; border-radius:999px; transition:.2s}
-  .fmt.on{color:#fff; background:var(--h)}
-  .sheet .info{padding:30px 30px 34px; position:relative}
-  .sheet .close{position:absolute; right:18px; top:18px; width:38px; height:38px; border-radius:50%;
-    border:none; background:var(--soft); color:var(--text); font-size:17px}
-  .sheet .tag{font-size:13px; font-weight:900; letter-spacing:.02em; color:var(--h)}
-  .sheet h2{font-size:26px; margin:8px 0 14px; line-height:1.1}
-  .sheet .idea{font-size:16px; color:var(--muted); font-weight:700; line-height:1.5}
-  .sheet .body{margin-top:16px; padding:14px 16px; background:var(--soft); border-radius:16px; font-size:14px; color:var(--text); font-weight:600; line-height:1.55}
-  .sheet .cta{margin-top:16px; display:inline-block; background:var(--h); color:#fff; font-weight:800; font-size:15px; padding:12px 22px; border-radius:999px}
-  .sheet .meta{margin-top:16px; display:flex; gap:8px; flex-wrap:wrap}
-
-  /* angles */
-  .bubbles{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:16px}
-  .bub{background:var(--card); border-radius:26px; padding:20px; box-shadow:var(--shadow); border-top:4px solid var(--h); transition:.25s}
-  .bub:hover{transform:translateY(-5px); box-shadow:var(--shadow-lg)}
-  .bub .top{display:flex; align-items:center; gap:9px}
-  .bub .dot{width:13px; height:13px; border-radius:5px; background:var(--h)}
-  .bub .code{font-weight:900; font-size:16px; letter-spacing:.01em}
-  .bub .n{margin-left:auto; font-size:13px; font-weight:800; color:var(--muted)}
-  .bub .claim{margin-top:10px; color:var(--muted); font-size:14px; font-weight:700; line-height:1.45}
-  .bub .track{height:7px; border-radius:5px; background:var(--soft); margin-top:14px; overflow:hidden}
-  .bub .track i{display:block; height:100%; background:var(--h); border-radius:5px}
-
-  /* orders */
-  .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:16px; margin-bottom:22px}
-  .kpi{background:var(--card); border-radius:24px; padding:20px; box-shadow:var(--shadow)}
-  .kpi .v{font-size:30px; font-weight:900; letter-spacing:-.02em; font-variant-numeric:tabular-nums; color:var(--c)}
-  .kpi .v small{font-size:15px; font-weight:800; color:var(--muted)}
-  .kpi .k{font-size:13px; color:var(--muted); font-weight:800; margin-top:4px}
-  .panel{background:var(--card); border-radius:26px; padding:22px; box-shadow:var(--shadow); margin-bottom:18px}
-  .panel h3{font-size:16px; margin-bottom:4px}
-  .panel .cap{color:var(--muted); font-size:13px; font-weight:700; margin-bottom:14px}
-  svg.chart{width:100%; height:auto; display:block; overflow:visible}
-  .hb{margin:11px 0}
-  .hb .l{display:flex; justify-content:space-between; font-size:13px; font-weight:800; margin-bottom:5px}
-  .hb .l .r{color:var(--muted); font-variant-numeric:tabular-nums}
-  .hb .t{height:11px; border-radius:6px; background:var(--soft); overflow:hidden; display:flex}
-  .hb .t i{height:100%}
-
-  /* live order board */
-  .badge{display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:800; padding:4px 11px;
-    border-radius:999px; color:var(--h); background:color-mix(in srgb,var(--h) 15%, transparent); white-space:nowrap}
-  .badge .dot{width:8px; height:8px; border-radius:50%; background:var(--h)}
-  .orow{display:flex; align-items:center; gap:14px; padding:13px 4px; border-bottom:1px solid var(--line)}
-  .orow:last-child{border-bottom:none}
-  .orow .id{font-weight:900; font-size:15px; font-variant-numeric:tabular-nums; min-width:58px}
-  .orow .ph{color:var(--muted); font-size:13px; font-weight:700; font-variant-numeric:tabular-nums}
-  .orow .ded{color:var(--text); font-size:13px; font-weight:700; margin-left:auto; max-width:42%;
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  .empty{color:var(--muted); font-size:14px; font-weight:700; padding:16px 4px}
-  /* needs-you email + copy */
-  .item .mail{margin-top:12px; width:100%; min-height:118px; font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;
-    color:var(--text); background:var(--soft); border:1px solid var(--line); border-radius:12px; padding:12px; resize:vertical}
-  .item .copy{margin-top:10px; border:none; background:var(--amber); color:#fff; font-weight:800; font-size:13px;
-    padding:9px 16px; border-radius:999px}
-  .item .copy.ok{background:var(--green)}
-
-  /* calendar */
-  .lane{display:flex; gap:12px; overflow-x:auto; padding:6px 2px 14px; scroll-snap-type:x mandatory}
-  .fn{flex:0 0 auto; width:150px; background:var(--card); border-radius:22px; padding:15px; box-shadow:var(--shadow); border-top:4px solid var(--h); scroll-snap-align:start}
-  .fn .d{font-size:12px; font-weight:900; color:var(--muted); font-variant-numeric:tabular-nums}
-  .fn .code{font-weight:900; font-size:17px; color:var(--h); margin-top:6px}
-  .fn .t{font-size:13px; font-weight:700; margin-top:3px; line-height:1.35}
-  .fn.now{outline:3px solid var(--h); outline-offset:2px}
-  .fn .now-b{font-size:10px; font-weight:900; letter-spacing:.05em; text-transform:uppercase; color:var(--h)}
-
-  /* needs you */
-  .todo{display:flex; flex-direction:column; gap:14px}
-  .item{background:var(--card); border-radius:24px; padding:20px 22px; box-shadow:var(--shadow); border-left:5px solid var(--amber)}
-  .item .k{font-size:11px; font-weight:900; letter-spacing:.06em; text-transform:uppercase; color:var(--amber)}
-  .item h3{font-size:18px; margin:8px 0 6px}
-  .item p{margin:0; color:var(--muted); font-size:14px; font-weight:700; line-height:1.5}
-  .item .un{margin-top:10px; font-size:13px; font-weight:800; color:var(--faint)}
-  .item .un b{color:var(--text)}
+  /* page-local: the home two-column layout (work rail + calendar rail) */
+  .home-grid{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:26px;align-items:start}
+  .col-work{min-width:0;display:flex;flex-direction:column;gap:22px}
+  .rail{position:sticky;top:26px}
+  .preview-note{display:flex;align-items:center;gap:9px;color:var(--ink-3);font-size:12px;padding:2px}
+  .preview-note svg{width:14px;height:14px;stroke:currentColor;flex-shrink:0}
 </style>
 
-<header>
-  <div class="bar">
-    <div class="wm" onclick="go('home')"><span class="r">Foto</span><span class="b">malo</span><span class="a">ván</span><span class="g">ky</span></div>
-    <button class="back" id="backBtn" onclick="go('home')" style="display:none">← Zpět</button>
-    <span class="spacer"></span>
-    <button class="icon-btn" id="theme" title="Světlý / tmavý režim">◐</button>
-  </div>
-</header>
-
-<main>
-  <!-- HOME -->
-  <section class="view on" id="v-home">
-    <div class="hero">
-      <h1>Vaše studio.<br>Vidíte, ne čtete.</h1>
-      <p>Klikněte na cokoliv a projděte si to.</p>
+<div class="app">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand" onclick="go('home')"><span class="r">F</span><span class="a">o</span><span class="g">t</span><span class="bl">o</span><b>malovánky</b></div>
+    <nav class="nav" id="nav">
+      <a data-view="home" href="#home"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>Přehled</a>
+      <a data-view="orders" href="#orders"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>Objednávky<span class="count" id="nav-orders">–</span></a>
+      <a data-view="generator" href="/review"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6"/><path d="m14 4 6 6"/><path d="M14.5 4.5 19 9l-9 9-4.5-4.5z"/><path d="M18 2v3M21 4h-3"/></svg>Generátor<span class="count" id="nav-gen">–</span></a>
+      <a data-view="creatives" href="#creatives"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg>Kreativy</a>
+      <a data-view="sdeleni" href="#sdeleni"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 15-7v16l-15-7z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/><path d="M18 8a5 5 0 0 1 0 8"/></svg>Sdělení</a>
+      <a data-view="calendar" href="#calendar"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Kalendář</a>
+      <a data-view="todo" href="#todo"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2a8 8 0 0 1-6.5-3.3L3 15"/></svg>Potřebuje vás<span class="count" id="nav-todo">–</span></a>
+    </nav>
+    <div class="sb-art">
+      <svg width="150" height="80" viewBox="0 0 150 80" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="18" y="20" width="70" height="46" rx="4"/><path d="M28 34h50M28 43h50M28 52h34"/>
+        <path d="M96 60 118 30l10 7-22 30-13 4z"/><path d="M118 30l10 7"/><path d="M93 71l4-11"/>
+        <path d="M40 12l2 5 5 1-4 3 1 5-4-3-4 3 1-5-4-3 5-1z" opacity=".7"/>
+      </svg>
     </div>
-    <div class="tiles" id="homeTiles"></div>
-  </section>
-
-  <!-- CREATIVES -->
-  <section class="view" id="v-creatives">
-    <div class="head"><h1>Kreativy</h1><span class="sub" id="cCount"></span></div>
-    <div class="gallery" id="gallery"></div>
-  </section>
-
-  <!-- ANGLES -->
-  <section class="view" id="v-angles">
-    <div class="head"><h1>Angly</h1><span class="sub">8 sdělení · 1 se testuje</span></div>
-    <div class="bubbles" id="bubbles"></div>
-  </section>
-
-  <!-- CALENDAR -->
-  <section class="view" id="v-calendar">
-    <div class="head"><h1>Kalendář</h1><span class="sub">test → freeze → Vánoce</span></div>
-    <div class="panel">
-      <h3>Poptávka podle měsíce (loni)</h3>
-      <div class="cap">Křivka vrcholí přesně tam, kde už nejde testovat — proto freeze 1. 11.</div>
-      <div id="season"></div>
+    <div class="sb-foot">
+      <div class="user"><div class="avatar">D</div><div class="who"><b>David</b><br><span>Studio</span></div></div>
+      <button class="mini" id="themeBtn"><svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></svg><span id="themeLabel">Tmavý režim</span></button>
+      <a class="mini" href="/review"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/></svg>Otevřít generátor</a>
     </div>
-    <h3 style="margin:22px 2px 4px; font-size:16px">Nová kreativa každé 2 týdny</h3>
-    <div class="cap" style="color:var(--muted); font-size:13px; font-weight:700; margin:4px 2px 8px">To, co automaticky připomíná robot každý 1. a 15.</div>
-    <div class="lane" id="lane"></div>
-  </section>
+  </aside>
 
-  <!-- ORDERS -->
-  <section class="view" id="v-orders">
-    <div class="head"><h1>Objednávky</h1><span class="sub" id="oSpan"></span></div>
-    <div class="kpis" id="kpis"></div>
-    <div class="panel">
-      <h3>Fronta</h3>
-      <div class="cap">Nejstarší nahoře — tak, jak přišly. Živě z generátoru.</div>
-      <div id="queue"></div>
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <div class="topbar">
+      <div><h1 id="pageTitle">Dobrý den, David! <span aria-hidden="true">👋</span></h1><div class="sub" id="pageSub">Tady je přehled toho, co se dnes děje ve studiu.</div></div>
+      <div class="topbar-actions">
+        <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input placeholder="Hledat objednávku…" aria-label="Hledat"><span class="kbd">Ctrl K</span></div>
+        <button class="icon-btn" id="bell" aria-label="Oznámení"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></button>
+        <button class="icon-btn" id="themeBtn2" aria-label="Přepnout režim"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+      </div>
     </div>
-  </section>
 
-  <!-- NEEDS YOU -->
-  <section class="view" id="v-todo">
-    <div class="head"><h1>Potřebuje vás</h1><span class="sub" id="todoSpan"></span></div>
-    <div class="todo" id="todo"></div>
-  </section>
-</main>
+    <!-- ===== HOME ===== -->
+    <section class="view on" id="v-home">
+      <div class="home-grid">
+        <div class="col-work">
+          <section class="kpis">
+            <button class="kpi" onclick="go('orders')"><div class="well w-brand"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16M16 10a4 4 0 0 1-8 0"/></svg></div><div class="val" id="kpi-queued">–</div><div class="lab">Nové objednávky</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
+            <button class="kpi" onclick="go('orders')"><div class="well w-running"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/></svg></div><div class="val" id="kpi-generating">–</div><div class="lab">Generuje se</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
+            <button class="kpi" onclick="go('todo')"><div class="well w-warning"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg></div><div class="val" id="kpi-held">–</div><div class="lab">Potřebuje pozornost</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
+            <button class="kpi" onclick="go('orders')"><div class="well w-info"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 15h6M9 18h6"/></svg></div><div class="val" id="kpi-ready">–</div><div class="lab">Připraveno pro PDF</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
+            <button class="kpi" onclick="go('orders')"><div class="well w-success"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21.8 10A10 10 0 1 1 17 3.3"/><path d="m9 11 3 3L22 4"/></svg></div><div class="val" id="kpi-sent">–</div><div class="lab">Odesláno</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
+          </section>
+
+          <section>
+            <div class="sec-h"><h2>Pokračovat v práci</h2></div>
+            <div class="continue" id="continueRow"></div>
+          </section>
+
+          <section>
+            <div class="sec-h"><h2>Nástroje studia</h2></div>
+            <div class="tools">
+              <a class="tool" href="/review"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/></svg></div><b>Generátor</b><span>Omalovánky z fotek</span></a>
+              <a class="tool" href="#creatives" onclick="go('creatives');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg></div><b>Kreativy</b><span>Vizuály pro marketing</span></a>
+              <a class="tool" href="#sdeleni" onclick="go('sdeleni');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 15-7v16l-15-7z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg></div><b>Sdělení</b><span>Úhly pro kampaně</span></a>
+              <a class="tool" href="#calendar" onclick="go('calendar');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></div><b>Kalendář</b><span>Plán kampaní</span></a>
+              <a class="tool" href="#orders" onclick="go('orders');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16M16 10a4 4 0 0 1-8 0"/></svg></div><b>Objednávky</b><span>Přehled všech</span></a>
+              <a class="tool" href="#todo" onclick="go('todo');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2a8 8 0 0 1-6.5-3.3L3 15"/></svg></div><b>Potřebuje vás</b><span>Úkoly čekající</span></a>
+            </div>
+          </section>
+
+          <section>
+            <div class="sec-h"><h2>Poslední objednávky</h2><a href="#orders" onclick="go('orders');return false">Zobrazit všechny →</a></div>
+            <div class="table"><table>
+              <thead><tr><th>Objednávka</th><th>Fotky</th><th>Titulek</th><th>Stav</th></tr></thead>
+              <tbody id="recentBody"><tr><td colspan="4" class="empty">Načítám…</td></tr></tbody>
+            </table></div>
+          </section>
+
+          <div class="preview-note"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>Živá data z generátoru. Kalendář je zatím náhled — plná verze přijde v další fázi.</div>
+        </div>
+
+        <aside class="rail">
+          <div class="cal">
+            <div class="top"><h2>Červenec 2026</h2><div class="nav-btns"><button aria-label="Předchozí"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button aria-label="Další"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
+            <div class="cal-grid" id="calGrid"></div>
+          </div>
+          <div class="card" style="padding:18px">
+            <div class="sec-h"><h2>Nadcházející</h2><a href="#calendar" onclick="go('calendar');return false">Vše →</a></div>
+            <div class="up-list" id="upList"></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ===== ORDERS ===== -->
+    <section class="view" id="v-orders">
+      <div class="table"><table>
+        <thead><tr><th>Objednávka</th><th>Fotky</th><th>Titulek</th><th>Stav</th></tr></thead>
+        <tbody id="ordersBody"></tbody>
+      </table></div>
+    </section>
+
+    <!-- ===== CREATIVES ===== -->
+    <section class="view" id="v-creatives"><div class="gallery" id="gallery"></div></section>
+
+    <!-- ===== SDĚLENÍ ===== -->
+    <section class="view" id="v-sdeleni"><div class="bubbles" id="bubbles"></div></section>
+
+    <!-- ===== CALENDAR ===== -->
+    <section class="view" id="v-calendar">
+      <div class="panel">
+        <h3>Poptávka podle měsíce (loni)</h3>
+        <div class="cap">Křivka vrcholí přesně tam, kde už nejde testovat — proto freeze 1. 11.</div>
+        <div id="season"></div>
+      </div>
+      <div class="sec-h" style="margin-top:22px"><h2>Nová kreativa každé 2 týdny</h2></div>
+      <div class="cap" style="color:var(--ink-2);font-size:13px;margin:0 2px 10px">To, co automaticky připomíná robot každý 1. a 15.</div>
+      <div class="lane" id="lane"></div>
+    </section>
+
+    <!-- ===== NEEDS YOU ===== -->
+    <section class="view" id="v-todo"><div class="todo" id="todo"></div></section>
+  </main>
+</div>
 
 <!-- creative modal -->
 <div class="modal" id="modal">
-  <div class="sheet">
-    <div class="grid">
-      <div class="stage">
-        <img id="mImg" alt="">
-        <div class="fmts" id="mFmts"></div>
-      </div>
-      <div class="info">
-        <button class="close" onclick="closeM()">✕</button>
-        <div class="tag" id="mTag"></div>
-        <h2 id="mHead"></h2>
-        <div class="idea" id="mIdea"></div>
-        <div class="body" id="mBody"></div>
-        <div class="meta" id="mMeta"></div>
-        <span class="cta" id="mCta"></span>
-      </div>
+  <div class="sheet"><div class="grid">
+    <div class="stage"><img id="mImg" alt=""><div class="fmts" id="mFmts"></div></div>
+    <div class="info">
+      <button class="close" onclick="closeM()" aria-label="Zavřít"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      <div class="tag-eyebrow" id="mTag"></div>
+      <h2 id="mHead"></h2>
+      <div class="idea" id="mIdea"></div>
+      <div class="body-quote" id="mBody"></div>
+      <div class="meta" id="mMeta"></div>
+      <span class="cta" id="mCta"></span>
     </div>
-  </div>
+  </div></div>
 </div>
 
 <script>
-  const el=(t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
-  const esc=s=>String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); // safe in text AND quoted-attribute positions
-  const grp=n=>String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g," ");
-  const AC=a=>`var(--a-${a})`;
+  const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
+  const esc=s=>String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
-  // ---- data ----
+  /* ---- status model (keys MUST match ORDER_BOARD_STATES in src/studio.js) ---- */
+  const STATUS={
+    queued:           {label:"ve frontě",     chip:"c-neutral"},
+    generating:       {label:"generuje se",   chip:"c-running"},
+    "pending-review": {label:"ke kontrole",   chip:"c-warning"},
+    held:             {label:"potřebuje vás", chip:"c-danger"},
+    "ready-to-send":  {label:"připraveno",    chip:"c-info"},
+    sent:             {label:"odesláno",      chip:"c-success"},
+    failed:           {label:"chyba",         chip:"c-danger"}
+  };
+  const statusMeta=s=>STATUS[s]||{label:s,chip:"c-neutral"};
+  const chipHtml=s=>{const m=statusMeta(s);return `<span class="chip ${m.chip}"><span class="dot"></span>${esc(m.label)}</span>`;};
+
+  /* ---- static marketing content (unchanged; restyled) ---- */
   const CREATIVES=[
-    {key:"christmas", tag:"VÁNOCE", angle:"GIFT", headline:"Dárek, který nikdo jiný mít nebude",
-     idea:"Letní vzpomínka proměněná v osobní vánoční dárek pod stromeček.",
-     body:"Z vaší letní fotky uděláme osobní omalovánku do Vánoc.", cta:"Vytvořit fotomalovánky"},
-    {key:"mikulas", tag:"MIKULÁŠ · 5. 12.", angle:"GIFT", headline:"Malý dárek od Mikuláše",
-     idea:"Malý osobní dárek k Mikuláši — něco lepšího než uhlí.",
-     body:"Osobní omalovánka, na které se dítě pozná.", cta:"Vytvořit fotomalovánky"},
-    {key:"blackfriday", tag:"BLACK FRIDAY", angle:"GIFT", headline:"Celý dárek v jedné krabici",
-     idea:"Bundle místo slevy — omalovánka a pastelky pohromadě, hotový dárek.",
-     body:"K omalovánce z vaší fotky přibalíme i pastelky.", cta:"Vytvořit fotomalovánky"},
-    {key:"backtoschool", tag:"ZPÁTKY DO ŠKOLY", angle:"EMO", headline:"Kus léta, který zůstane",
-     idea:"Prázdninová fotka jako hmatatelná vzpomínka, když začíná škola.",
-     body:"Než prázdninové fotky zapadnou v mobilu, uděláme z nich omalovánku.", cta:"Vytvořit fotomalovánky"},
-    {key:"together", tag:"SPOLEČNÝ ČAS", angle:"TOGETHER", headline:"Odpoledne, u kterého sedí celá rodina",
-     idea:"Aktivita, u které sedí celá rodina u jednoho stolu.",
-     body:"Omalovánka z vaší společné fotky. Malujete, a jste u toho spolu.", cta:"Vytvořit fotomalovánky"}
+    {key:"christmas",tag:"VÁNOCE",angle:"GIFT",headline:"Dárek, který nikdo jiný mít nebude",idea:"Letní vzpomínka proměněná v osobní vánoční dárek pod stromeček.",body:"Z vaší letní fotky uděláme osobní omalovánku do Vánoc.",cta:"Vytvořit fotomalovánky"},
+    {key:"mikulas",tag:"MIKULÁŠ · 5. 12.",angle:"GIFT",headline:"Malý dárek od Mikuláše",idea:"Malý osobní dárek k Mikuláši — něco lepšího než uhlí.",body:"Osobní omalovánka, na které se dítě pozná.",cta:"Vytvořit fotomalovánky"},
+    {key:"blackfriday",tag:"BLACK FRIDAY",angle:"GIFT",headline:"Celý dárek v jedné krabici",idea:"Bundle místo slevy — omalovánka a pastelky pohromadě, hotový dárek.",body:"K omalovánce z vaší fotky přibalíme i pastelky.",cta:"Vytvořit fotomalovánky"},
+    {key:"backtoschool",tag:"ZPÁTKY DO ŠKOLY",angle:"EMO",headline:"Kus léta, který zůstane",idea:"Prázdninová fotka jako hmatatelná vzpomínka, když začíná škola.",body:"Než prázdninové fotky zapadnou v mobilu, uděláme z nich omalovánku.",cta:"Vytvořit fotomalovánky"},
+    {key:"together",tag:"SPOLEČNÝ ČAS",angle:"TOGETHER",headline:"Odpoledne, u kterého sedí celá rodina",idea:"Aktivita, u které sedí celá rodina u jednoho stolu.",body:"Omalovánka z vaší společné fotky. Malujete, a jste u toho spolu.",cta:"Vytvořit fotomalovánky"}
   ];
   const FMTS=[["","Feed 4:5"],["-square","Čtverec"],["-story","Story"]];
-
+  const ANGLE_CHIP={EMO:"c-purple",GIFT:"c-warning",FUN:"c-danger",PROOF:"c-success",TOGETHER:"c-success",RELAX:"c-purple",SIMPLE:"c-info",SCREEN:"c-info"};
   const ANGLES=[
-    {c:"EMO",claim:"Dítě se pozná na papíře.",n:14},
-    {c:"GIFT",claim:"Dárek, který nikdo jiný nedá.",n:13},
-    {c:"FUN",claim:"Humor zastaví scroll.",n:7},
-    {c:"PROOF",claim:"Ostatní už koupili.",n:5},
-    {c:"TOGETHER",claim:"Celá rodina u jednoho stolu.",n:3},
-    {c:"RELAX",claim:"Antistres pro dospělé.",n:3},
-    {c:"SIMPLE",claim:"Nahrajete fotku, zbytek je na nás.",n:3},
-    {c:"SCREEN",claim:"Od tabletu zpátky k papíru.",n:2}
+    {c:"EMO",claim:"Dítě se pozná na papíře.",n:14},{c:"GIFT",claim:"Dárek, který nikdo jiný nedá.",n:13},
+    {c:"FUN",claim:"Humor zastaví scroll.",n:7},{c:"PROOF",claim:"Ostatní už koupili.",n:5},
+    {c:"TOGETHER",claim:"Celá rodina u jednoho stolu.",n:3},{c:"RELAX",claim:"Antistres pro dospělé.",n:3},
+    {c:"SIMPLE",claim:"Nahrajete fotku, zbytek je na nás.",n:3},{c:"SCREEN",claim:"Od tabletu zpátky k papíru.",n:2}
   ];
   const maxA=Math.max(...ANGLES.map(a=>a.n));
-
-  // Live order board (Objednávky + Potřebuje vás) — fed by GET /api/studio, not a literal. The
-  // per-status Czech labels and colours; everything else on the board is derived server-side.
-  // These keys MUST match ORDER_BOARD_STATES in src/studio.js — a server state with no entry here
-  // renders as a grey badge with the raw key and drops off the KPI strip (studioSmoke guards it).
-  const STATUS={
-    queued:           {label:"ve frontě",     c:"var(--faint)"},
-    generating:       {label:"generuje se",   c:"var(--blue)"},
-    "pending-review": {label:"ke kontrole",   c:"var(--amber)"},
-    held:             {label:"potřebuje vás", c:"var(--red)"},
-    "ready-to-send":  {label:"k odeslání",    c:"var(--green)"},
-    sent:             {label:"odesláno",      c:"var(--teal)"},
-    failed:           {label:"chyba",         c:"var(--red)"}
-  };
-  const statusMeta=s=>STATUS[s]||{label:s,c:"var(--muted)"};
-  const BOARD_KPIS=["ready-to-send","pending-review","held","generating","sent"];
-
   const SEASON={demand:[["Čvc",17],["Srp",22],["Zář",3],["Říj",2],["Lis",65],["Pro",150]]};
+  const MON=["LED","ÚNO","BŘE","DUB","KVĚ","ČVN","ČVC","SRP","ZÁŘ","ŘÍJ","LIS","PRO"];
   const LANE=[
     {d:"14.7.",code:"E23",t:"TOGETHER — nedělní stůl",a:"TOGETHER",now:true},
     {d:"28.7.",code:"E24",t:"TOGETHER — dvě generace",a:"TOGETHER"},
@@ -335,188 +196,231 @@
     {d:"1.12.",code:"M1",t:"Dárek od Mikuláše",a:"GIFT"},
     {d:"15.12.",code:"X4",t:"Poukaz na poslední chvíli",a:"GIFT"}
   ];
-  // ---- home ----
-  const TILES=[
-    {v:"generator", href:"/review", em:"🖍️", c:"var(--teal)", h:"Generátor", b:"Nové", s:"objednávky → omalovánky → PDF"},
-    {v:"creatives", em:"🎨", c:"var(--amber)", h:"Kreativy", b:CREATIVES.length, s:"hotových vizuálů"},
-    {v:"angles", em:"🎯", c:"var(--blue)", h:"Angly", b:8, s:"sdělení"},
-    {v:"calendar", em:"📅", c:"var(--green)", h:"Kalendář", b:"Q4", s:"cesta k Vánocům"},
-    {v:"orders", em:"📈", c:"var(--red)", h:"Objednávky", b:"–", s:"objednávek"},
-    {v:"todo", em:"✋", c:"var(--purple)", h:"Potřebuje vás", b:"–", s:"potřebují vás"}
-  ];
-  const ht=document.getElementById("homeTiles");
-  TILES.forEach(t=>{
-    const b=el("button","tile"); b.style.setProperty("--c",t.c); b.dataset.tile=t.v;
-    b.onclick = t.href ? ()=>{ location.href=t.href; } : ()=>go(t.v);
-    b.append(el("span","blob"));
-    b.append(el("div","em",t.em));
-    b.append(el("h3",null,esc(t.h)));
-    b.append(el("div","stat",`<b>${t.b}</b>${esc(t.s)}`));
-    b.append(el("div","go","→"));
-    ht.append(b);
-  });
 
-  // ---- creatives gallery ----
-  document.getElementById("cCount").textContent=CREATIVES.length+" vizuálů · 3 formáty každý";
+  const VIEW_META={
+    home:{t:'Dobrý den, David! <span aria-hidden="true">👋</span>',s:"Tady je přehled toho, co se dnes děje ve studiu."},
+    orders:{t:"Objednávky",s:"Výrobní fronta — nejstarší nahoře, živě z generátoru."},
+    creatives:{t:"Kreativy",s:CREATIVES.length+" vizuálů · 3 formáty každý."},
+    sdeleni:{t:"Sdělení",s:"8 sdělení pro kampaně."},
+    calendar:{t:"Kalendář",s:"Sezóna a plán kreativ."},
+    todo:{t:"Potřebuje vás",s:"Vše, co čeká na vaše rozhodnutí."}
+  };
+
+  /* ---- live board from /api/studio ---- */
+  let studioData=null;
+
+  function orderFaceSvg(){return '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="9" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>';}
+
+  function orderRow(o){
+    const ph=o.photos.total?`${o.photos.eligible}/${o.photos.total}`:"–";
+    return `<tr>
+      <td><span class="oid">${esc(o.orderId)}</span></td>
+      <td class="mono">${ph}</td>
+      <td><span class="ded-cell">${o.dedication?"„"+esc(o.dedication)+"“":"—"}</span></td>
+      <td>${chipHtml(o.status)}</td></tr>`;
+  }
+
+  function renderHome(d){
+    document.getElementById("kpi-queued").textContent=d.counts.queued||0;
+    document.getElementById("kpi-generating").textContent=d.counts.generating||0;
+    document.getElementById("kpi-held").textContent=d.counts.held||0;
+    document.getElementById("kpi-ready").textContent=d.counts["ready-to-send"]||0;
+    document.getElementById("kpi-sent").textContent=d.counts.sent||0;
+    // sidebar counts
+    document.getElementById("nav-orders").textContent=d.counts.total||0;
+    document.getElementById("nav-gen").textContent=d.counts.generating||0;
+    document.getElementById("nav-todo").textContent=(d.needsYou||[]).length;
+    renderContinue(d);
+    // recent orders — newest first
+    const recent=[...d.orders].reverse().slice(0,6);
+    const rb=document.getElementById("recentBody");
+    rb.innerHTML=recent.length?recent.map(orderRow).join(""):'<tr><td colspan="4" class="empty">Zatím žádné objednávky ve složce.</td></tr>';
+  }
+
+  function renderContinue(d){
+    const row=document.getElementById("continueRow");
+    const pick=d.orders.find(o=>o.status==="ready-to-send")||d.orders.find(o=>o.status==="pending-review");
+    let c1;
+    if(pick){
+      const ready=pick.status==="ready-to-send";
+      const pct=pick.photos.total?Math.round(pick.photos.eligible/pick.photos.total*100):0;
+      c1=`<div class="card cwork"><div class="head"><h3>Objednávka ${esc(pick.orderId)}</h3>${chipHtml(pick.status)}</div>
+        <div class="meta">
+          <div style="display:flex;align-items:center;gap:8px"><span class="mono" style="font-weight:600;font-size:13px">${pick.photos.eligible}/${pick.photos.total}</span><span style="color:var(--ink-2);font-size:12.5px">${ready?"schváleno":"zkontrolováno"}</span></div>
+          <div class="progress"><i style="width:${pct}%"></i></div>
+          <div class="note">${pick.dedication?"Titulek „"+esc(pick.dedication)+"“":"Bez titulku"}</div>
+          <a class="btn btn-primary mt" href="/review">${ready?"Dokončit PDF":"Zkontrolovat"} <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+        </div></div>`;
+    } else {
+      c1=`<div class="card cwork"><div class="head"><h3>Pokračovat</h3></div><div class="meta"><div class="note">Nic právě nečeká na dokončení. Až se něco vygeneruje nebo schválí, objeví se tady.</div><a class="btn btn-secondary mt" href="/review">Otevřít generátor</a></div></div>`;
+    }
+    const gen=d.counts.generating||0;
+    const c2=`<div class="card cwork"><div class="head"><h3>Generování</h3>${gen?`<span class="chip c-running"><span class="dot"></span>${gen} aktivní</span>`:'<span class="chip c-neutral"><span class="dot"></span>klid</span>'}</div>
+      <div class="body"><div class="meta">
+        <div style="color:var(--ink-2);font-size:12.5px">${gen?gen+" úloh právě běží":"Žádná úloha právě neběží"}</div>
+        <div class="progress run"><i style="width:${gen?"62%":"0%"}"></i></div>
+        <a class="btn btn-secondary mt" href="/review">Zobrazit frontu <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+      </div>
+      <div class="gen-visual"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/><path d="M18 2v3M21 4h-3"/></svg></div></div></div>`;
+    row.innerHTML=c1+c2;
+  }
+
+  function renderOrders(d){
+    const b=document.getElementById("ordersBody");
+    b.innerHTML=d.orders.length?d.orders.map(orderRow).join(""):'<tr><td colspan="4" class="empty">Zatím žádné objednávky ve složce.</td></tr>';
+  }
+
+  function renderNeedsYou(d){
+    const list=d.needsYou||[], tw=document.getElementById("todo");
+    tw.innerHTML="";
+    if(!list.length){tw.append(el("div","empty","Nic nečeká — všechny vstupy jsou v pořádku."));return;}
+    list.forEach(o=>{
+      const item=el("div","item");
+      item.innerHTML=`<div class="k">objednávka ${esc(o.orderId)}</div><h3>${esc(o.reason||"Potřebuje vás")}</h3>`;
+      if(o.draftEmail){
+        const ta=el("textarea","mail");ta.value=o.draftEmail;ta.readOnly=true;item.append(ta);
+        const btn=el("button","btn btn-secondary copy","Kopírovat e-mail");
+        btn.onclick=async()=>{
+          try{await navigator.clipboard.writeText(o.draftEmail);}
+          catch{ta.focus();ta.select();try{document.execCommand("copy");}catch{}}
+          btn.textContent="Zkopírováno ✓";btn.classList.add("ok");
+          setTimeout(()=>{btn.textContent="Kopírovat e-mail";btn.classList.remove("ok");},1600);
+        };
+        item.append(btn);
+      }
+      tw.append(item);
+    });
+  }
+
+  function renderStudio(){
+    if(!studioData)return;
+    renderHome(studioData);renderOrders(studioData);renderNeedsYou(studioData);
+  }
+  async function fetchStudio(){
+    try{const res=await fetch("/api/studio");if(!res.ok)return;studioData=await res.json();renderStudio();}
+    catch(e){/* offline / not the live server — keep the last board */}
+  }
+  setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["home","orders","todo"].includes(v))fetchStudio();},2500);
+
+  /* ---- creatives gallery + modal ---- */
   const gal=document.getElementById("gallery");
   CREATIVES.forEach(c=>{
-    const b=el("button","cw"); b.onclick=()=>openM(c.key);
+    const b=el("button","cw");b.onclick=()=>openM(c.key);
     b.innerHTML=`<div class="frame"><img loading="lazy" src="creatives/graphics/${c.key}.svg" alt="${esc(c.headline)}"></div>
-      <div class="cap"><span class="nm">${esc(c.tag)}</span><span class="chip" style="--h:${AC(c.angle)}">${c.angle}</span></div>`;
+      <div class="cap"><span class="nm">${esc(c.tag)}</span><span class="chip ${ANGLE_CHIP[c.angle]||"c-neutral"}">${esc(c.angle)}</span></div>`;
     gal.append(b);
   });
-
-  // ---- modal ----
-  let curKey=null, curFmt="";
+  let curKey=null,curFmt="";
   function openM(key){
-    const c=CREATIVES.find(x=>x.key===key); curKey=key; curFmt="";
+    const c=CREATIVES.find(x=>x.key===key);curKey=key;curFmt="";
     document.getElementById("mTag").textContent=c.tag;
-    document.getElementById("mTag").style.setProperty("--h",AC(c.angle));
     document.getElementById("mHead").textContent=c.headline;
     document.getElementById("mIdea").textContent=c.idea;
     document.getElementById("mBody").textContent="„"+c.body+"“";
-    const cta=document.getElementById("mCta"); cta.textContent=c.cta+" →"; cta.style.setProperty("--h",AC(c.angle));
-    document.getElementById("mMeta").innerHTML=`<span class="chip solid" style="--h:${AC(c.angle)}">${c.angle}</span><span class="chip" style="--h:var(--muted)">standalone · bez fotky</span>`;
-    const fw=document.getElementById("mFmts"); fw.innerHTML="";
+    const cta=document.getElementById("mCta");cta.textContent=c.cta+" →";
+    document.getElementById("mMeta").innerHTML=`<span class="chip ${ANGLE_CHIP[c.angle]||"c-neutral"}">${esc(c.angle)}</span><span class="chip c-neutral">standalone · bez fotky</span>`;
+    const fw=document.getElementById("mFmts");fw.innerHTML="";
     FMTS.forEach(([sfx,lbl],i)=>{
-      const f=el("button","fmt"+(i===0?" on":""),esc(lbl)); f.style.setProperty("--h",AC(c.angle));
-      f.onclick=()=>{curFmt=sfx; [...fw.children].forEach(x=>x.classList.remove("on")); f.classList.add("on"); paint();};
+      const f=el("button","fmt"+(i===0?" on":""),esc(lbl));
+      f.onclick=()=>{curFmt=sfx;[...fw.children].forEach(x=>x.classList.remove("on"));f.classList.add("on");paintM();};
       fw.append(f);
     });
-    paint();
-    document.getElementById("modal").classList.add("on"); document.body.style.overflow="hidden";
+    paintM();document.getElementById("modal").classList.add("on");document.body.style.overflow="hidden";
   }
-  function paint(){ document.getElementById("mImg").src=`creatives/graphics/${curKey}${curFmt}.svg`; }
-  function closeM(){ document.getElementById("modal").classList.remove("on"); document.body.style.overflow=""; }
-  document.getElementById("modal").onclick=e=>{ if(e.target.id==="modal") closeM(); };
+  function paintM(){document.getElementById("mImg").src=`creatives/graphics/${curKey}${curFmt}.svg`;}
+  function closeM(){document.getElementById("modal").classList.remove("on");document.body.style.overflow="";}
+  document.getElementById("modal").onclick=e=>{if(e.target.id==="modal")closeM();};
 
-  // ---- angles ----
+  /* ---- sdělení bubbles ---- */
   const bw=document.getElementById("bubbles");
   ANGLES.forEach(a=>{
-    const d=el("div","bub"); d.style.setProperty("--h",AC(a.c));
-    d.innerHTML=`<div class="top"><span class="dot"></span><span class="code">${a.c}</span><span class="n">${a.n}×</span></div>
+    const d=el("div","bub");
+    d.innerHTML=`<div class="top"><span class="chip ${ANGLE_CHIP[a.c]||"c-neutral"}">${esc(a.c)}</span><span class="n">${a.n}×</span></div>
       <div class="claim">${esc(a.claim)}</div><div class="track"><i style="width:${Math.round(a.n/maxA*100)}%"></i></div>`;
     bw.append(d);
   });
 
-  // ---- orders + needs-you: live from /api/studio ----
-  let studioData=null;
-
-  function renderKpis(data){
-    const kw=document.getElementById("kpis"); kw.innerHTML="";
-    BOARD_KPIS.forEach(s=>{
-      const m=statusMeta(s), d=el("div","kpi"); d.style.setProperty("--c",m.c);
-      d.innerHTML=`<div class="v">${data.counts[s]||0}</div><div class="k">${esc(m.label)}</div>`;
-      kw.append(d);
-    });
-  }
-
-  function renderQueue(data){
-    document.getElementById("oSpan").textContent = data.counts.total ? `${data.counts.total} objednávek · nejstarší nahoře` : "";
-    const q=document.getElementById("queue"); q.innerHTML="";
-    if(!data.orders.length){ q.append(el("div","empty","Zatím žádné objednávky ve složce.")); return; }
-    data.orders.forEach(o=>{
-      const m=statusMeta(o.status), row=el("div","orow");
-      const ph=o.photos.total ? `${o.photos.eligible}/${o.photos.total} fotek` : "";
-      const ded=o.dedication ? `<span class="ded">„${esc(o.dedication)}“</span>` : "";
-      row.innerHTML=`<span class="id">${esc(o.orderId)}</span>`+
-        `<span class="badge" style="--h:${m.c}"><span class="dot"></span>${esc(m.label)}</span>`+
-        `<span class="ph">${esc(ph)}</span>${ded}`;
-      q.append(row);
-    });
-  }
-
-  function renderNeedsYou(data){
-    const list=data.needsYou||[];
-    document.getElementById("todoSpan").textContent = list.length ? `${list.length} k vyřešení` : "vše vyřízeno";
-    const tw=document.getElementById("todo"); tw.innerHTML="";
-    if(!list.length){ tw.append(el("div","empty","Nic nečeká — všechny vstupy jsou v pořádku.")); return; }
-    list.forEach(o=>{
-      const d=el("div","item");
-      d.innerHTML=`<div class="k">objednávka ${esc(o.orderId)}</div><h3>${esc(o.reason||"Potřebuje vás")}</h3>`;
-      if(o.draftEmail){
-        const ta=el("textarea","mail"); ta.value=o.draftEmail; ta.readOnly=true; d.append(ta);
-        const btn=el("button","copy","Kopírovat e-mail");
-        btn.onclick=async()=>{
-          try{ await navigator.clipboard.writeText(o.draftEmail); }
-          catch{ ta.focus(); ta.select(); try{ document.execCommand("copy"); }catch{} }
-          btn.textContent="Zkopírováno ✓"; btn.classList.add("ok");
-          setTimeout(()=>{ btn.textContent="Kopírovat e-mail"; btn.classList.remove("ok"); },1600);
-        };
-        d.append(btn);
-      }
-      tw.append(d);
-    });
-  }
-
-  function updateHomeTiles(data){
-    const ord=document.querySelector('.tile[data-tile="orders"] .stat');
-    if(ord) ord.innerHTML=`<b>${data.counts.total||0}</b>objednávek`;
-    const td=document.querySelector('.tile[data-tile="todo"] .stat');
-    if(td) td.innerHTML=`<b>${(data.needsYou||[]).length}</b>potřebují vás`;
-  }
-
-  function renderStudio(){
-    if(!studioData) return;
-    renderKpis(studioData); renderQueue(studioData); renderNeedsYou(studioData); updateHomeTiles(studioData);
-  }
-
-  async function fetchStudio(){
-    try{
-      const res=await fetch("/api/studio");
-      if(!res.ok) return;
-      studioData=await res.json();
-      renderStudio();
-    }catch(e){ /* not the live server, or offline — keep the last board rather than blanking it */ }
-  }
-
-  // Poll only while an order tab is open; the marketing tabs are static and need no refresh.
-  setInterval(()=>{ const v=(location.hash||"#home").slice(1); if(v==="orders"||v==="todo") fetchStudio(); },2500);
-
-  // ---- calendar ----
+  /* ---- calendar: season chart + lane ---- */
   (function season(){
-    const D=SEASON.demand,W=720,H=200,pL=8,pR=8,pT=26,pB=22,pw=W-pL-pR,ph=H-pT-pB,n=D.length,yB=pT+ph;
+    const D=SEASON.demand,W=760,H=200,pL=8,pR=8,pT=26,pB=22,pw=W-pL-pR,ph=H-pT-pB,n=D.length,yB=pT+ph;
     const slot=pw/n,mv=Math.max(...D.map(d=>d[1])),cx=i=>pL+slot*i+slot/2,cy=v=>yB-v/mv*ph,fx=pL+slot*4;
-    let s=`<rect x="${pL}" y="${pT}" width="${(slot*4).toFixed(1)}" height="${ph}" rx="10" fill="color-mix(in srgb,var(--blue) 10%,transparent)"/>`+
-      `<rect x="${fx.toFixed(1)}" y="${pT}" width="${(slot*2).toFixed(1)}" height="${ph}" rx="10" fill="color-mix(in srgb,var(--red) 12%,transparent)"/>`+
-      `<text x="${(pL+slot*2).toFixed(1)}" y="${pT-9}" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--blue)">TEST</text>`+
-      `<text x="${(fx+slot).toFixed(1)}" y="${pT-9}" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--red)">FREEZE → PEAK</text>`;
+    let s=`<rect x="${pL}" y="${pT}" width="${(slot*4).toFixed(1)}" height="${ph}" rx="10" fill="var(--info-soft)"/>`+
+      `<rect x="${fx.toFixed(1)}" y="${pT}" width="${(slot*2).toFixed(1)}" height="${ph}" rx="10" fill="var(--danger-soft)"/>`+
+      `<text x="${(pL+slot*2).toFixed(1)}" y="${pT-9}" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--info)">TEST</text>`+
+      `<text x="${(fx+slot).toFixed(1)}" y="${pT-9}" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--danger)">FREEZE → PEAK</text>`;
     let area=`M ${cx(0).toFixed(1)} ${yB}`,line="";
-    D.forEach((d,i)=>{area+=` L ${cx(i).toFixed(1)} ${cy(d[1]).toFixed(1)}`; line+=(i?"L":"M")+cx(i).toFixed(1)+" "+cy(d[1]).toFixed(1)+" ";});
+    D.forEach((d,i)=>{area+=` L ${cx(i).toFixed(1)} ${cy(d[1]).toFixed(1)}`;line+=(i?"L":"M")+cx(i).toFixed(1)+" "+cy(d[1]).toFixed(1)+" ";});
     area+=` L ${cx(n-1).toFixed(1)} ${yB} Z`;
-    s+=`<path d="${area}" fill="color-mix(in srgb,var(--amber) 22%,transparent)"/><path d="${line.trim()}" fill="none" stroke="var(--amber)" stroke-width="3" stroke-linejoin="round"/>`;
-    D.forEach((d,i)=>s+=`<circle cx="${cx(i).toFixed(1)}" cy="${cy(d[1]).toFixed(1)}" r="${i>=4?4:2.6}" fill="var(--amber)"/>`);
-    s+=`<text x="${cx(5).toFixed(1)}" y="${(cy(150)-8).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="900" fill="var(--red)">150</text>`;
-    s+=`<line x1="${fx.toFixed(1)}" y1="${pT}" x2="${fx.toFixed(1)}" y2="${yB}" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
-    D.forEach((d,i)=>s+=`<text x="${cx(i).toFixed(1)}" y="${(yB+15).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="800" fill="var(--text)">${esc(d[0])}</text>`);
+    s+=`<path d="${area}" fill="var(--warning-soft)"/><path d="${line.trim()}" fill="none" stroke="var(--warning)" stroke-width="2.5" stroke-linejoin="round"/>`;
+    D.forEach((d,i)=>s+=`<circle cx="${cx(i).toFixed(1)}" cy="${cy(d[1]).toFixed(1)}" r="${i>=4?4:2.6}" fill="var(--warning)"/>`);
+    s+=`<line x1="${fx.toFixed(1)}" y1="${pT}" x2="${fx.toFixed(1)}" y2="${yB}" stroke="var(--danger)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    D.forEach((d,i)=>s+=`<text x="${cx(i).toFixed(1)}" y="${(yB+15).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--ink-2)">${esc(d[0])}</text>`);
     document.getElementById("season").innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H}">${s}</svg>`;
   })();
   const lane=document.getElementById("lane");
-  LANE.forEach(f=>{const d=el("div","fn"+(f.now?" now":"")); d.style.setProperty("--h",AC(f.a));
+  LANE.forEach(f=>{const d=el("div","fn"+(f.now?" now":""));
     d.innerHTML=`<div class="d">${esc(f.d)}</div>${f.now?'<div class="now-b">nejbližší</div>':""}<div class="code">${esc(f.code)}</div><div class="t">${esc(f.t)}</div>`;
     lane.append(d);});
 
-  // ---- router ----
-  const views=["home","creatives","angles","calendar","orders","todo"];
+  /* ---- mini month: July 2026 (1st = Wed; today = Sat 11) ---- */
+  (function(){
+    const wd=["PO","ÚT","ST","ČT","PÁ","SO","NE"],grid=document.getElementById("calGrid");
+    wd.forEach(w=>{const e=el("div","wd",w);grid.append(e);});
+    const cells=[];[29,30].forEach(n=>cells.push({n,mut:true}));
+    for(let i=1;i<=31;i++)cells.push({n:i,mut:false});
+    [1,2].forEach(n=>cells.push({n,mut:true}));
+    const events={8:["--purple"],11:["--info","--warning"],17:["--purple"],21:["--warning"],25:["--purple"]};
+    cells.forEach(c=>{
+      const d=el("div","d"+(c.mut?" mut":"")+(!c.mut&&c.n===11?" today":""));
+      d.innerHTML="<span>"+c.n+"</span>";
+      if(!c.mut&&events[c.n]){let ev='<span class="ev">';events[c.n].forEach(col=>ev+=`<i style="background:var(${col})"></i>`);ev+="</span>";d.innerHTML+=ev;}
+      grid.append(d);
+    });
+  })();
+
+  /* ---- upcoming list (from the creative lane) ---- */
+  (function(){
+    const up=document.getElementById("upList");
+    LANE.slice(0,5).forEach(f=>{
+      const [day,mon]=f.d.replace(/\.$/,"").split(".").map(Number);
+      const it=el("div","up-item");
+      it.innerHTML=`<div class="up-date"><div class="dow">${MON[mon-1]||""}</div><div class="dnum">${day}</div></div>
+        <div class="up-body"><div class="tt"><b>${esc(f.t)}</b><span class="tag ${ANGLE_CHIP[f.a]||"c-neutral"}">${esc(f.code)}</span></div><span>Spuštění kreativy</span></div>
+        <div class="avatar" style="width:24px;height:24px;font-size:10px">D</div>`;
+      up.append(it);
+    });
+  })();
+
+  /* ---- router ---- */
+  const views=["home","orders","creatives","sdeleni","calendar","todo"];
+  function setActiveNav(v){document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.view===v));}
   function go(v){
-    if(!views.includes(v)) v="home";
+    if(!views.includes(v))v="home";
     views.forEach(x=>document.getElementById("v-"+x).classList.toggle("on",x===v));
-    document.getElementById("backBtn").style.display = v==="home" ? "none" : "inline-flex";
-    if(location.hash!=="#"+v) history.pushState(null,"","#"+v);
-    if(v==="orders"||v==="todo") fetchStudio(); // fresh board the moment the operator opens it
+    setActiveNav(v);
+    const m=VIEW_META[v];document.getElementById("pageTitle").innerHTML=m.t;document.getElementById("pageSub").textContent=m.s;
+    if(location.hash!=="#"+v)history.pushState(null,"","#"+v);
+    if(["home","orders","todo"].includes(v))fetchStudio();
     window.scrollTo({top:0,behavior:"instant"});
   }
   window.addEventListener("popstate",()=>go((location.hash||"#home").slice(1)));
-  document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ if(document.getElementById("modal").classList.contains("on")) closeM(); else if((location.hash||"#home")!=="#home") go("home"); }});
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){if(document.getElementById("modal").classList.contains("on"))closeM();else if((location.hash||"#home")!=="#home")go("home");}});
 
-  // ---- theme ----
-  const root=document.documentElement, tb=document.getElementById("theme");
-  const saved=localStorage.getItem("fm-theme");
-  if(saved) root.setAttribute("data-theme",saved);
-  const paintTheme=()=>{const dark = root.getAttribute("data-theme")==="dark" || (!root.hasAttribute("data-theme") && matchMedia("(prefers-color-scheme:dark)").matches); tb.textContent=dark?"☾":"☀";};
-  paintTheme();
-  tb.onclick=()=>{const cur=root.getAttribute("data-theme")|| (matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light"); const nx=cur==="dark"?"light":"dark"; root.setAttribute("data-theme",nx); localStorage.setItem("fm-theme",nx); paintTheme();};
+  /* ---- theme ---- */
+  (function(){
+    const root=document.documentElement,label=document.getElementById("themeLabel"),icon=document.getElementById("themeIcon");
+    const sun='<circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+    const moon='<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+    const saved=localStorage.getItem("fm-theme");if(saved)root.setAttribute("data-theme",saved);
+    function isDark(){const t=root.getAttribute("data-theme");if(t)return t==="dark";return matchMedia("(prefers-color-scheme:dark)").matches;}
+    function sync(){const d=isDark();label.textContent=d?"Světlý režim":"Tmavý režim";icon.innerHTML=d?sun:moon;}
+    function toggle(){const nx=isDark()?"light":"dark";root.setAttribute("data-theme",nx);localStorage.setItem("fm-theme",nx);sync();}
+    document.getElementById("themeBtn").addEventListener("click",toggle);
+    document.getElementById("themeBtn2").addEventListener("click",toggle);
+    matchMedia("(prefers-color-scheme:dark)").addEventListener("change",sync);
+    sync();
+  })();
 
   go((location.hash||"#home").slice(1));
-  fetchStudio(); // populate the live board and the home tile counts on load
+  fetchStudio();
 </script>
