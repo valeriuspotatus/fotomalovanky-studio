@@ -8,7 +8,7 @@ import { runPipeline, buildabilityProblem, formatEvent, ORDER_STATUS } from '../
 import { approve, setOrderDedication, overrideIntake } from '../src/review.js';
 import { GeneratorError } from '../src/generator/driver.js';
 import { BuilderError } from '../src/builder/builderDriver.js';
-import { STATES, readManifest, getStatus, getDedication, emptyManifest, setDedication, writeManifest, manifestPath } from '../src/manifest.js';
+import { STATES, readManifest, getStatus, getDedication, getIntake, emptyManifest, setDedication, writeManifest, manifestPath } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
 
 /** A stand-in coloring raster: 1px lines with white paper between them. Half ink, but nothing
@@ -749,6 +749,31 @@ test('"generate it anyway" clears the hold on the next run', async () => {
     assert.equal(orders[0].status, ORDER_STATUS.DONE, 'the override lets it through despite the hold');
     assert.deepEqual(generator.calls, ['a']);
     assert.ok(existsSync(orders[0].pdfPath));
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a hold that lifts on its own clears the stale block and its draft email, and the book prints', async () => {
+  const f = fixture({ 1510: ['a'] });
+  try {
+    // First run: intake holds it, storing a hold verdict and a draft email beside the order.
+    const first = await run(f, { intake: holdIntake() });
+    const { orderDir } = first.orders[0];
+    assert.equal(first.orders[0].status, ORDER_STATUS.HELD);
+    assert.ok(existsSync(join(orderDir, 'draft-email.txt')), 'the hold leaves a draft email');
+    assert.equal(readManifest(orderDir).intake.verdict, 'hold');
+
+    // The customer sent the missing photos: the next run's intake passes on its own — no override,
+    // no force. The lingering hold must not keep a now-buildable order reading held.
+    const generator = new StubGenerator();
+    const builder = new StubBuilder();
+    const { orders } = await run(f, { generator, builder, intake: OK_INTAKE });
+
+    assert.equal(orders[0].status, ORDER_STATUS.DONE, 'the recovered order builds');
+    assert.ok(existsSync(orders[0].pdfPath));
+    assert.equal(getIntake(readManifest(orderDir)), null, 'the stale hold block is cleared');
+    assert.ok(!existsSync(join(orderDir, 'draft-email.txt')), 'and its draft email is removed');
   } finally {
     f.cleanup();
   }

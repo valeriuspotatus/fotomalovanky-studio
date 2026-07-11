@@ -46,6 +46,30 @@ test('the active run marks its order generating; the ones behind it stay queued'
   assert.equal(deriveOrderStatus(o, { generating: false }), ORDER_BOARD_STATES.QUEUED);
 });
 
+test('a stored intake hold stops meaning held once the order has generated and built (P1 recovery)', () => {
+  // The customer's replacement made intake pass; the order generated + built, but the stale hold
+  // block lingered. With photos generated (pending < total) it must read ready-to-send, not held.
+  const fixed = order('1479', summary({ total: 2, eligible: 2, pending: 0, ready: true }), {
+    intake: { verdict: 'hold', override: false, findings: [{ check: 'count', verdict: 'hold' }] },
+  });
+  assert.equal(deriveOrderStatus(fixed, { pdfBuilt: true }), ORDER_BOARD_STATES.READY_TO_SEND);
+  // A genuine hold — nothing generated yet (every photo still pending) — still reads held.
+  const stillHeld = order('1480', summary({ total: 2, pending: 2 }), {
+    intake: { verdict: 'hold', override: false, findings: [{ check: 'count', verdict: 'hold' }] },
+  });
+  assert.equal(deriveOrderStatus(stillHeld), ORDER_BOARD_STATES.HELD);
+});
+
+test('a part-generated order with nothing flagged is queued (resumable), not pending-review', () => {
+  // A stopped run left one photo ok, one still to generate, nothing held/failed — Go finishes it.
+  const partial = order('1', summary({ total: 2, eligible: 1, pending: 1 }));
+  assert.equal(deriveOrderStatus(partial, { generating: false }), ORDER_BOARD_STATES.QUEUED);
+});
+
+test('a manual-repair-only order awaits the operator at pending-review', () => {
+  assert.equal(deriveOrderStatus(order('1', summary({ total: 1, manual: 1 }))), ORDER_BOARD_STATES.PENDING_REVIEW);
+});
+
 test('a flagged photo holds the order at pending-review; a failed photo fails it', () => {
   assert.equal(deriveOrderStatus(order('1', summary({ total: 2, eligible: 1, held: 1 }))), ORDER_BOARD_STATES.PENDING_REVIEW);
   assert.equal(deriveOrderStatus(order('1', summary({ total: 2, eligible: 1, failed: 1 }))), ORDER_BOARD_STATES.FAILED);

@@ -175,6 +175,14 @@ export function setIntake(manifest, intake) {
   return manifest;
 }
 
+/** Drop the stored intake block. Used when a previously-held order passes intake on a re-run —
+ *  the hold lifted on its own, so the stale "we're missing photos" verdict must not linger and
+ *  keep the order looking held. */
+export function clearIntake(manifest) {
+  delete manifest.intake;
+  return manifest;
+}
+
 /** Has the operator said "generate it anyway" despite a held intake verdict? */
 export function getIntakeOverride(manifest) {
   return manifest.intake?.override === true;

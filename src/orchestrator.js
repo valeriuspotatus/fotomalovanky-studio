@@ -1,4 +1,4 @@
-import { existsSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, statSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.js';
@@ -18,6 +18,8 @@ import {
   readManifest,
   writeManifest,
   setIntake,
+  getIntake,
+  clearIntake,
   getIntakeOverride,
   isBuilderEligible,
   manifestPath,
@@ -215,6 +217,21 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
       report.push({ orderId, orderDir: intakeDir, summary: null, held: [], failed: [], pdfPath: null, reason, status: ORDER_STATUS.HELD, titled: false });
       onEvent({ type: 'order-done', orderId, status: ORDER_STATUS.HELD, pdfPath: null, reason });
       continue;
+    }
+
+    // The hold lifted on its own: the customer's replacement made intake pass. Clear the stale
+    // hold verdict and its draft email so a now-buildable order stops surfacing as held — both in
+    // the review grid and on the status board. Guarded so a clean order with no stored block is
+    // never rewritten (its state.json mtime is the PDF-cache clock; a needless bump reprints it).
+    // An overridden/forced order whose intake still fails keeps its block: the override flag, not a
+    // cleared verdict, is what releases that one.
+    if (intakeResult.verdict !== 'hold' && existsSync(intakeDir)) {
+      const m = readManifest(intakeDir);
+      if (getIntake(m)) {
+        clearIntake(m);
+        writeManifest(intakeDir, m);
+      }
+      rmSync(join(intakeDir, 'draft-email.txt'), { force: true });
     }
 
     gen ??= createGeneratorDriver(config);

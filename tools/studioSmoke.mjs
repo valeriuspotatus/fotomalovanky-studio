@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { createReviewServer } from '../src/ui/server.js';
+import { ORDER_BOARD_STATES } from '../src/studio.js';
 import { STATES, emptyManifest, setStatus, setIntake, writeManifest } from '../src/manifest.js';
 
 const argv = process.argv.slice(2);
@@ -93,6 +94,16 @@ try {
   const homeHtml = await page.content();
   check('home is the dashboard, not the old analytics', !homeHtml.includes('217710') && !homeHtml.includes('AOV'));
   check('the studio token never reaches the page', !homeHtml.includes(TOKEN));
+
+  // The client STATUS map must label every server board state, or a real status renders as a raw
+  // grey key and vanishes from the KPI strip. Guards the two lists against drift (Phase 2 adds states).
+  const clientStates = await page.evaluate(() => Object.keys(STATUS));
+  const serverStates = Object.values(ORDER_BOARD_STATES);
+  check(
+    'every server board status has a client label',
+    serverStates.every((s) => clientStates.includes(s)),
+    `server: ${serverStates.join(',')} | client: ${clientStates.join(',')}`,
+  );
 
   // --- marketing tabs still render their static content (left untouched) ---
   await page.evaluate(() => go('creatives'));

@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, relative, sep, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 
 const PLACEHOLDER = /REPLACE_WITH|<TOKEN>/i;
@@ -93,8 +93,20 @@ export function validateConfig(cfg) {
   if (whatsappEnabled && !recipient) {
     throw new ConfigError("whatsapp.recipient is required when whatsapp.enabled is true (Jirka's WhatsApp number/id).");
   }
-  const sessionDir =
-    typeof wa.sessionDir === 'string' && wa.sessionDir.trim() ? resolve(wa.sessionDir.trim()) : defaultSessionDir();
+  // An explicit sessionDir is honoured but must land OUTSIDE the repo tree — the LocalAuth store is
+  // a full-account credential, and .gitignore can't catch an arbitrarily-named folder, so a path
+  // inside the tree is one `git add -A` away from committing it. Only the default is trusted blind.
+  let sessionDir = defaultSessionDir();
+  if (typeof wa.sessionDir === 'string' && wa.sessionDir.trim()) {
+    sessionDir = resolve(wa.sessionDir.trim());
+    const rel = relative(process.cwd(), sessionDir);
+    const outsideRepo = isAbsolute(rel) || rel === '..' || rel.startsWith('..' + sep);
+    if (!outsideRepo) {
+      throw new ConfigError(
+        `whatsapp.sessionDir (${sessionDir}) resolves inside the project tree. The LocalAuth store is a full-account credential and must never be committable — use an absolute path outside the repo, or omit it to use the safe default.`,
+      );
+    }
+  }
 
   // The per-order build format (U9): a default layout, plus a product/variant -> layout map. The
   // default mirrors the existing global builder mode so turning delivery on changes no output for

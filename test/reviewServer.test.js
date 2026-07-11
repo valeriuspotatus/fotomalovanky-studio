@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { createReviewServer, openCommand, powershellPath, openExternally, pickFolder, pickFolderScript } from '../src/ui/server.js';
-import { STATES, readManifest, getStatus, setStatus, writeManifest, emptyManifest } from '../src/manifest.js';
+import { STATES, readManifest, getStatus, setStatus, setIntake, writeManifest, emptyManifest } from '../src/manifest.js';
 
 const TOKEN = 'sup3r-s3cret-t0ken-abc123';
 const CONFIG = {
@@ -130,6 +130,40 @@ test('the studio board reports the order derived status, counts, and an empty ne
 
 test('the studio board never leaks the generator token either', async () => {
   assert.ok(!(await (await get('/api/studio')).text()).includes(TOKEN));
+});
+
+test('an intake-held order surfaces under needs-you on the board, with its drafted email', async () => {
+  const r = mkdtempSync(join(tmpdir(), 'fma-held-'));
+  const inb = join(r, 'inbox');
+  const outb = join(r, 'outbox');
+  const dir = join(outb, '1479');
+  mkdirSync(join(inb, '1479'), { recursive: true });
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(inb, '1479', 'a.jpeg'), 'photo');
+  writeFileSync(join(inb, '1479', 'b.jpeg'), 'photo');
+
+  // The intake gate held it: a stored hold verdict and a copy-paste email beside the order — the
+  // exact shape runPipeline leaves behind, minus a running server.
+  const m = emptyManifest('1479');
+  setIntake(m, { verdict: 'hold', override: false, expected: 8, uploaded: 5, unique: 5, findings: [{ check: 'count', verdict: 'hold' }] });
+  writeManifest(dir, m);
+  const draft = 'Komu: babicka@example.cz\nPředmět: Vaše fotky\n\nDobrý den, chybí nám 3 fotky…\n';
+  writeFileSync(join(dir, 'draft-email.txt'), draft);
+
+  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: inb, outboxRoot: outb, memoryRoot: outb });
+  await new Promise((done) => s.listen(0, '127.0.0.1', done));
+  try {
+    const board = await (await fetch(`http://127.0.0.1:${s.address().port}/api/studio`)).json();
+    assert.equal(board.orders[0].status, 'held');
+    assert.equal(board.counts.held, 1);
+    assert.equal(board.needsYou.length, 1);
+    assert.equal(board.needsYou[0].orderId, '1479');
+    assert.match(board.needsYou[0].draftEmail, /babicka@example\.cz/);
+    assert.match(board.needsYou[0].reason, /5 of 8/, 'the why-line reads off the stored intake block');
+  } finally {
+    s.close();
+    rmSync(r, { recursive: true, force: true });
+  }
 });
 
 test('photo files are addressed by (order, base, kind), never by path', async () => {

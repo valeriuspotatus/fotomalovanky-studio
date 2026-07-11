@@ -86,10 +86,21 @@ test('the resolved whatsapp.sessionDir is an absolute path outside the repo tree
   assert.ok(!cfg.whatsapp.sessionDir.startsWith(process.cwd()), `session dir ${cfg.whatsapp.sessionDir} is inside the repo`);
 });
 
-test('an explicit whatsapp.sessionDir is honoured and resolved to an absolute path', () => {
-  const cfg = validateConfig({ ...good, whatsapp: { enabled: true, recipient: '420123456789@c.us', sessionDir: './my-session' } });
+test('an explicit whatsapp.sessionDir OUTSIDE the repo is honoured and resolved to an absolute path', () => {
+  const cfg = validateConfig({ ...good, whatsapp: { enabled: true, recipient: '420123456789@c.us', sessionDir: '../fma-wa-session-outside' } });
   assert.ok(isAbsolute(cfg.whatsapp.sessionDir));
-  assert.match(cfg.whatsapp.sessionDir, /my-session$/);
+  assert.match(cfg.whatsapp.sessionDir, /fma-wa-session-outside$/);
+});
+
+test('an explicit whatsapp.sessionDir INSIDE the repo tree is rejected (never committable)', () => {
+  // The LocalAuth store is a full-account credential; .gitignore can't catch an arbitrary name.
+  for (const inside of ['./wa-session', 'wa-session', 'sub/dir/session', '.']) {
+    assert.throws(
+      () => validateConfig({ ...good, whatsapp: { enabled: true, recipient: 'x@c.us', sessionDir: inside } }),
+      (err) => err instanceof ConfigError && /sessionDir/.test(err.message) && /inside the project tree/.test(err.message),
+      `expected ${inside} to be rejected`,
+    );
+  }
 });
 
 test('defaultSessionDir places the store under an OS per-user data dir, never the cwd', () => {

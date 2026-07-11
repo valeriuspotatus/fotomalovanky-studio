@@ -17,7 +17,8 @@ import { intakeSummary } from './intake.js';
 export const deliveredMarkerPath = (orderDir) => join(orderDir, 'delivered.json');
 
 /** The order-level board statuses. Distinct from the per-photo STATES and from the photo-level
- *  `handoff` (manual repair) — this is where the whole order sits on its way to Jirka. */
+ *  `handoff` (manual repair) — this is where the whole order sits on its way to Jirka. The client
+ *  `STATUS` map in src/ui/static/dashboard.html must carry a label for each of these values. */
 export const ORDER_BOARD_STATES = Object.freeze({
   QUEUED: 'queued',
   GENERATING: 'generating',
@@ -34,7 +35,11 @@ export const ORDER_BOARD_STATES = Object.freeze({
  *  order never generates), and a live run on this order beats any half-finished photo state. */
 export function deriveOrderStatus(order, { generating = false, pdfBuilt = false, delivered = false } = {}) {
   const s = order.summary ?? { total: 0, eligible: 0, held: 0, manual: 0, failed: 0, pending: 0, ready: false };
-  const intakeHeld = order.intake?.verdict === 'hold' && order.intake?.override !== true;
+  // A stored intake hold only means "held" while nothing has generated past it. Generation is
+  // skipped entirely for a held order, so a genuine hold has every photo still pending; once the
+  // customer's fix lets the order generate and build, a lingering block (cleared at the source on
+  // the next run, but guarded here too) must not keep a finished book under "needs you".
+  const intakeHeld = order.intake?.verdict === 'hold' && order.intake?.override !== true && s.pending === s.total;
 
   if (delivered) return ORDER_BOARD_STATES.SENT; // the marker is idempotent — a sent order stays sent
   if (intakeHeld) return ORDER_BOARD_STATES.HELD; // surfaces under Potřebuje vás with its draft email
@@ -42,8 +47,10 @@ export function deriveOrderStatus(order, { generating = false, pdfBuilt = false,
   if (s.failed > 0) return ORDER_BOARD_STATES.FAILED;
   if (s.held > 0 || s.manual > 0) return ORDER_BOARD_STATES.PENDING_REVIEW; // a photo awaits the operator
   if (s.ready || pdfBuilt) return ORDER_BOARD_STATES.READY_TO_SEND; // all approved, or a book already on disk
-  if (s.total > s.pending) return ORDER_BOARD_STATES.PENDING_REVIEW; // part-generated, not the active order
-  return ORDER_BOARD_STATES.QUEUED; // in the inbox, nothing generated yet
+  // Anything left is unfinished with nothing flagged: an untouched order, or one a stopped run left
+  // part-generated (some photos ok, the rest still to run). Both just need Go pressed to finish —
+  // queued, not a review the operator would open to find nothing waiting.
+  return ORDER_BOARD_STATES.QUEUED;
 }
 
 /** The short "why" line for a held order, from its stored intake block. Falls back rather than

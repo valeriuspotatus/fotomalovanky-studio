@@ -272,7 +272,7 @@
 
 <script>
   const el=(t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
-  const esc=s=>String(s).replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));
+  const esc=s=>String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); // safe in text AND quoted-attribute positions
   const grp=n=>String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g," ");
   const AC=a=>`var(--a-${a})`;
 
@@ -310,6 +310,8 @@
 
   // Live order board (Objednávky + Potřebuje vás) — fed by GET /api/studio, not a literal. The
   // per-status Czech labels and colours; everything else on the board is derived server-side.
+  // These keys MUST match ORDER_BOARD_STATES in src/studio.js — a server state with no entry here
+  // renders as a grey badge with the raw key and drops off the KPI strip (studioSmoke guards it).
   const STATUS={
     queued:           {label:"ve frontě",     c:"var(--faint)"},
     generating:       {label:"generuje se",   c:"var(--blue)"},
