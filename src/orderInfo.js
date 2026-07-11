@@ -37,7 +37,23 @@ export function readOrderInfo(orderDir) {
   // older download has neither, and that is not an error — the count check goes advisory and the
   // email greeting stays neutral. Only positive integers and non-empty strings are trusted.
   const expectedPhotos = Number.isInteger(parsed.expectedPhotos) && parsed.expectedPhotos > 0 ? parsed.expectedPhotos : null;
-  return { dedication, order, expectedPhotos, customer: parseCustomer(parsed.customer) };
+  return { dedication, order, expectedPhotos, customer: parseCustomer(parsed.customer), products: parseProducts(parsed.products) };
+}
+
+/** The line items the shop sold on this order — title, variant and quantity — when a newer
+ *  extension recorded them. This is what the per-order build format (U9) reads. An older download
+ *  has none, and that is not an error: the format check then falls back to the config default. */
+function parseProducts(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const p of raw) {
+    if (!p || typeof p !== 'object' || Array.isArray(p)) continue;
+    const title = typeof p.title === 'string' ? p.title.trim() : '';
+    const variant = typeof p.variant === 'string' ? p.variant.trim() : '';
+    const qty = Number.isInteger(p.qty) && p.qty > 0 ? p.qty : null;
+    if (title || variant) out.push({ title, variant, qty });
+  }
+  return out;
 }
 
 /** The customer's surname and email, when the shop recorded them — for the title-page greeting is
@@ -52,4 +68,28 @@ function parseCustomer(c) {
 /** The title-page text the shop recorded, or '' — never a guess. */
 export function shopDedication(orderDir) {
   return readOrderInfo(orderDir)?.dedication ?? '';
+}
+
+/** The print layout an order should build in (U9), derived from the product/variant the shop sold
+ *  — the same `objednavka.json` the expected-count check reads. Returns the builder `mode` and
+ *  whether it came from the format map: `mapped: false` means "no product/variant matched, so this
+ *  fell back to the configured default" — a flag for the operator, never a silent guess, and never
+ *  a block on the pipeline.
+ *
+ *  The fallback walks `delivery.format` (which validateConfig mirrors from the global builder mode)
+ *  then the raw `builder.pdf.mode`, so an un-mapped order keeps building exactly as it does today
+ *  even for a config that never set a delivery block. */
+export function resolveFormat(orderInfo, config = {}) {
+  const map = config?.delivery?.formatMap ?? {};
+  const fallback = config?.delivery?.format ?? config?.builder?.pdf?.mode ?? 'gallery';
+  for (const p of orderInfo?.products ?? []) {
+    // The variant is the more specific key (size/format live there); the product title is the
+    // coarser fallback. Whichever the operator keyed the map by wins.
+    for (const key of [p.variant, p.title]) {
+      if (key && Object.prototype.hasOwnProperty.call(map, key)) {
+        return { mode: map[key], mapped: true };
+      }
+    }
+  }
+  return { mode: fallback, mapped: false };
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readOrderInfo, shopDedication, ORDER_INFO } from '../src/orderInfo.js';
+import { readOrderInfo, shopDedication, resolveFormat, ORDER_INFO } from '../src/orderInfo.js';
 
 const fixture = () => mkdtempSync(join(tmpdir(), 'fma-info-'));
 const write = (dir, contents) => writeFileSync(join(dir, ORDER_INFO), typeof contents === 'string' ? contents : JSON.stringify(contents));
@@ -13,7 +13,7 @@ test('the shop\'s own spelling reaches the title page with its accents', () => {
   try {
     write(dir, { order: '1366', dedication: 'Pro Jiříčka', photos: ['1366_img0001 - pro jiříčka.jpg'] });
     assert.equal(shopDedication(dir), 'Pro Jiříčka');
-    assert.deepEqual(readOrderInfo(dir), { order: '1366', dedication: 'Pro Jiříčka', expectedPhotos: null, customer: null });
+    assert.deepEqual(readOrderInfo(dir), { order: '1366', dedication: 'Pro Jiříčka', expectedPhotos: null, customer: null, products: [] });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -58,7 +58,7 @@ test('a customer who wrote nothing said nothing', () => {
   try {
     write(dir, { order: '1479', dedication: '' });
     assert.equal(shopDedication(dir), '');
-    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '', expectedPhotos: null, customer: null });
+    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '', expectedPhotos: null, customer: null, products: [] });
 
     write(dir, { order: '1479', dedication: '   ' });
     assert.equal(shopDedication(dir), '', 'whitespace is not a dedication');
@@ -99,6 +99,74 @@ test('a bad expected count or customer is dropped, not trusted', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---- line items + per-order build format (U9) -------------------------------
+
+test('line items are read when the extension recorded them, and malformed ones dropped', () => {
+  const dir = fixture();
+  try {
+    write(dir, {
+      order: '1523',
+      products: [
+        { title: 'Fotomalovánky 8 fotek', variant: 'celostránkové', qty: 1 },
+        { title: '', variant: '', qty: 2 }, // nothing to key a format off — dropped
+        'not-an-object',
+        { title: 'Pastelky', qty: 0 }, // a real product, no usable qty -> qty null, still kept
+      ],
+    });
+    assert.deepEqual(readOrderInfo(dir).products, [
+      { title: 'Fotomalovánky 8 fotek', variant: 'celostránkové', qty: 1 },
+      { title: 'Pastelky', variant: '', qty: null },
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an order with no line items reads an empty product list, never a crash', () => {
+  const dir = fixture();
+  try {
+    write(dir, { order: '1', dedication: 'x' });
+    assert.deepEqual(readOrderInfo(dir).products, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('resolveFormat maps a variant to its layout and marks it mapped', () => {
+  const config = { delivery: { format: 'gallery', formatMap: { celostránkové: 'fullpage' } } };
+  const info = { products: [{ title: 'Fotomalovánky 8 fotek', variant: 'celostránkové', qty: 1 }] };
+  assert.deepEqual(resolveFormat(info, config), { mode: 'fullpage', mapped: true });
+});
+
+test('resolveFormat matches on the product title when the variant is not keyed', () => {
+  const config = { delivery: { format: 'gallery', formatMap: { 'Fotomalovánky celostránkové': 'fullpage' } } };
+  const info = { products: [{ title: 'Fotomalovánky celostránkové', variant: '', qty: 1 }] };
+  assert.deepEqual(resolveFormat(info, config), { mode: 'fullpage', mapped: true });
+});
+
+test('an unmapped variant falls back to the configured default and is flagged for override', () => {
+  const config = { delivery: { format: 'gallery', formatMap: { celostránkové: 'fullpage' } } };
+  const info = { products: [{ title: 'Fotomalovánky 4 fotky', variant: 'galerie 4', qty: 1 }] };
+  assert.deepEqual(resolveFormat(info, config), { mode: 'gallery', mapped: false });
+});
+
+test('a galerie order and a full-page order resolve independently — no config change between them', () => {
+  const config = { delivery: { format: 'gallery', formatMap: { celo: 'fullpage', gal: 'gallery' } } };
+  const galerie = { products: [{ variant: 'gal' }] };
+  const fullpage = { products: [{ variant: 'celo' }] };
+  assert.equal(resolveFormat(galerie, config).mode, 'gallery');
+  assert.equal(resolveFormat(fullpage, config).mode, 'fullpage');
+});
+
+test('with no delivery config, resolveFormat falls back to the global builder mode (no regression)', () => {
+  assert.deepEqual(resolveFormat({ products: [{ variant: 'x' }] }, { builder: { pdf: { mode: 'fullpage' } } }), {
+    mode: 'fullpage',
+    mapped: false,
+  });
+  // No delivery block and no builder mode at all -> the historical default.
+  assert.deepEqual(resolveFormat(null, {}), { mode: 'gallery', mapped: false });
 });
 
 test('the file sits inside the order folder, beside the photographs', () => {

@@ -23,7 +23,7 @@ import {
   manifestPath,
 } from './manifest.js';
 import { deriveDedication, deriveSlug } from './dedication.js';
-import { shopDedication, readOrderInfo } from './orderInfo.js';
+import { shopDedication, readOrderInfo, resolveFormat } from './orderInfo.js';
 import { recallDedication, migrateDedications, MEMORY_DIR } from './dedications.js';
 
 // U6: the single "Go" run. ingest -> generate -> QC -> [review gate] -> builder -> PDF.
@@ -67,7 +67,7 @@ export function buildabilityProblem(orderDir, bases) {
   return null;
 }
 
-async function buildOrder({ orderId, orderDir, bases, dedication, builder, config, force, onEvent }) {
+async function buildOrder({ orderId, orderDir, bases, dedication, mode, builder, config, force, onEvent }) {
   const pdfPath = pdfPathFor(orderDir, orderId);
 
   // Safety before caching: a folder that changed under the operator must not silently reuse
@@ -88,6 +88,9 @@ async function buildOrder({ orderId, orderDir, bases, dedication, builder, confi
     onEvent({ type: 'build-start', orderId, photos: bases.length, dedication });
     // The per-order dedication beats any global default: the title page is customer text.
     const options = { ...(config.builder.pdf ?? {}), outPdfPath: pdfPath };
+    // The per-order format (U9) beats the global builder mode: two orders in one burst can be
+    // galerie and full-page, and neither should need a config edit between them.
+    if (mode) options.mode = mode;
     if (dedication) options.dedication = dedication;
     const { pairs } = await builder.buildPdf(orderDir, options);
     onEvent({ type: 'build-done', orderId, pdfPath, pairs });
@@ -265,7 +268,11 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
         // never written look identical once the PDF exists.
         if (!titleText) onEvent({ type: 'no-title', orderId });
         build ??= new BuilderDriver(config);
-        const result = await buildOrder({ orderId, orderDir, bases, dedication, builder: build, config, force, onEvent });
+        // The format the shop sold this order in. When the product/variant isn't in the map it
+        // falls back to the config default and is flagged — surfaced here, never blocking.
+        const { mode, mapped } = resolveFormat(order.dir ? readOrderInfo(order.dir) : null, config);
+        onEvent({ type: 'order-format', orderId, mode, mapped });
+        const result = await buildOrder({ orderId, orderDir, bases, dedication, mode, builder: build, config, force, onEvent });
         entry = { ...entry, ...result, titled: Boolean(titleText) };
       }
     }
@@ -317,6 +324,10 @@ export function formatEvent(e) {
       return `  title page (${from}): ${e.dedication}`;
     }
     case 'no-title': return '  no dedication in the photo names — the title page prints without text';
+    case 'order-format': {
+      const label = e.mode === 'fullpage' ? 'celostránkové' : 'galerie';
+      return `  format: ${label}${e.mapped ? '' : ' (default — the product isn\'t in the format map)'}`;
+    }
     case 'build-start': return `  building the PDF from ${e.photos} photo(s)…`;
     case 'build-done': return `  PDF: ${e.pdfPath} (${e.pairs} pairs)`;
     case 'build-skipped': return `  PDF already up to date: ${e.pdfPath}`;
