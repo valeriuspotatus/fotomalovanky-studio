@@ -83,9 +83,14 @@ const okQc = async () => ({ verdict: 'ok', reason: 'ok' });
 // The folder the tool is configured to open at. Empty, like a real "new orders" folder before
 // anything has been downloaded into it — so a freshly opened tool shows a clean page.
 const CONFIGURED = join(fx.root, 'new-orders');
-const { server } = createReviewServer({ config, inboxRoot: CONFIGURED, outboxRoot: fx.outbox, memoryRoot: fx.root, driver: generator, builder, qc: okQc });
+// Intake is stubbed ok alongside qc: the stub 160x120 line-art is far below the real input-QC
+// thresholds, so the live intake gate would hold every order before generation — and this harness
+// is about the queue and the run, not the input gate (which the intake tests own).
+const okIntake = async () => ({ verdict: 'ok', findings: [], expected: null, uploaded: 1, unique: 1, emailCase: null });
+const { server } = createReviewServer({ config, inboxRoot: CONFIGURED, outboxRoot: fx.outbox, memoryRoot: fx.root, driver: generator, builder, qc: okQc, intake: okIntake });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const url = `http://127.0.0.1:${server.address().port}/`;
+// The review grid moved to /review when the dashboard took over home (U2).
+const url = `http://127.0.0.1:${server.address().port}/review`;
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1500, height: 1100 } });

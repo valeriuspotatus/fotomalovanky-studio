@@ -70,7 +70,8 @@ const config = {
 const okQc = async () => ({ verdict: 'ok', reason: 'ok' });
 const { server } = createReviewServer({ config, inboxRoot: fx.inbox, outboxRoot: fx.outbox, memoryRoot: fx.root, qc: okQc });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const url = `http://127.0.0.1:${server.address().port}/`;
+// The review grid moved to /review when the dashboard took over home (U2).
+const url = `http://127.0.0.1:${server.address().port}/review`;
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
