@@ -88,6 +88,26 @@ test('the generator token never crosses to the page', async () => {
   assert.ok(!html.includes(TOKEN));
 });
 
+test('the studio board reports the order derived status, counts, and an empty needs-you', async () => {
+  const res = await get('/api/studio');
+  assert.equal(res.status, 200);
+  const board = await res.json();
+  assert.equal(board.orders.length, 1);
+  assert.equal(board.orders[0].orderId, '1510');
+  // clean=ok, bad=flagged, manual=in-progress: a photo still awaits the operator, so pending-review
+  // — not needs-you, which is intake holds only.
+  assert.equal(board.orders[0].status, 'pending-review');
+  assert.equal(board.counts.total, 1);
+  assert.equal(board.counts['pending-review'], 1);
+  assert.deepEqual(board.needsYou, []);
+  assert.equal(board.run.active, false);
+  assert.equal(board.run.orderId, null);
+});
+
+test('the studio board never leaks the generator token either', async () => {
+  assert.ok(!(await (await get('/api/studio')).text()).includes(TOKEN));
+});
+
 test('photo files are addressed by (order, base, kind), never by path', async () => {
   const { orders } = await (await get('/api/state')).json();
   const payload = JSON.stringify(orders[0].photos);

@@ -40,7 +40,9 @@ const noop = () => {};
 /** Per-order outcome. `held` means the operator has photos to review — not a failure. */
 export const ORDER_STATUS = Object.freeze({ DONE: 'done', HELD: 'held', FAILED: 'failed' });
 
-const pdfPathFor = (orderDir, orderId) => join(orderDir, `${orderId} Final.pdf`);
+/** Where an order's finished book lands — the tool's existing output name. Exported so the status
+ *  board (src/studio.js) tells a built order from an unbuilt one by the same path the build wrote. */
+export const pdfPathFor = (orderDir, orderId) => join(orderDir, `${orderId} Final.pdf`);
 
 /** The PDF is stale the moment any verdict changes: state.json is rewritten by generation and
  *  by every review action, so its mtime is the order's "last decided" clock. */

@@ -8,6 +8,7 @@ import { loadConfig } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent } from '../orchestrator.js';
+import { studioBoard } from '../studio.js';
 import { ingestOrders, IngestError } from '../ingest.js';
 import {
   reviewState,
@@ -244,7 +245,9 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
-  const run = { active: false, stopping: false, lines: [], report: null, error: null };
+  // `orderId` is the order the run is generating right now, so the board can tell 'generating' from
+  // 'queued' — the review state alone shows both as all-null photo statuses.
+  const run = { active: false, stopping: false, lines: [], report: null, error: null, orderId: null };
   let runController = null; // the live run's AbortController, or null between runs
   let generator = driver ?? null;
   let builderDriver = builder ?? null;
@@ -302,6 +305,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     run.lines = [];
     run.report = null;
     run.error = null;
+    run.orderId = null;
     runController = new AbortController();
 
     generator ??= createGeneratorDriver(config);
@@ -321,6 +325,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       memoryRoot,
       signal: runController.signal,
       onEvent: (e) => {
+        // Track which order is on the GPU now, so the board reads 'generating' for it and 'queued'
+        // for the ones behind it. Cleared when the order finishes; the run's finally clears the last.
+        if (e.type === 'order-start') run.orderId = e.orderId;
+        else if (e.type === 'order-done') run.orderId = null;
         const line = formatEvent(e);
         if (line === null) return;
         run.lines.push(line);
@@ -352,6 +360,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       .finally(() => {
         run.active = false;
         run.stopping = false;
+        run.orderId = null;
         runController = null;
       });
   }
@@ -405,6 +414,19 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
 
       if (req.method === 'GET' && url.pathname === '/api/state') {
         return json(res, 200, { orders: forClient(state(), inFlight), inbox, outbox, run, selected, queue });
+      }
+
+      // GET /api/studio — the live order board behind the dashboard's Objednávky + Potřebuje vás
+      // tabs: every order's derived status oldest-first, KPI counts, and the needs-you list.
+      if (req.method === 'GET' && url.pathname === '/api/studio') {
+        const board = studioBoard({
+          inboxRoot: inbox,
+          outboxRoot: outbox,
+          runningOrderId: run.active ? run.orderId : null,
+          only: selected,
+          memoryRoot,
+        });
+        return json(res, 200, { ...board, inbox, run: { active: run.active, orderId: run.orderId } });
       }
 
       // POST /api/_scan { path } — what orders are in that folder? Spends nothing, starts nothing.
