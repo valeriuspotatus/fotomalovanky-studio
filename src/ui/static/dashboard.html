@@ -150,6 +150,24 @@
   .hb .t{height:11px; border-radius:6px; background:var(--soft); overflow:hidden; display:flex}
   .hb .t i{height:100%}
 
+  /* live order board */
+  .badge{display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:800; padding:4px 11px;
+    border-radius:999px; color:var(--h); background:color-mix(in srgb,var(--h) 15%, transparent); white-space:nowrap}
+  .badge .dot{width:8px; height:8px; border-radius:50%; background:var(--h)}
+  .orow{display:flex; align-items:center; gap:14px; padding:13px 4px; border-bottom:1px solid var(--line)}
+  .orow:last-child{border-bottom:none}
+  .orow .id{font-weight:900; font-size:15px; font-variant-numeric:tabular-nums; min-width:58px}
+  .orow .ph{color:var(--muted); font-size:13px; font-weight:700; font-variant-numeric:tabular-nums}
+  .orow .ded{color:var(--text); font-size:13px; font-weight:700; margin-left:auto; max-width:42%;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .empty{color:var(--muted); font-size:14px; font-weight:700; padding:16px 4px}
+  /* needs-you email + copy */
+  .item .mail{margin-top:12px; width:100%; min-height:118px; font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;
+    color:var(--text); background:var(--soft); border:1px solid var(--line); border-radius:12px; padding:12px; resize:vertical}
+  .item .copy{margin-top:10px; border:none; background:var(--amber); color:#fff; font-weight:800; font-size:13px;
+    padding:9px 16px; border-radius:999px}
+  .item .copy.ok{background:var(--green)}
+
   /* calendar */
   .lane{display:flex; gap:12px; overflow-x:auto; padding:6px 2px 14px; scroll-snap-type:x mandatory}
   .fn{flex:0 0 auto; width:150px; background:var(--card); border-radius:22px; padding:15px; box-shadow:var(--shadow); border-top:4px solid var(--h); scroll-snap-align:start}
@@ -218,20 +236,15 @@
     <div class="head"><h1>Objednávky</h1><span class="sub" id="oSpan"></span></div>
     <div class="kpis" id="kpis"></div>
     <div class="panel">
-      <h3>Poptávka podle měsíce</h3>
-      <div class="cap">Objednávky (sloupce) a tržby (linka). Prosinec = 2× jakýkoliv jiný měsíc.</div>
-      <div id="demand"></div>
-    </div>
-    <div class="panel">
-      <h3>Co se prodává</h3>
-      <div class="cap">Placené položky podle formátu a velikosti balení.</div>
-      <div id="mix"></div>
+      <h3>Fronta</h3>
+      <div class="cap">Nejstarší nahoře — tak, jak přišly. Živě z generátoru.</div>
+      <div id="queue"></div>
     </div>
   </section>
 
   <!-- NEEDS YOU -->
   <section class="view" id="v-todo">
-    <div class="head"><h1>Potřebuje vás</h1><span class="sub">3 rozhodnutí</span></div>
+    <div class="head"><h1>Potřebuje vás</h1><span class="sub" id="todoSpan"></span></div>
     <div class="todo" id="todo"></div>
   </section>
 </main>
@@ -295,13 +308,19 @@
   ];
   const maxA=Math.max(...ANGLES.map(a=>a.n));
 
-  const ORDERS={span:"duben 2025 – červenec 2026", paidRevenue:217710, aov:658, paid:331,
-    monthly:[["Apr'25",3,456],["Kvě",5,2878],["Črv",2,814],["Čvc",17,8029],["Srp",22,11053],
-      ["Zář",3,2841],["Říj",2,745],["Lis",65,26397],["Pro",150,62417],["Led'26",21,10307],
-      ["Úno",30,8562],["Bře",67,32185],["Dub",59,18754],["Kvě",50,15862],["Črv",22,10413],["Čvc",6,5997]],
-    format:{print:{rev:170259},pdf:{rev:36447}},
-    bundle:[["4 foto",236],["8 foto",74],["12 foto",30],["16 foto",22]],
-    pending:{orders:168,czk:109193}};
+  // Live order board (Objednávky + Potřebuje vás) — fed by GET /api/studio, not a literal. The
+  // per-status Czech labels and colours; everything else on the board is derived server-side.
+  const STATUS={
+    queued:           {label:"ve frontě",     c:"var(--faint)"},
+    generating:       {label:"generuje se",   c:"var(--blue)"},
+    "pending-review": {label:"ke kontrole",   c:"var(--amber)"},
+    held:             {label:"potřebuje vás", c:"var(--red)"},
+    "ready-to-send":  {label:"k odeslání",    c:"var(--green)"},
+    sent:             {label:"odesláno",      c:"var(--teal)"},
+    failed:           {label:"chyba",         c:"var(--red)"}
+  };
+  const statusMeta=s=>STATUS[s]||{label:s,c:"var(--muted)"};
+  const BOARD_KPIS=["ready-to-send","pending-review","held","generating","sent"];
 
   const SEASON={demand:[["Čvc",17],["Srp",22],["Zář",3],["Říj",2],["Lis",65],["Pro",150]]};
   const LANE=[
@@ -314,24 +333,18 @@
     {d:"1.12.",code:"M1",t:"Dárek od Mikuláše",a:"GIFT"},
     {d:"15.12.",code:"X4",t:"Poukaz na poslední chvíli",a:"GIFT"}
   ];
-  const TODO=[
-    {sev:"amber",k:"fakt",h:"Je „Ivana z Loun“ reálná recenze?",p:"Plně atribuovaná 5★, ale její citace je zároveň ukázkou tónu v brand guide — podezřelý kruh.",u:"Odemkne R1, R2 a PROOF pro vánoční fázi 2."},
-    {sev:"amber",k:"fakt",h:"Zdroj německé 5★ recenze",p:"„Das beste Geschenk…“ nemá atribuci; RULES.md zakazuje vymyšlené recenze.",u:"Odemkne DE Evergreen 1."},
-    {sev:"amber",k:"rozhodnutí",h:"Mechanika Black Friday bundlu",p:"Práh, nebo placený add-on? Bundle zdarma je skrytá sleva a AOV nezvedne.",u:"Rozhodne, jestli BF1 / BF2 opravdu pomůžou PNO."}
-  ];
-
   // ---- home ----
   const TILES=[
     {v:"generator", href:"/review", em:"🖍️", c:"var(--teal)", h:"Generátor", b:"Nové", s:"objednávky → omalovánky → PDF"},
     {v:"creatives", em:"🎨", c:"var(--amber)", h:"Kreativy", b:CREATIVES.length, s:"hotových vizuálů"},
     {v:"angles", em:"🎯", c:"var(--blue)", h:"Angly", b:8, s:"sdělení"},
     {v:"calendar", em:"📅", c:"var(--green)", h:"Kalendář", b:"Q4", s:"cesta k Vánocům"},
-    {v:"orders", em:"📈", c:"var(--red)", h:"Objednávky", b:"218k", s:"Kč · AOV 658"},
-    {v:"todo", em:"✋", c:"var(--purple)", h:"Potřebuje vás", b:3, s:"rozhodnutí"}
+    {v:"orders", em:"📈", c:"var(--red)", h:"Objednávky", b:"–", s:"objednávek"},
+    {v:"todo", em:"✋", c:"var(--purple)", h:"Potřebuje vás", b:"–", s:"potřebují vás"}
   ];
   const ht=document.getElementById("homeTiles");
   TILES.forEach(t=>{
-    const b=el("button","tile"); b.style.setProperty("--c",t.c);
+    const b=el("button","tile"); b.style.setProperty("--c",t.c); b.dataset.tile=t.v;
     b.onclick = t.href ? ()=>{ location.href=t.href; } : ()=>go(t.v);
     b.append(el("span","blob"));
     b.append(el("div","em",t.em));
@@ -384,40 +397,79 @@
     bw.append(d);
   });
 
-  // ---- orders ----
-  document.getElementById("oSpan").textContent=ORDERS.span;
-  const KPI=[
-    {v:grp(ORDERS.paidRevenue)+" <small>Kč</small>", k:"tržby (zaplacené)", c:"var(--green)"},
-    {v:ORDERS.aov+" <small>Kč</small>", k:"průměrná objednávka", c:"var(--blue)"},
-    {v:ORDERS.paid, k:"zaplacených objednávek", c:"var(--amber)"},
-    {v:grp(ORDERS.pending.czk)+" <small>Kč</small>", k:"nezaplaceno (dobírka)", c:"var(--red)"}
-  ];
-  const kw=document.getElementById("kpis");
-  KPI.forEach(o=>{const d=el("div","kpi"); d.style.setProperty("--c",o.c); d.innerHTML=`<div class="v">${o.v}</div><div class="k">${esc(o.k)}</div>`; kw.append(d);});
+  // ---- orders + needs-you: live from /api/studio ----
+  let studioData=null;
 
-  (function demand(){
-    const M=ORDERS.monthly,W=720,H=210,pL=12,pR=12,pT=18,pB=30,pw=W-pL-pR,ph=H-pT-pB,n=M.length,yB=pT+ph;
-    const mo=Math.max(...M.map(m=>m[1])),mr=Math.max(...M.map(m=>m[2])),slot=pw/n,bw2=slot*0.56;
-    const bx=i=>pL+slot*i+(slot-bw2)/2,bh=v=>v/mo*ph,rx=i=>pL+slot*i+slot/2,ry=v=>yB-v/mr*ph;
-    let bars="",path="",dots="",labs="";
-    M.forEach((m,i)=>{const pk=m[1]>=60;
-      bars+=`<rect x="${bx(i).toFixed(1)}" y="${(yB-bh(m[1])).toFixed(1)}" width="${bw2.toFixed(1)}" height="${bh(m[1]).toFixed(1)}" rx="4" fill="${pk?"var(--amber)":"var(--soft)"}"/>`;
-      const px=rx(i).toFixed(1),py=ry(m[2]).toFixed(1); path+=(i?"L":"M")+px+" "+py+" ";
-      dots+=`<circle cx="${px}" cy="${py}" r="2.6" fill="var(--red)"/>`;
-      labs+=`<text x="${rx(i).toFixed(1)}" y="${(yB+14).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--faint)">${esc(m[0])}</text>`;});
-    document.getElementById("demand").innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H}">${bars}<path d="${path.trim()}" fill="none" stroke="var(--red)" stroke-width="2.5" stroke-linejoin="round"/>${dots}${labs}</svg>`;
-  })();
+  function renderKpis(data){
+    const kw=document.getElementById("kpis"); kw.innerHTML="";
+    BOARD_KPIS.forEach(s=>{
+      const m=statusMeta(s), d=el("div","kpi"); d.style.setProperty("--c",m.c);
+      d.innerHTML=`<div class="v">${data.counts[s]||0}</div><div class="k">${esc(m.label)}</div>`;
+      kw.append(d);
+    });
+  }
 
-  (function mix(){
-    const f=ORDERS.format,tot=f.print.rev+f.pdf.rev,pp=f.print.rev/tot*100;
-    let h=`<div class="hb"><div class="l"><span>Tisk vs PDF</span><span class="r">${pp.toFixed(0)} / ${(100-pp).toFixed(0)}%</span></div>
-      <div class="t"><i style="width:${pp}%;background:var(--amber)"></i><i style="width:${100-pp}%;background:var(--blue)"></i></div></div>`;
-    const bm=Math.max(...ORDERS.bundle.map(b=>b[1]));
-    h+=`<div class="l" style="margin:16px 0 6px"><span>Velikost balení</span><span class="r">4 foto = kotva</span></div>`;
-    ORDERS.bundle.forEach((b,i)=>{h+=`<div class="hb" style="margin:6px 0"><div class="l"><span>${esc(b[0])}</span><span class="r">${b[1]}</span></div>
-      <div class="t" style="height:9px"><i style="width:${b[1]/bm*100}%;background:${i===0?"var(--green)":"var(--faint)"}"></i></div></div>`;});
-    document.getElementById("mix").innerHTML=h;
-  })();
+  function renderQueue(data){
+    document.getElementById("oSpan").textContent = data.counts.total ? `${data.counts.total} objednávek · nejstarší nahoře` : "";
+    const q=document.getElementById("queue"); q.innerHTML="";
+    if(!data.orders.length){ q.append(el("div","empty","Zatím žádné objednávky ve složce.")); return; }
+    data.orders.forEach(o=>{
+      const m=statusMeta(o.status), row=el("div","orow");
+      const ph=o.photos.total ? `${o.photos.eligible}/${o.photos.total} fotek` : "";
+      const ded=o.dedication ? `<span class="ded">„${esc(o.dedication)}“</span>` : "";
+      row.innerHTML=`<span class="id">${esc(o.orderId)}</span>`+
+        `<span class="badge" style="--h:${m.c}"><span class="dot"></span>${esc(m.label)}</span>`+
+        `<span class="ph">${esc(ph)}</span>${ded}`;
+      q.append(row);
+    });
+  }
+
+  function renderNeedsYou(data){
+    const list=data.needsYou||[];
+    document.getElementById("todoSpan").textContent = list.length ? `${list.length} k vyřešení` : "vše vyřízeno";
+    const tw=document.getElementById("todo"); tw.innerHTML="";
+    if(!list.length){ tw.append(el("div","empty","Nic nečeká — všechny vstupy jsou v pořádku.")); return; }
+    list.forEach(o=>{
+      const d=el("div","item");
+      d.innerHTML=`<div class="k">objednávka ${esc(o.orderId)}</div><h3>${esc(o.reason||"Potřebuje vás")}</h3>`;
+      if(o.draftEmail){
+        const ta=el("textarea","mail"); ta.value=o.draftEmail; ta.readOnly=true; d.append(ta);
+        const btn=el("button","copy","Kopírovat e-mail");
+        btn.onclick=async()=>{
+          try{ await navigator.clipboard.writeText(o.draftEmail); }
+          catch{ ta.focus(); ta.select(); try{ document.execCommand("copy"); }catch{} }
+          btn.textContent="Zkopírováno ✓"; btn.classList.add("ok");
+          setTimeout(()=>{ btn.textContent="Kopírovat e-mail"; btn.classList.remove("ok"); },1600);
+        };
+        d.append(btn);
+      }
+      tw.append(d);
+    });
+  }
+
+  function updateHomeTiles(data){
+    const ord=document.querySelector('.tile[data-tile="orders"] .stat');
+    if(ord) ord.innerHTML=`<b>${data.counts.total||0}</b>objednávek`;
+    const td=document.querySelector('.tile[data-tile="todo"] .stat');
+    if(td) td.innerHTML=`<b>${(data.needsYou||[]).length}</b>potřebují vás`;
+  }
+
+  function renderStudio(){
+    if(!studioData) return;
+    renderKpis(studioData); renderQueue(studioData); renderNeedsYou(studioData); updateHomeTiles(studioData);
+  }
+
+  async function fetchStudio(){
+    try{
+      const res=await fetch("/api/studio");
+      if(!res.ok) return;
+      studioData=await res.json();
+      renderStudio();
+    }catch(e){ /* not the live server, or offline — keep the last board rather than blanking it */ }
+  }
+
+  // Poll only while an order tab is open; the marketing tabs are static and need no refresh.
+  setInterval(()=>{ const v=(location.hash||"#home").slice(1); if(v==="orders"||v==="todo") fetchStudio(); },2500);
 
   // ---- calendar ----
   (function season(){
@@ -442,12 +494,6 @@
     d.innerHTML=`<div class="d">${esc(f.d)}</div>${f.now?'<div class="now-b">nejbližší</div>':""}<div class="code">${esc(f.code)}</div><div class="t">${esc(f.t)}</div>`;
     lane.append(d);});
 
-  // ---- needs you ----
-  const tw=document.getElementById("todo");
-  TODO.forEach(t=>{const d=el("div","item");
-    d.innerHTML=`<div class="k">${esc(t.k)}</div><h3>${esc(t.h)}</h3><p>${esc(t.p)}</p><div class="un"><b>Odemkne:</b> ${esc(t.u)}</div>`;
-    tw.append(d);});
-
   // ---- router ----
   const views=["home","creatives","angles","calendar","orders","todo"];
   function go(v){
@@ -455,6 +501,7 @@
     views.forEach(x=>document.getElementById("v-"+x).classList.toggle("on",x===v));
     document.getElementById("backBtn").style.display = v==="home" ? "none" : "inline-flex";
     if(location.hash!=="#"+v) history.pushState(null,"","#"+v);
+    if(v==="orders"||v==="todo") fetchStudio(); // fresh board the moment the operator opens it
     window.scrollTo({top:0,behavior:"instant"});
   }
   window.addEventListener("popstate",()=>go((location.hash||"#home").slice(1)));
@@ -469,4 +516,5 @@
   tb.onclick=()=>{const cur=root.getAttribute("data-theme")|| (matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light"); const nx=cur==="dark"?"light":"dark"; root.setAttribute("data-theme",nx); localStorage.setItem("fm-theme",nx); paintTheme();};
 
   go((location.hash||"#home").slice(1));
+  fetchStudio(); // populate the live board and the home tile counts on load
 </script>
