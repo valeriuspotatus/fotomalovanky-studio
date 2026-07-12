@@ -9,9 +9,19 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import sharp from 'sharp';
 import { ORDER_INFO } from '../orderInfo.js';
 import { expectedPhotosFrom } from './orders.js';
 import { safeFetch as defaultSafeFetch } from './safeFetch.js';
+
+/** organize.js only ingests .jpg/.jpeg (isPhoto), but the upload host serves some photos as PNG/WebP.
+ *  Re-encode anything that isn't already JPEG so every downloaded photo reaches the pipeline instead
+ *  of being silently skipped. Flatten onto white so a transparent PNG doesn't come through black. */
+async function ensureJpeg(buffer, ext, sharpImpl) {
+  if (/^jpe?g$/i.test(ext)) return { buffer, ext };
+  const converted = await sharpImpl(buffer).flatten({ background: '#ffffff' }).jpeg({ quality: 92 }).toBuffer();
+  return { buffer: converted, ext: 'jpeg' };
+}
 
 /** ingest.js recovers the id from "<order>_img<NNNN>_-_<label>.<ext>". Only the "<order>_img<NNNN>"
  *  prefix matters for id-recovery; the label is cosmetic, so a sanitized token is enough. */
@@ -29,6 +39,7 @@ export async function materializeOrder(order, {
   allowlist = [],
   safeFetch = defaultSafeFetch,
   fetchImpl = fetch,
+  sharpImpl = sharp,
   now = () => new Date().toISOString(),
 } = {}) {
   const orderDir = join(inboxRoot, order.orderId);
@@ -39,7 +50,8 @@ export async function materializeOrder(order, {
   for (let i = 0; i < order.photos.length; i++) {
     const url = order.photos[i];
     try {
-      const { buffer, ext } = await safeFetch(url, { allowlist, fetchImpl });
+      const fetched = await safeFetch(url, { allowlist, fetchImpl });
+      const { buffer, ext } = await ensureJpeg(fetched.buffer, fetched.ext, sharpImpl);
       const name = photoName(order.orderId, i, order.dedication, ext);
       writeFileSync(join(orderDir, name), buffer);
       files.push(name);
