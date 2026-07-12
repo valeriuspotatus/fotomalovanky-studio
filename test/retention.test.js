@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, utimesSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inspectOutbox, purgeOriginals } from '../src/retention.js';
+import { inspectOutbox, purgeOriginals, inspectAutopilotData, purgeAutopilotData } from '../src/retention.js';
 import { parseArgs, report } from '../src/purge.js';
 import { STATES, emptyManifest, setStatus, writeManifest, readManifest, manifestPath } from '../src/manifest.js';
 
@@ -219,4 +219,42 @@ test('the report says what it did, what it spared, and what it cannot promise', 
   } finally {
     f.cleanup();
   }
+});
+
+// ---- overnight autopilot: report + state age out on retentionDays -----------
+
+/** A data dir holding a night report + state file, each aged to a chosen number of days. */
+function autopilotDir({ reportDaysAgo = 0, stateDaysAgo = 0 } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'fma-autopilot-purge-'));
+  const rp = join(dir, 'overnight-report.json');
+  const sp = join(dir, 'autopilot-state.json');
+  writeFileSync(rp, '{}');
+  writeFileSync(sp, '{}');
+  age(rp, reportDaysAgo * DAY);
+  age(sp, stateDaysAgo * DAY);
+  return { dir, rp, sp, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+test('a stale night report/state (older than retentionDays) is removed; a fresh one is kept', () => {
+  const a = autopilotDir({ reportDaysAgo: 40, stateDaysAgo: 2 });
+  try {
+    // Dry run reports both but touches nothing.
+    const dry = purgeAutopilotData({ dataDir: a.dir, days: 30, now: NOW });
+    assert.deepEqual(dry.removed.map((f) => f.name), ['overnight-report.json']);
+    assert.deepEqual(dry.kept.map((f) => f.name), ['autopilot-state.json']);
+    assert.ok(existsSync(a.rp), 'a dry run deletes nothing');
+
+    // For real: the stale report goes, the fresh state stays.
+    purgeAutopilotData({ dataDir: a.dir, days: 30, now: NOW, dryRun: false });
+    assert.equal(existsSync(a.rp), false, 'the 40-day-old report is cleared');
+    assert.equal(existsSync(a.sp), true, 'the 2-day-old state is kept — autopilot is still active');
+  } finally {
+    a.cleanup();
+  }
+});
+
+test('inspectAutopilotData is a no-op when autopilot never ran (no data dir)', () => {
+  assert.deepEqual(inspectAutopilotData({ dataDir: join(tmpdir(), 'fma-nope-does-not-exist'), days: 30, now: NOW }), []);
+  assert.deepEqual(inspectAutopilotData({ dataDir: null, days: 30, now: NOW }), []);
+  assert.throws(() => inspectAutopilotData({ dataDir: '/x', days: 0, now: NOW }), /positive integer/);
 });

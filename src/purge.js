@@ -8,7 +8,7 @@
 
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.js';
-import { purgeOriginals, purgeWarning } from './retention.js';
+import { purgeOriginals, purgeAutopilotData, purgeWarning } from './retention.js';
 
 const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
@@ -51,12 +51,17 @@ export function report(result) {
 async function main(argv) {
   const { yes, days } = parseArgs(argv);
   const config = loadConfig();
-  const result = purgeOriginals({
-    outboxRoot: config.paths.outbox,
-    days: days ?? config.retentionDays,
-    dryRun: !yes,
-  });
+  const keepDays = days ?? config.retentionDays;
+  const result = purgeOriginals({ outboxRoot: config.paths.outbox, days: keepDays, dryRun: !yes });
   console.log(`\n${report(result)}\n`);
+
+  // The overnight report + state hold order data on the same clock; clear them once autopilot has
+  // been dormant `retentionDays` (never mid-operation — both files are rewritten on every run).
+  const auto = purgeAutopilotData({ dataDir: config.shopify?.dataDir, days: keepDays, dryRun: !yes });
+  if (auto.removed.length) {
+    const verb = auto.dryRun ? 'Would clear' : 'Cleared';
+    console.log(`${verb} ${auto.removed.length} stale autopilot file(s) (older than ${keepDays} days): ${auto.removed.map((f) => f.name).join(', ')}\n`);
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

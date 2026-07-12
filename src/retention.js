@@ -16,9 +16,11 @@
 // Read the caveat in `purgeWarning` before believing this makes the disk safe.
 
 import { existsSync, readdirSync, statSync, rmSync, utimesSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { readManifest, writeManifest, manifestPath } from './manifest.js';
 import { outputPaths } from './organize.js';
+import { reportPath } from './autopilotReport.js';
+import { statePath } from './autopilotState.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -100,4 +102,34 @@ export function purgeOriginals({ outboxRoot, days, now = Date.now(), dryRun = tr
     photos: purgeable.reduce((n, o) => n + o.photos.length, 0),
     bytes: purgeable.reduce((n, o) => n + o.bytes, 0),
   };
+}
+
+// ---- overnight autopilot: night report + state ------------------------------
+//
+// The night report and the handled-set state carry order numbers and timestamps (customer-adjacent
+// data), so they don't pile up indefinitely — they age out on the same `retentionDays` clock as the
+// photographs. Both files are rewritten on every autopilot run, so a file only crosses the age line
+// once the autopilot has been DORMANT that long — which is exactly when the data should be cleared.
+
+/** What an autopilot-data purge would touch: the report + state files with their age and whether they
+ *  are past `days`. Reads only. `dataDir` absent/missing (autopilot never ran) → nothing to do. */
+export function inspectAutopilotData({ dataDir, days, now = Date.now() }) {
+  if (!Number.isInteger(days) || days <= 0) throw new TypeError('days must be a positive integer');
+  if (!dataDir || !existsSync(dataDir)) return [];
+  const out = [];
+  for (const path of [reportPath(dataDir), statePath(dataDir)]) {
+    if (!existsSync(path)) continue;
+    const ageDays = Math.floor((now - statSync(path).mtimeMs) / DAY_MS);
+    out.push({ name: basename(path), path, ageDays, stale: ageDays >= days });
+  }
+  return out;
+}
+
+/** Delete the autopilot report/state once they are older than `days`. `dryRun` defaults true, like
+ *  the photo purge — though unlike a photograph these regenerate on the next run. */
+export function purgeAutopilotData({ dataDir, days, now = Date.now(), dryRun = true }) {
+  const files = inspectAutopilotData({ dataDir, days, now });
+  const removed = files.filter((f) => f.stale);
+  if (!dryRun) for (const f of removed) rmSync(f.path, { force: true });
+  return { dryRun, days, removed, kept: files.filter((f) => !f.stale) };
 }
