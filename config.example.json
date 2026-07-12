@@ -64,8 +64,6 @@
   "delivery": {
     "format": "gallery",
     "formatMap": {
-      "Fotomalovánky 4 fotky": "gallery",
-      "Fotomalovánky celostránkové": "fullpage",
       "🖼️ Galerie (vaše fotka vedle omalovánky)": "gallery",
       "📄 Celostránková omalovánka (plná stránka pro vybarvování)": "fullpage"
     }
