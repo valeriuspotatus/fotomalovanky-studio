@@ -50,7 +50,7 @@
     "enabled": false,
     "apiKey": "REPLACE_WITH_GOOGLE_GEMINI_API_KEY",
     "model": "gemini-3-pro-image-preview",
-    "describeModel": "gemini-2.5-flash",
+    "describeModel": "gemini-flash-latest",
     "endpoint": "https://generativelanguage.googleapis.com/v1beta",
     "timeoutMs": 60000
   },

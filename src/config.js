@@ -172,7 +172,7 @@ export function validateConfig(cfg) {
   const aiModel = typeof aiRaw.model === 'string' && aiRaw.model.trim() ? aiRaw.model.trim() : 'gemini-3-pro-image-preview';
   // The vision model that reads a customer photo into an identity-free scene prompt (the "describe"
   // half of describe-then-generate). A cheaper text/vision model, separate from the image model above.
-  const aiDescribeModel = typeof aiRaw.describeModel === 'string' && aiRaw.describeModel.trim() ? aiRaw.describeModel.trim() : 'gemini-2.5-flash';
+  const aiDescribeModel = typeof aiRaw.describeModel === 'string' && aiRaw.describeModel.trim() ? aiRaw.describeModel.trim() : 'gemini-flash-latest';
   // Optional override for the privacy instruction sent with that photo; falls back to the built-in one.
   const aiDescribeInstruction =
     typeof aiRaw.describeInstruction === 'string' && aiRaw.describeInstruction.trim() ? aiRaw.describeInstruction.trim() : null;
