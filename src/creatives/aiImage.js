@@ -110,7 +110,7 @@ export async function generateMarketingImage({ config, prompt, referenceBase64 =
  * @returns {Promise<string>} the generated identity-free prompt
  */
 export async function describeImage({ config, referenceBase64, referenceMime = 'image/jpeg', instruction, fetchImpl = fetch } = {}) {
-  const { apiKey, describeModel = 'gemini-2.5-flash', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, describeInstruction } = config ?? {};
+  const { apiKey, describeModel = 'gemini-flash-latest', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, describeInstruction } = config ?? {};
   if (!apiKey) throw new AiImageError('No AI API key is configured (set ai.apiKey in config.json).', 'not-configured');
   if (!referenceBase64) throw new AiImageError('A reference photo is required to describe.', 'bad-input');
 
