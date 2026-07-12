@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { collectPairs, coverCountFor } from '../src/builder/builderDriver.js';
+import { collectPairs, coverCountFor, coverVariantFor } from '../src/builder/builderDriver.js';
 
 /** Build a throwaway order folder containing exactly `names`. */
 function orderDir(names) {
@@ -73,4 +73,28 @@ test('addAllCovers still means eight, and coverCount overrides it', () => {
   assert.equal(coverCountFor({ addAllCovers: true }, 8), 8);
   assert.equal(coverCountFor({ addAllCovers: true }, 3), 3);
   assert.equal(coverCountFor({ addAllCovers: true, coverCount: 4 }, 8), 4);
+});
+
+// ---- the cover variant (classic | pencils) ---------------------------------
+// The builder's title page has a plain "classic" cover and a decorated "pencils" cover. The driver
+// only touches the control when a variant is named, and refuses an unknown one rather than silently
+// shipping the plain cover.
+
+test('coverVariant selects a named variant, case/space tolerant', () => {
+  assert.equal(coverVariantFor({ coverVariant: 'pencils' }), 'pencils');
+  assert.equal(coverVariantFor({ coverVariant: 'classic' }), 'classic');
+  assert.equal(coverVariantFor({ coverVariant: '  Pencils ' }), 'pencils');
+});
+
+test('coverVariant is null when unset — leave the builder default untouched', () => {
+  assert.equal(coverVariantFor({}), null);
+  assert.equal(coverVariantFor({ coverVariant: null }), null);
+  assert.equal(coverVariantFor({ coverVariant: '' }), null);
+  assert.equal(coverVariantFor(), null);
+});
+
+test('an unknown cover variant throws rather than silently printing classic', () => {
+  // The exact bug class we are guarding: "pencil" (singular) must not quietly become classic.
+  assert.throws(() => coverVariantFor({ coverVariant: 'pencil' }), /Unknown cover variant/);
+  assert.throws(() => coverVariantFor({ coverVariant: 'fancy' }), /Unknown cover variant/);
 });

@@ -21,7 +21,8 @@
     "baseUrl": "https://fotomalovanky-service.onrender.com/",
     "pdf": {
       "mode": "gallery",
-      "coverCount": 2
+      "coverCount": 2,
+      "coverVariant": "pencils"
     }
   },
   "paths": {

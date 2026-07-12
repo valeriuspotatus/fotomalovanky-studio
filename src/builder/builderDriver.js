@@ -47,6 +47,23 @@ export function coverCountFor({ coverCount, addAllCovers } = {}, pairs = 0) {
   return Math.max(0, Math.min(wanted, pairs, MAX_COVERS));
 }
 
+// The builder's title page comes in two cover variants (`.cover-variant-btn[data-cover-variant]`):
+// "classic" (plain, the builder's default) and "pencils" (the decorated pencil-border style the
+// operator ships). The driver leaves the builder default untouched unless a variant is named.
+const COVER_VARIANTS = new Set(['classic', 'pencils']);
+
+/** The cover variant to select in the builder, or null to leave its default (classic).
+ *  Unset means "don't touch the control"; a named-but-unknown variant throws rather than
+ *  silently falling back to classic, so a decorated-cover order can never quietly ship plain. */
+export function coverVariantFor({ coverVariant } = {}) {
+  if (coverVariant == null || coverVariant === '') return null;
+  const v = String(coverVariant).trim().toLowerCase();
+  if (!COVER_VARIANTS.has(v)) {
+    throw new BuilderError(`Unknown cover variant ${JSON.stringify(coverVariant)} — use "classic" or "pencils".`, { step: 'load' });
+  }
+  return v;
+}
+
 /** Find the builder's photo+SVG pairs in an order folder (mirrors its own pairing rules). */
 export function collectPairs(orderDir) {
   const names = readdirSync(orderDir);
@@ -74,7 +91,8 @@ export class BuilderDriver {
   /**
    * @param {string} orderDir  folder of <base>.{jpg,jpeg,png} + <base>.svg pairs (the "_bw.png" is ignored by the builder)
    * @param {object} options   { title|dedication, outPdfPath, mode:'gallery'|'fullpage',
-   *                             coverCount, addAllCovers, rotationMin, rotationMax }
+   *                             coverVariant:'classic'|'pencils', coverCount, addAllCovers,
+   *                             rotationMin, rotationMax }
    * @returns {Promise<{ pdfPath: string, pairs: number }>}
    */
   async buildPdf(orderDir, options = {}) {
@@ -118,6 +136,22 @@ export class BuilderDriver {
       // 3. Apply layout options (all controls are visible on screen; do NOT emulate print here,
       //    the print stylesheet hides them).
       if (options.mode === 'fullpage') await page.click('.mode-btn[data-mode="fullpage"]');
+
+      // Cover variant (classic|pencils). A named variant whose button is absent is a hard failure,
+      // not a silent fall-through to classic — an older builder deploy or a renamed control must be
+      // caught here, or a decorated-cover order would quietly print the plain cover to a customer.
+      const coverVariant = coverVariantFor(options);
+      if (coverVariant) {
+        const variantBtn = page.locator(`.cover-variant-btn[data-cover-variant="${coverVariant}"]`);
+        if ((await variantBtn.count()) === 0) {
+          throw new BuilderError(
+            `Builder has no "${coverVariant}" cover-variant control — the deployed builder may be out of date.`,
+            { step: 'load' },
+          );
+        }
+        await variantBtn.first().click();
+      }
+
       const title = options.dedication ?? options.title ?? '';
       if (title) await page.fill('#titleInput', title);
 
