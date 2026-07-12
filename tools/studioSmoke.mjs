@@ -149,6 +149,11 @@ try {
   check('a marketing occasion offers a jump to Kreativy', (await page.locator('#dayBody .de-cta').count()) > 0);
   // the upcoming panel lists opportunities from the plan, and clicking one jumps to its day
   check('upcoming opportunities are listed', (await page.locator('#upListBig .up-item').count()) > 0);
+  // the evergreen idea bank (page 2 of the plan) renders grouped cards and jumps to Kreativy
+  check('evergreen ideas render grouped cards', (await page.locator('#evergreenList .eg-cat').count()) === 6 && (await page.locator('#evergreenList .eg-item').count()) >= 20);
+  await page.locator('#evergreenList .eg-item').first().click();
+  await page.waitForSelector('#v-creatives.on');
+  check('clicking an evergreen idea opens Kreativy', true);
 
   // --- Objednávky: the live order table from /api/studio, oldest-first, with sent orders hidden ---
   await page.evaluate(() => go('orders'));

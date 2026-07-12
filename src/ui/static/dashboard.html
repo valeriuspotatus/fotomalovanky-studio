@@ -70,6 +70,21 @@
   .up-item.clickable{cursor:pointer;border-radius:var(--r-md)}
   .up-item.clickable:hover{background:var(--surface-2)}
   .cal .top .nav-btns button{cursor:pointer}
+  /* evergreen ideas: an always-available idea bank below the calendar, grouped by category */
+  .evergreen{margin-top:26px}
+  .evergreen .sec-h{margin-bottom:2px}
+  .eg-sub{font-size:12.5px;color:var(--ink-3)}
+  .eg-cat{margin-top:18px}
+  .eg-cat h3{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);margin:0 0 10px}
+  .eg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(238px,1fr));gap:12px}
+  .eg-item{padding:12px 14px;border-radius:var(--r-md);background:var(--surface-2);border-left:3px solid var(--ink-3);cursor:pointer;transition:box-shadow .12s}
+  .eg-item:hover{box-shadow:0 0 0 1px var(--brand) inset}
+  .eg-item.tone-brand{border-left-color:var(--brand)}
+  .eg-item.tone-info{border-left-color:var(--info)}
+  .eg-item.tone-warm{border-left-color:var(--warning)}
+  .eg-name{font-size:13.5px;font-weight:600;color:var(--ink)}
+  .eg-persona{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-3);margin-top:3px}
+  .eg-angle{font-size:12px;color:var(--ink-2);line-height:1.45;margin-top:6px}
   /* order-board row actions (mark sent / undo) + the "show done" toggle */
   .act-cell{text-align:right;white-space:nowrap}
   .btn.sm{padding:5px 11px;font-size:12px}
@@ -297,6 +312,10 @@
             <div class="up-list" id="upListBig"></div>
           </div>
         </div>
+      </div>
+      <div class="evergreen">
+        <div class="sec-h"><h2>Evergreen nápady</h2><span class="eg-sub">Použitelné kdykoliv během roku — klepnutím otevřete Kreativy</span></div>
+        <div id="evergreenList"></div>
       </div>
     </section>
 
@@ -866,6 +885,62 @@
   selectDay(TODAY.d);            // paints both grids + the day panel for today
   paintUpcoming("upList",5);     // Přehled rail (nearest 5)
   paintUpcoming("upListBig",8);  // Kalendář tab
+
+  /* ---- evergreen ideas: page 2 of the plan — date-independent use-cases grouped by category.
+         A scannable idea bank on the Kalendář tab; each card jumps to the Kreativy studio. ---- */
+  const EVERGREEN=[
+    {cat:"Děti & vývoj",tone:"warm",items:[
+      {name:"Moje „poprvé“",persona:"Rodiče malých dětí",angle:"První jízda na kole bez koleček, první gól, první den ve školce — budují si tím sebevědomí."},
+      {name:"Můj domácí mazlíček",persona:"Děti (pejskaři/kočičkáři)",angle:"Dítě a pes — nerozlučná dvojka. Omalovánka jejich společného mazlení."},
+      {name:"Marod v posteli",persona:"Rodiče nemocných dětí",angle:"Teplota klesla, ale nuda stoupá? Udrží je v klidu pod peřinou déle než tablet."},
+      {name:"Strach ze tmy / strašidla",persona:"Děti (terapeutické)",angle:"Bojí se bubáka? Udělejte z něj omalovánku a nechte dítě strach „přemalovat“ na veselé barvy."},
+      {name:"Kreslíme pro babičku",persona:"Děti & prarodiče",angle:"Ne koupený pohled, ale vlastnoručně vybarvená fotka vnoučete. Půjde rovnou na ledničku!"}
+    ]},
+    {cat:"Rodina & domov",tone:"brand",items:[
+      {name:"Nové bydlení (kolaudace)",persona:"Rodiny / páry",angle:"Holé zdi v novém bytě? První obraz, který si společně vybarvíte a pověsíte."},
+      {name:"Vzpomínka na zesnulé",persona:"Pozůstalí (pietní)",angle:"Citlivá vzpomínka na někoho, kdo nám chybí. Tichá chvilka s pastelkami nad fotkou."},
+      {name:"Rodinná dovolená (po návratu)",persona:"Rodina",angle:"Kufr je vybalený, ale hlava pořád u moře? Vytiskněte tu nejlepší fotku z pláže."},
+      {name:"Sourozenecká láska (i válka)",persona:"Sourozenci",angle:"Hádají se? Dejte jim omalovánku, kde se objímají — připomeňte jim, že jsou parťáci."}
+    ]},
+    {cat:"Svatby & oslavy",tone:"brand",items:[
+      {name:"Zábava pro děti na svatbě",persona:"Nevěsta & ženich",angle:"Aby děti nezbouraly svatební tabuli. Omalovánky s nevěstou a ženichem je zabaví."},
+      {name:"Družičky (žádost)",persona:"Nevěsta → kamarádky",angle:"„Půjdeš mi za svědka?“ Omalovánka vaší společné fotky s bublinou."},
+      {name:"Narozeninová oslava",persona:"Oslavenec / hosté",angle:"Místo skákacího hradu klidný koutek s omalovánkami oslavence — každý si odnese památku."},
+      {name:"Pozvánka na oslavu",persona:"Organizátor",angle:"Pošlete pozvánku jako nevybarvenou omalovánku: „Vybarvi si mě a přijď na oslavu!“"}
+    ]},
+    {cat:"Dospělí & páry",tone:"info",items:[
+      {name:"Výročí vztahu",persona:"Partneři",angle:"První rande, první pusa, první dovolená. Připomeňte si to večer u vína a pastelek."},
+      {name:"Vision board (vizualizace)",persona:"Dospělí (seberozvoj)",angle:"Chcete to auto? Ten dům? Vyfoťte si svůj sen a vybarvujte si svou budoucnost."},
+      {name:"Relax & mindfulness",persona:"Vytížení lidé / manažeři",angle:"Vypněte hlavu. Žádná data, žádné maily. Jen vy, pastelka a fotka z lesa."},
+      {name:"DIY dekorace",persona:"Kreativní dospělí",angle:"Vybarvěte svou fotku bláznivými barvami, zarámujte — designový kousek, co nikdo nemá."}
+    ]},
+    {cat:"Přátelé & humor",tone:"info",items:[
+      {name:"Rozlučka se svobodou",persona:"Svědci / kamarádi",angle:"Trapná fotka ženicha z mládí jako omalovánka? Ideální aktivita (a terč vtípků) na rozlučku."},
+      {name:"Dárek pro kolegu",persona:"Kolegové v práci",angle:"Odchází kolega? Omalovánka celého týmu na památku."},
+      {name:"Inside jokes",persona:"Parta přátel",angle:"Ta fotka, kde se Pepa tváří divně? Zvěčněte ji — dárek, u kterého vybouchnete smíchy."}
+    ]},
+    {cat:"Školy & firmy",tone:"warm",items:[
+      {name:"Konec školního roku",persona:"Učitelé → žáci",angle:"Paní učitelko, dejte dětem omalovánku společné fotky třídy — hezká tečka za rokem."},
+      {name:"Firemní teambuilding",persona:"HR / týmy",angle:"Rozdělte velkou fotku týmu na 4 díly, každý vybarví jeden a pak to složíte."},
+      {name:"Poděkování klientům",persona:"Firmy (B2B)",angle:"Místo propisky pošlete klientovi omalovánku jejich budovy nebo produktu."}
+    ]}
+  ];
+  function paintEvergreen(){
+    const box=document.getElementById("evergreenList"); if(!box) return;
+    box.innerHTML="";
+    EVERGREEN.forEach(g=>{
+      const cat=el("div","eg-cat"); cat.innerHTML=`<h3>${esc(g.cat)}</h3>`;
+      const grid=el("div","eg-grid");
+      g.items.forEach(it=>{
+        const card=el("div","eg-item clickable tone-"+g.tone);
+        card.innerHTML=`<div class="eg-name">${esc(it.name)}</div><div class="eg-persona">${esc(it.persona)}</div><div class="eg-angle">${esc(it.angle)}</div>`;
+        card.onclick=()=>go("creatives");
+        grid.append(card);
+      });
+      cat.append(grid); box.append(cat);
+    });
+  }
+  paintEvergreen();
 
   /* ---- router ---- */
   const views=["home","orders","creatives","sdeleni","calendar","todo"];
