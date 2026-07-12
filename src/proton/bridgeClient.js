@@ -152,5 +152,60 @@ export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass
     }
   }
 
-  return { fetchInbox, fetchMessage };
+  /** Open a locked connection to `box`, run `work(client)`, and always log out. Shared by the
+   *  small write operations below (delete / flag), which each need one authenticated round-trip. */
+  async function withMailbox(box, work) {
+    const { ImapFlow } = await factory();
+    const client = new ImapFlow({ host, port, secure, auth: { user, pass }, logger: false, emitLogs: false, tls: { rejectUnauthorized: false } });
+    try {
+      await client.connect();
+    } catch (err) {
+      throw new BridgeError(classifyConnectError(err), `Cannot reach Proton Bridge at ${host}:${port} — ${err.message}`, err);
+    }
+    const lock = await client.getMailboxLock(box);
+    try {
+      return await work(client);
+    } finally {
+      try {
+        lock.release();
+        await client.logout();
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  /** Move one message to Trash (the reversible "delete" the operator expects — Proton keeps it in
+   *  Trash, not gone forever). `trash` names the destination folder. Throws BridgeError on failure so
+   *  the UI can say the delete didn't take rather than silently dropping it from the list. */
+  async function deleteMessage({ box = mailbox, uid, trash = 'Trash' } = {}) {
+    if (uid == null) throw new BridgeError('unknown', 'A message uid is required to delete it.');
+    try {
+      return await withMailbox(box, async (client) => {
+        await client.messageMove(String(uid), trash, { uid: true });
+        return { uid: Number(uid), deleted: true };
+      });
+    } catch (err) {
+      if (err instanceof BridgeError) throw err;
+      throw new BridgeError('unknown', `Deleting message ${uid} failed — ${err.message}`, err);
+    }
+  }
+
+  /** Mark one message read (`seen:true`) or unread (`seen:false`) by adding/removing the \Seen flag.
+   *  Lets the operator flag a message to come back to. Throws BridgeError on failure. */
+  async function setSeen({ box = mailbox, uid, seen } = {}) {
+    if (uid == null) throw new BridgeError('unknown', 'A message uid is required to flag it.');
+    try {
+      return await withMailbox(box, async (client) => {
+        if (seen) await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true });
+        else await client.messageFlagsRemove(String(uid), ['\\Seen'], { uid: true });
+        return { uid: Number(uid), seen: Boolean(seen) };
+      });
+    } catch (err) {
+      if (err instanceof BridgeError) throw err;
+      throw new BridgeError('unknown', `Flagging message ${uid} failed — ${err.message}`, err);
+    }
+  }
+
+  return { fetchInbox, fetchMessage, deleteMessage, setSeen };
 }

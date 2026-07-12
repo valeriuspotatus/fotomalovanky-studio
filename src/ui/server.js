@@ -639,6 +639,40 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         }
       }
 
+      // POST /api/mail/delete { uid } — move one message to Trash. Reversible (Proton keeps it in
+      // Trash); the list drops it and the cache is cleared so the next poll re-reads the mailbox.
+      if (req.method === 'POST' && url.pathname === '/api/mail/delete') {
+        if (!mail) return json(res, 503, { error: 'Pošta není nastavena.', code: 'not-configured' });
+        const { uid } = await readJson(req, 4096);
+        const id = Number(uid);
+        if (!Number.isInteger(id) || id <= 0) return json(res, 400, { error: 'Neplatné id zprávy.' });
+        try {
+          const out = await mail.deleteMessage({ uid: id });
+          mailCache = null; // the message left the inbox; let the next tile poll re-read
+          return json(res, 200, out);
+        } catch (err) {
+          const code = err instanceof BridgeError ? err.code : 'unknown';
+          return json(res, 502, { error: `Zprávu se nepodařilo smazat — ${err.message}`, code });
+        }
+      }
+
+      // POST /api/mail/flag { uid, seen } — mark a message read (seen:true) or unread (seen:false),
+      // e.g. to flag one to come back to. Cache cleared so the unread count re-reads from IMAP.
+      if (req.method === 'POST' && url.pathname === '/api/mail/flag') {
+        if (!mail) return json(res, 503, { error: 'Pošta není nastavena.', code: 'not-configured' });
+        const { uid, seen } = await readJson(req, 4096);
+        const id = Number(uid);
+        if (!Number.isInteger(id) || id <= 0) return json(res, 400, { error: 'Neplatné id zprávy.' });
+        try {
+          const out = await mail.setSeen({ uid: id, seen: seen === true });
+          mailCache = null;
+          return json(res, 200, out);
+        } catch (err) {
+          const code = err instanceof BridgeError ? err.code : 'unknown';
+          return json(res, 502, { error: `Zprávu se nepodařilo označit — ${err.message}`, code });
+        }
+      }
+
       // GET /api/creatives — the Kreativy studio's pickers: the campaign presets, the palettes, and
       // the three ad formats. No order photos: marketing imagery never comes from customer orders.
       if (req.method === 'GET' && url.pathname === '/api/creatives') {

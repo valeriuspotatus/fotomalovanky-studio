@@ -86,6 +86,15 @@ function fakeImapFactory(seed) {
       (seed.flagsAdded ??= []).push({ range, flags, opts });
       return true;
     }
+    async messageFlagsRemove(range, flags, opts) {
+      (seed.flagsRemoved ??= []).push({ range, flags, opts });
+      return true;
+    }
+    async messageMove(range, dest, opts) {
+      if (seed.moveError) throw seed.moveError;
+      (seed.moved ??= []).push({ range, dest, opts });
+      return true;
+    }
     async logout() {}
   }
   return async () => ({ ImapFlow: FakeImapFlow });
@@ -257,6 +266,41 @@ test('opening an already-read message does NOT re-flag it', async () => {
   assert.equal(seed.flagsAdded, undefined, 'no flag write for a message already \\Seen');
 });
 
+// ---- deleteMessage / setSeen (fake imapflow) -------------------------------
+
+test('deleteMessage moves the message to Trash by UID', async () => {
+  const seed = {};
+  const client = createBridgeClient({ user: 'u', pass: 'p', imapFactory: fakeImapFactory(seed) });
+  const out = await client.deleteMessage({ uid: 77 });
+  assert.deepEqual(out, { uid: 77, deleted: true });
+  assert.equal(seed.moved?.length, 1);
+  assert.equal(seed.moved[0].range, '77');
+  assert.equal(seed.moved[0].dest, 'Trash');
+  assert.equal(seed.moved[0].opts?.uid, true, 'moved by UID, not sequence number');
+});
+
+test('deleteMessage without a uid is a clear BridgeError, not a crash', async () => {
+  const client = createBridgeClient({ user: 'u', pass: 'p', imapFactory: fakeImapFactory({}) });
+  await assert.rejects(() => client.deleteMessage({}), (e) => e instanceof BridgeError);
+});
+
+test('deleteMessage wraps an IMAP failure as a BridgeError', async () => {
+  const client = createBridgeClient({ user: 'u', pass: 'p', imapFactory: fakeImapFactory({ moveError: new Error('no Trash') }) });
+  await assert.rejects(() => client.deleteMessage({ uid: 3 }), (e) => e instanceof BridgeError);
+});
+
+test('setSeen adds \\Seen to mark read and removes it to mark unread', async () => {
+  const seed = {};
+  const client = createBridgeClient({ user: 'u', pass: 'p', imapFactory: fakeImapFactory(seed) });
+  await client.setSeen({ uid: 9, seen: false });
+  assert.equal(seed.flagsRemoved?.length, 1);
+  assert.deepEqual(seed.flagsRemoved[0].flags, ['\\Seen']);
+  assert.equal(seed.flagsRemoved[0].opts?.uid, true);
+  await client.setSeen({ uid: 9, seen: true });
+  assert.equal(seed.flagsAdded?.length, 1);
+  assert.deepEqual(seed.flagsAdded[0].flags, ['\\Seen']);
+});
+
 // ---- templates (pure) ------------------------------------------------------
 
 test('every template is signed David / Fotomalovánky.cz, never Lukáš', () => {
@@ -366,5 +410,51 @@ test('POST /api/mail/send with no SMTP configured is a clear 503, not a crash', 
     const res = await fetch(`${origin}/api/mail/send`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ to: 'a@x.cz', body: 'x' }) });
     assert.equal(res.status, 503);
     assert.equal((await res.json()).code, 'not-configured');
+  });
+});
+
+// ---- endpoints: /api/mail/delete, /api/mail/flag ---------------------------
+
+test('POST /api/mail/delete moves the message via the injected client', async () => {
+  const deleted = [];
+  const mailClient = { deleteMessage: async ({ uid }) => { deleted.push(uid); return { uid, deleted: true }; } };
+  await withServer({ mailClient }, async (origin) => {
+    const res = await fetch(`${origin}/api/mail/delete`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uid: 77 }) });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { uid: 77, deleted: true });
+    assert.deepEqual(deleted, [77]);
+  });
+});
+
+test('POST /api/mail/delete rejects a bad uid and is a 503 when mail is off', async () => {
+  const mailClient = { deleteMessage: async () => ({}) };
+  await withServer({ mailClient }, async (origin) => {
+    const bad = await fetch(`${origin}/api/mail/delete`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uid: 'nope' }) });
+    assert.equal(bad.status, 400);
+  });
+  await withServer({}, async (origin) => {
+    const off = await fetch(`${origin}/api/mail/delete`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uid: 5 }) });
+    assert.equal(off.status, 503);
+    assert.equal((await off.json()).code, 'not-configured');
+  });
+});
+
+test('POST /api/mail/flag marks a message unread via the injected client', async () => {
+  const flags = [];
+  const mailClient = { setSeen: async ({ uid, seen }) => { flags.push({ uid, seen }); return { uid, seen }; } };
+  await withServer({ mailClient }, async (origin) => {
+    const res = await fetch(`${origin}/api/mail/flag`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uid: 9, seen: false }) });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { uid: 9, seen: false });
+    assert.deepEqual(flags, [{ uid: 9, seen: false }]);
+  });
+});
+
+test('POST /api/mail/flag turns a Bridge failure into a 502 with a code', async () => {
+  const mailClient = { setSeen: async () => { throw new BridgeError('offline', 'Bridge not running'); } };
+  await withServer({ mailClient }, async (origin) => {
+    const res = await fetch(`${origin}/api/mail/flag`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uid: 9, seen: true }) });
+    assert.equal(res.status, 502);
+    assert.equal((await res.json()).code, 'offline');
   });
 });
