@@ -118,11 +118,24 @@ try {
 
   // --- marketing tabs still render their static content (restyled, left functional) ---
   await page.evaluate(() => go('creatives'));
-  await page.waitForSelector('#v-creatives.on .gallery .cw');
-  check('Kreativy still renders its static gallery', (await page.locator('#v-creatives.on .gallery .cw').count()) === 5);
+  // <option>s only count as "visible" with the dropdown open, so assert on count, not visibility.
+  await page.waitForFunction(() => document.querySelectorAll('#v-creatives.on #cvCampaign option').length >= 3);
+  check('Kreativy studio renders its campaign picker from /api/creatives', (await page.locator('#v-creatives.on #cvCampaign option').count()) >= 3);
+  check('Kreativy studio mounts a live preview frame', (await page.locator('#v-creatives.on #cvFrame').count()) === 1);
+  check(
+    'Kreativy studio exposes the AI image generator',
+    (await page.locator('#v-creatives.on #cvGenerate').count()) === 1 && (await page.locator('#v-creatives.on #cvPrompt').count()) === 1,
+  );
   await page.evaluate(() => go('sdeleni'));
   await page.waitForSelector('#v-sdeleni.on .bubbles .bub');
   check('Sdělení still renders its static bubbles', (await page.locator('#v-sdeleni.on .bubbles .bub').count()) === 8);
+
+  // --- Kalendář: days are clickable and the detail panel shows that day's events ---
+  await page.evaluate(() => go('calendar'));
+  await page.waitForSelector('#v-calendar.on #calGridBig .d.clickable');
+  await page.locator('#v-calendar.on #calGridBig .d.clickable', { hasText: '14' }).first().click();
+  await page.waitForFunction(() => /Spuštění/.test(document.querySelector('#dayBody')?.textContent || ''));
+  check('clicking a calendar day shows that day’s events', (await page.locator('#dayTitle').textContent()).includes('14'));
 
   // --- Objednávky: the live order table from /api/studio, oldest-first, with sent orders hidden ---
   await page.evaluate(() => go('orders'));

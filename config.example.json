@@ -45,6 +45,13 @@
     "secure": false,
     "recentLimit": 6
   },
+  "ai": {
+    "enabled": false,
+    "apiKey": "REPLACE_WITH_GOOGLE_GEMINI_API_KEY",
+    "model": "gemini-3-pro-image-preview",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+    "timeoutMs": 60000
+  },
   "delivery": {
     "format": "gallery",
     "formatMap": {

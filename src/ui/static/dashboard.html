@@ -8,8 +8,23 @@
   .home-grid{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:26px;align-items:start}
   .col-work{min-width:0;display:flex;flex-direction:column;gap:22px}
   .rail{position:sticky;top:26px}
-  /* the Kalendář tab reuses the Přehled calendar, capped so its cells stay a sensible size */
-  #v-calendar{max-width:720px}
+  /* the Kalendář tab: calendar on the left, day detail + upcoming beside it (saves vertical space) */
+  #v-calendar{max-width:1060px}
+  .cal-layout{display:grid;grid-template-columns:minmax(0,1fr) 336px;gap:22px;align-items:start}
+  .cal-layout>.cal{max-width:640px}
+  .cal-side{display:flex;flex-direction:column;gap:18px}
+  @media (max-width:900px){.cal-layout{grid-template-columns:1fr}}
+  /* clickable calendar days + the selected-day ring + day-detail events */
+  .cal-grid .d.clickable{cursor:pointer}
+  .cal-grid .d.sel:not(.today){box-shadow:0 0 0 2px var(--brand) inset}
+  .cal-grid .d .ev i.tone-brand{background:var(--brand)}
+  .cal-grid .d .ev i.tone-info{background:var(--info)}
+  .day-ev{padding:10px 12px;border-radius:var(--r-md);background:var(--surface-2);margin-bottom:8px;border-left:3px solid var(--ink-3)}
+  .day-ev:last-child{margin-bottom:0}
+  .day-ev.tone-brand{border-left-color:var(--brand)}
+  .day-ev.tone-info{border-left-color:var(--info)}
+  .de-type{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-3)}
+  .de-title{font-size:13.5px;color:var(--ink);margin-top:2px}
   /* order-board row actions (mark sent / undo) + the "show done" toggle */
   .act-cell{text-align:right;white-space:nowrap}
   .btn.sm{padding:5px 11px;font-size:12px}
@@ -33,6 +48,36 @@
   .mo-s{font-size:12px;color:var(--ink-3);margin-top:2px;line-height:1.4}
   .preview-note{display:flex;align-items:center;gap:9px;color:var(--ink-3);font-size:12px;padding:2px}
   .preview-note svg{width:14px;height:14px;stroke:currentColor;flex-shrink:0}
+  /* bell: jumps to Potřebuje vás; a coral dot when something is waiting */
+  .icon-btn{position:relative}
+  .icon-btn.has::after{content:"";position:absolute;top:7px;right:7px;width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 2px var(--surface)}
+  /* ---- Kreativy studio: controls on the left, a live iframe preview on the right ---- */
+  .kreativy{display:grid;grid-template-columns:340px minmax(0,1fr);gap:22px;align-items:start}
+  .cv-controls{padding:20px;display:flex;flex-direction:column;gap:18px}
+  .cv-group{display:flex;flex-direction:column;gap:8px}
+  .cv-group>label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3)}
+  .cv-group select,.cv-group input{width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);color:var(--ink);font:inherit;font-size:13.5px}
+  .cv-group select:focus,.cv-group input:focus{outline:none;border-color:var(--brand)}
+  .cv-chips{display:flex;flex-wrap:wrap;gap:7px}
+  .cv-chip{padding:6px 12px;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);color:var(--ink-2);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;text-transform:capitalize}
+  .cv-chip:hover{color:var(--ink)}
+  .cv-chip.on{background:var(--brand);border-color:var(--brand);color:#fff}
+  .cv-hint{font-size:12px;color:var(--ink-3);line-height:1.4}
+  .cv-ai{gap:9px}
+  .cv-ai textarea{width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);color:var(--ink);font:inherit;font-size:13px;resize:vertical;min-height:64px}
+  .cv-ai textarea:focus{outline:none;border-color:var(--brand)}
+  .cv-ai input[type=file]{font-size:12px;color:var(--ink-2);padding:6px 0}
+  .cv-ai #cvGenerate{align-self:flex-start}
+  .cv-ai #cvGenerate:disabled{opacity:.6;cursor:progress}
+  .cv-ai .cv-hint.ok{color:var(--success)}
+  .cv-ai .cv-hint.warn{color:var(--warning)}
+  .cv-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:2px}
+  .cv-msg{font-size:12.5px;color:var(--ink-3);min-height:1em}
+  .cv-msg.warn{color:var(--warning)}
+  .cv-preview{padding:20px;display:flex;align-items:center;justify-content:center;min-height:420px;background:var(--surface-2)}
+  .cv-stage{position:relative;overflow:hidden;border-radius:14px;box-shadow:0 20px 50px rgba(60,40,25,.18)}
+  .cv-stage iframe{position:absolute;top:0;left:0;border:0;transform-origin:top left;background:#fff}
+  @media (max-width:900px){.kreativy{grid-template-columns:1fr}}
 </style>
 
 <div class="app">
@@ -139,44 +184,75 @@
       <div id="doneToggle" class="done-toggle"></div>
     </section>
 
-    <!-- ===== CREATIVES ===== -->
-    <section class="view" id="v-creatives"><div class="gallery" id="gallery"></div></section>
+    <!-- ===== CREATIVES (Kreativy studio) ===== -->
+    <section class="view" id="v-creatives">
+      <div class="kreativy">
+        <div class="card cv-controls">
+          <div class="cv-group">
+            <label for="cvCampaign">Kampaň</label>
+            <select id="cvCampaign"></select>
+          </div>
+          <div class="cv-group">
+            <label>Formát</label>
+            <div class="cv-chips" id="cvFormats"></div>
+          </div>
+          <div class="cv-group">
+            <label>Barvy</label>
+            <div class="cv-chips" id="cvPalettes"></div>
+          </div>
+          <div class="cv-group">
+            <label for="cvHeadline">Nadpis</label>
+            <input id="cvHeadline" type="text" autocomplete="off">
+            <input id="cvHighlight" type="text" autocomplete="off" placeholder="zvýrazněné slovo">
+          </div>
+          <div class="cv-group">
+            <label for="cvBadge">Odznak</label>
+            <input id="cvBadge" type="text" autocomplete="off" placeholder="prázdné = bez odznaku">
+          </div>
+          <div class="cv-group cv-ai">
+            <label for="cvRef">AI obrázky do rámečků</label>
+            <input id="cvRef" type="file" accept="image/*">
+            <textarea id="cvPrompt" rows="3" placeholder="Popište scénu, kterou má AI vytvořit…"></textarea>
+            <button class="btn btn-primary" id="cvGenerate" type="button">Vygenerovat obrázek</button>
+            <div class="cv-hint" id="cvAiHint">Nahrajte referenční fotku — Nano Banana Pro z ní vytvoří novou reklamní fotku a generátor doplní omalovánku. Zákaznická fotka se do reklamy nikdy nedostane přímo.</div>
+          </div>
+          <div class="cv-actions">
+            <button class="btn btn-primary" id="cvDownload">Stáhnout PNG</button>
+            <button class="btn btn-ghost" id="cvDownloadAll">Všechny 3 formáty</button>
+          </div>
+          <div class="cv-msg" id="cvMsg"></div>
+        </div>
+        <div class="card cv-preview"><div class="cv-stage" id="cvStage"><iframe id="cvFrame" title="Náhled kreativy" scrolling="no"></iframe></div></div>
+      </div>
+    </section>
 
     <!-- ===== SDĚLENÍ ===== -->
     <section class="view" id="v-sdeleni"><div class="bubbles" id="bubbles"></div></section>
 
     <!-- ===== CALENDAR ===== -->
     <section class="view" id="v-calendar">
-      <div class="cal">
-        <div class="top"><h2>Červenec 2026</h2><div class="nav-btns"><button aria-label="Předchozí"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button aria-label="Další"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
-        <div class="cal-grid" id="calGridBig"></div>
-      </div>
-      <div class="card" style="margin-top:22px;padding:18px">
-        <div class="sec-h"><h2>Nadcházející kreativa</h2></div>
-        <div class="cap" style="color:var(--ink-2);font-size:13px;margin:0 2px 12px">Robot připomíná novou kreativu 1. a 15. každý měsíc.</div>
-        <div class="up-list" id="upListBig"></div>
+      <div class="cal-layout">
+        <div class="cal">
+          <div class="top"><h2>Červenec 2026</h2><div class="nav-btns"><button aria-label="Předchozí"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button aria-label="Další"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
+          <div class="cal-grid" id="calGridBig"></div>
+        </div>
+        <div class="cal-side">
+          <div class="card" style="padding:18px" id="dayCard">
+            <div class="sec-h"><h2 id="dayTitle">—</h2></div>
+            <div id="dayBody"></div>
+          </div>
+          <div class="card" style="padding:18px">
+            <div class="sec-h"><h2>Nadcházející kreativa</h2></div>
+            <div class="cap" style="color:var(--ink-2);font-size:13px;margin:0 2px 12px">Robot připomíná novou kreativu 1. a 15. každý měsíc.</div>
+            <div class="up-list" id="upListBig"></div>
+          </div>
+        </div>
       </div>
     </section>
 
     <!-- ===== NEEDS YOU ===== -->
     <section class="view" id="v-todo"><div class="todo" id="todo"></div></section>
   </main>
-</div>
-
-<!-- creative modal -->
-<div class="modal" id="modal">
-  <div class="sheet"><div class="grid">
-    <div class="stage"><img id="mImg" alt=""><div class="fmts" id="mFmts"></div></div>
-    <div class="info">
-      <button class="close" onclick="closeM()" aria-label="Zavřít"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
-      <div class="tag-eyebrow" id="mTag"></div>
-      <h2 id="mHead"></h2>
-      <div class="idea" id="mIdea"></div>
-      <div class="body-quote" id="mBody"></div>
-      <div class="meta" id="mMeta"></div>
-      <span class="cta" id="mCta"></span>
-    </div>
-  </div></div>
 </div>
 
 <script>
@@ -196,15 +272,7 @@
   const statusMeta=s=>STATUS[s]||{label:s,chip:"c-neutral"};
   const chipHtml=s=>{const m=statusMeta(s);return `<span class="chip ${m.chip}"><span class="dot"></span>${esc(m.label)}</span>`;};
 
-  /* ---- static marketing content (unchanged; restyled) ---- */
-  const CREATIVES=[
-    {key:"christmas",tag:"VÁNOCE",angle:"GIFT",headline:"Dárek, který nikdo jiný mít nebude",idea:"Letní vzpomínka proměněná v osobní vánoční dárek pod stromeček.",body:"Z vaší letní fotky uděláme osobní omalovánku do Vánoc.",cta:"Vytvořit fotomalovánky"},
-    {key:"mikulas",tag:"MIKULÁŠ · 5. 12.",angle:"GIFT",headline:"Malý dárek od Mikuláše",idea:"Malý osobní dárek k Mikuláši — něco lepšího než uhlí.",body:"Osobní omalovánka, na které se dítě pozná.",cta:"Vytvořit fotomalovánky"},
-    {key:"blackfriday",tag:"BLACK FRIDAY",angle:"GIFT",headline:"Celý dárek v jedné krabici",idea:"Bundle místo slevy — omalovánka a pastelky pohromadě, hotový dárek.",body:"K omalovánce z vaší fotky přibalíme i pastelky.",cta:"Vytvořit fotomalovánky"},
-    {key:"backtoschool",tag:"ZPÁTKY DO ŠKOLY",angle:"EMO",headline:"Kus léta, který zůstane",idea:"Prázdninová fotka jako hmatatelná vzpomínka, když začíná škola.",body:"Než prázdninové fotky zapadnou v mobilu, uděláme z nich omalovánku.",cta:"Vytvořit fotomalovánky"},
-    {key:"together",tag:"SPOLEČNÝ ČAS",angle:"TOGETHER",headline:"Odpoledne, u kterého sedí celá rodina",idea:"Aktivita, u které sedí celá rodina u jednoho stolu.",body:"Omalovánka z vaší společné fotky. Malujete, a jste u toho spolu.",cta:"Vytvořit fotomalovánky"}
-  ];
-  const FMTS=[["","Feed 4:5"],["-square","Čtverec"],["-story","Story"]];
+  /* ---- static marketing content: campaign angles for the Sdělení bubbles ---- */
   const ANGLE_CHIP={EMO:"c-purple",GIFT:"c-warning",FUN:"c-danger",PROOF:"c-success",TOGETHER:"c-success",RELAX:"c-purple",SIMPLE:"c-info",SCREEN:"c-info"};
   const ANGLES=[
     {c:"EMO",claim:"Dítě se pozná na papíře.",n:14},{c:"GIFT",claim:"Dárek, který nikdo jiný nedá.",n:13},
@@ -229,7 +297,7 @@
   const VIEW_META={
     home:{t:'Dobrý den, David! <span aria-hidden="true">👋</span>',s:"Tady je přehled toho, co se dnes děje ve studiu."},
     orders:{t:"Objednávky",s:"Výrobní fronta — nejstarší nahoře, živě z generátoru."},
-    creatives:{t:"Kreativy",s:CREATIVES.length+" vizuálů · 3 formáty každý."},
+    creatives:{t:"Kreativy",s:"Reklamní vizuály z fotek — feed, story i wide."},
     sdeleni:{t:"Sdělení",s:"8 sdělení pro kampaně."},
     calendar:{t:"Kalendář",s:"Sezóna a plán kreativ."},
     todo:{t:"Potřebuje vás",s:"Vše, co čeká na vaše rozhodnutí."}
@@ -263,7 +331,9 @@
     // sidebar counts — active orders (everything except the ones already sent to Jirka)
     document.getElementById("nav-orders").textContent=(d.counts.total||0)-(d.counts.sent||0);
     document.getElementById("nav-gen").textContent=d.counts.generating||0;
-    document.getElementById("nav-todo").textContent=(d.needsYou||[]).length;
+    const waiting=(d.needsYou||[]).length;
+    document.getElementById("nav-todo").textContent=waiting;
+    document.getElementById("bell").classList.toggle("has",waiting>0);
     renderContinue(d);
     // recent orders — newest first
     const recent=[...d.orders].reverse().slice(0,6);
@@ -390,34 +460,98 @@
   fetchMail();
   setInterval(fetchMail,60000);
 
-  /* ---- creatives gallery + modal ---- */
-  const gal=document.getElementById("gallery");
-  CREATIVES.forEach(c=>{
-    const b=el("button","cw");b.onclick=()=>openM(c.key);
-    b.innerHTML=`<div class="frame"><img loading="lazy" src="creatives/graphics/${c.key}.svg" alt="${esc(c.headline)}"></div>
-      <div class="cap"><span class="nm">${esc(c.tag)}</span><span class="chip ${ANGLE_CHIP[c.angle]||"c-neutral"}">${esc(c.angle)}</span></div>`;
-    gal.append(b);
-  });
-  let curKey=null,curFmt="";
-  function openM(key){
-    const c=CREATIVES.find(x=>x.key===key);curKey=key;curFmt="";
-    document.getElementById("mTag").textContent=c.tag;
-    document.getElementById("mHead").textContent=c.headline;
-    document.getElementById("mIdea").textContent=c.idea;
-    document.getElementById("mBody").textContent="„"+c.body+"“";
-    const cta=document.getElementById("mCta");cta.textContent=c.cta+" →";
-    document.getElementById("mMeta").innerHTML=`<span class="chip ${ANGLE_CHIP[c.angle]||"c-neutral"}">${esc(c.angle)}</span><span class="chip c-neutral">standalone · bez fotky</span>`;
-    const fw=document.getElementById("mFmts");fw.innerHTML="";
-    FMTS.forEach(([sfx,lbl],i)=>{
-      const f=el("button","fmt"+(i===0?" on":""),esc(lbl));
-      f.onclick=()=>{curFmt=sfx;[...fw.children].forEach(x=>x.classList.remove("on"));f.classList.add("on");paintM();};
-      fw.append(f);
-    });
-    paintM();document.getElementById("modal").classList.add("on");document.body.style.overflow="hidden";
-  }
-  function paintM(){document.getElementById("mImg").src=`creatives/graphics/${curKey}${curFmt}.svg`;}
-  function closeM(){document.getElementById("modal").classList.remove("on");document.body.style.overflow="";}
-  document.getElementById("modal").onclick=e=>{if(e.target.id==="modal")closeM();};
+  /* ---- Kreativy studio: pick a campaign + format + palette + copy, preview live, download the PNG.
+         The preview is an <iframe> onto /creative/preview (the same HTML the PNG is shot from),
+         scaled to fit; only the download hits headless Chromium via /creative/render. The before/after
+         frames are filled by the AI step (Weavy -> Nano Banana Pro), never by customer photos. ---- */
+  (function(){
+    const $=id=>document.getElementById(id);
+    const frame=$("cvFrame"), stage=$("cvStage");
+    let META=null, fmt="square", palette=null, imagesId=null;
+
+    // The current control state as query params. `badge` is always sent (empty removes it); copy is
+    // only sent when non-empty so a blank field falls back to the campaign preset server-side.
+    function params(overrideFmt){
+      const p=new URLSearchParams();
+      p.set("campaign",$("cvCampaign").value);
+      p.set("format",overrideFmt||fmt);
+      if(palette)p.set("palette",palette);
+      const h=$("cvHeadline").value.trim(); if(h)p.set("headline",h);
+      const hi=$("cvHighlight").value.trim(); if(hi)p.set("highlight",hi);
+      p.set("badge",$("cvBadge").value.trim());
+      if(imagesId)p.set("images",imagesId);
+      return p;
+    }
+    // Scale the native-size iframe (e.g. 1080x1080) to fit the preview box.
+    function fitFrame(){
+      if(!META)return;
+      const F=META.formats.find(f=>f.key===fmt)||META.formats[0];
+      // Size from the preview panel (not the stage, which we resize here — that would feed back).
+      const boxW=Math.max(200,(stage.parentElement.clientWidth||600)-40), boxH=560;
+      const s=Math.min(boxW/F.w, boxH/F.h);
+      frame.style.width=F.w+"px"; frame.style.height=F.h+"px"; frame.style.transform="scale("+s+")";
+      stage.style.width=Math.ceil(F.w*s)+"px"; stage.style.height=Math.ceil(F.h*s)+"px";
+    }
+    function refresh(){ fitFrame(); frame.src="/creative/preview?"+params().toString(); }
+    // The view is display:none until navigated to, so its width is 0 at load — the router calls this
+    // when Kreativy becomes visible so the preview scales to the real box instead of scale(0).
+    window.__cvFit=fitFrame;
+    function download(f){
+      const a=el("a"); a.href="/creative/render?"+params(f).toString(); a.download="";
+      document.body.append(a); a.click(); a.remove();
+    }
+
+    fetch("/api/creatives").then(r=>r.json()).then(m=>{
+      META=m;
+      const cs=$("cvCampaign");
+      m.campaigns.forEach(c=>{const o=el("option");o.value=c.key;o.textContent=c.title;cs.append(o);});
+      // palettes (repainted so the campaign's own palette shows as selected)
+      function paintPalettes(){
+        const pw=$("cvPalettes");pw.innerHTML="";
+        m.palettes.forEach(pl=>{const b=el("button","cv-chip"+(pl===palette?" on":""),esc(pl));b.onclick=()=>{palette=pl;paintPalettes();refresh();};pw.append(b);});
+      }
+      // formats
+      const ff=$("cvFormats");
+      m.formats.forEach(f=>{const b=el("button","cv-chip"+(f.key===fmt?" on":""),esc(f.label));b.onclick=()=>{fmt=f.key;[...ff.children].forEach(x=>x.classList.remove("on"));b.classList.add("on");refresh();};ff.append(b);});
+      // choosing a campaign seeds the copy + palette from its preset
+      function seed(){
+        const c=m.campaigns.find(x=>x.key===cs.value)||m.campaigns[0];
+        $("cvHeadline").value=c.headline; $("cvHighlight").value=c.highlight; $("cvBadge").value=c.badge||"";
+        $("cvPrompt").value=c.imagePrompt||"";
+        palette=c.palette; paintPalettes(); refresh();
+      }
+      cs.onchange=seed;
+      // debounced live typing
+      let t; const onType=()=>{clearTimeout(t);t=setTimeout(refresh,350);};
+      ["cvHeadline","cvHighlight","cvBadge"].forEach(id=>$(id).addEventListener("input",onType));
+      // downloads
+      $("cvDownload").onclick=()=>download();
+      $("cvDownloadAll").onclick=()=>["square","story","wide"].forEach((f,i)=>setTimeout(()=>download(f),i*500));
+      window.addEventListener("resize",()=>{if(document.getElementById("v-creatives").classList.contains("on"))fitFrame();});
+      // AI images: upload a reference -> Nano Banana "before" + RunPod line-art "after" -> into the frames
+      const aiHint=$("cvAiHint");
+      function setAi(msg,cls){aiHint.className="cv-hint"+(cls?" "+cls:"");aiHint.textContent=msg;}
+      const fileToParts=file=>new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>{const s=String(r.result);resolve({mime:s.slice(5,s.indexOf(";"))||"image/jpeg",base64:s.slice(s.indexOf(",")+1)});};r.onerror=()=>reject(r.error||new Error("nelze načíst soubor"));r.readAsDataURL(file);});
+      $("cvGenerate").onclick=async()=>{
+        const prompt=$("cvPrompt").value.trim();
+        if(!prompt){setAi("Zadejte prompt (co má AI vytvořit).","warn");return;}
+        setAi("Generuji obrázek… může to trvat minutu.","");
+        $("cvGenerate").disabled=true;
+        try{
+          const payload={prompt};
+          const file=$("cvRef").files[0];
+          if(file){const p=await fileToParts(file);payload.referenceBase64=p.base64;payload.referenceMime=p.mime;}
+          const r=await fetch("/api/creative/ai-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+          const j=await r.json().catch(()=>({}));
+          if(!r.ok){setAi(j.error||("Generování selhalo ("+r.status+").") ,"warn");return;}
+          imagesId=j.id; refresh(); setAi("Hotovo — obrázky vloženy do náhledu.","ok");
+        }catch(e){setAi("Generování selhalo: "+e.message,"warn");}
+        finally{$("cvGenerate").disabled=false;}
+      };
+      // init
+      seed();
+    }).catch(()=>{ $("cvMsg").className="cv-msg warn"; $("cvMsg").textContent="Náhled kreativ je dostupný jen v běžícím nástroji studia."; });
+  })();
 
   /* ---- sdělení bubbles ---- */
   const bw=document.getElementById("bubbles");
@@ -429,7 +563,15 @@
   });
 
   /* ---- month calendar: reused by the Přehled rail AND the Kalendář tab so they match.
-         July 2026 (1st = Wed; today = Sat 11). ---- */
+         July 2026 (1st = Wed; today = Sat 11). Days are clickable → a day-detail panel. ---- */
+  // What's happening each day: creative launches (from LANE) + the 1st/15th robot reminders.
+  const CAL_EVENTS={};
+  const addCalEvent=(day,ev)=>{(CAL_EVENTS[day]=CAL_EVENTS[day]||[]).push(ev);};
+  LANE.forEach(f=>{const [d,m]=f.d.replace(/\.$/,"").split(".").map(Number);if(m===7)addCalEvent(d,{type:"Spuštění kreativy",title:f.t,tone:"brand"});});
+  [1,15].forEach(d=>addCalEvent(d,{type:"Připomínka",title:"Nová kreativa — připomíná robot",tone:"info"}));
+  const TODAY=11;
+  let selectedDay=TODAY;
+
   function paintMonth(gridId){
     const grid=document.getElementById(gridId); if(!grid) return;
     grid.innerHTML="";
@@ -438,16 +580,31 @@
     const cells=[];[29,30].forEach(n=>cells.push({n,mut:true}));
     for(let i=1;i<=31;i++)cells.push({n:i,mut:false});
     [1,2].forEach(n=>cells.push({n,mut:true}));
-    const events={8:["--purple"],11:["--info","--warning"],17:["--purple"],21:["--warning"],25:["--purple"]};
     cells.forEach(c=>{
-      const d=el("div","d"+(c.mut?" mut":"")+(!c.mut&&c.n===11?" today":""));
+      const d=el("div","d"+(c.mut?" mut":"")+(!c.mut&&c.n===TODAY?" today":"")+(!c.mut&&c.n===selectedDay?" sel":""));
       d.innerHTML="<span>"+c.n+"</span>";
-      if(!c.mut&&events[c.n]){let ev='<span class="ev">';events[c.n].forEach(col=>ev+=`<i style="background:var(${col})"></i>`);ev+="</span>";d.innerHTML+=ev;}
+      if(!c.mut&&CAL_EVENTS[c.n]){let ev='<span class="ev">';CAL_EVENTS[c.n].forEach(e=>ev+=`<i class="tone-${e.tone}"></i>`);ev+="</span>";d.innerHTML+=ev;}
+      if(!c.mut){d.classList.add("clickable");d.dataset.day=c.n;}
       grid.append(d);
     });
   }
-  paintMonth("calGrid");     // Přehled rail
-  paintMonth("calGridBig");  // Kalendář tab
+
+  const WEEKDAYS=["neděle","pondělí","úterý","středa","čtvrtek","pátek","sobota"];
+  function renderDayDetail(){
+    const title=document.getElementById("dayTitle"), body=document.getElementById("dayBody");
+    if(!title||!body) return;
+    const dow=new Date(2026,6,selectedDay).getDay();
+    title.textContent=`${selectedDay}. července · ${WEEKDAYS[dow]}${selectedDay===TODAY?" · dnes":""}`;
+    const evs=CAL_EVENTS[selectedDay]||[];
+    body.innerHTML=evs.length
+      ? evs.map(e=>`<div class="day-ev tone-${e.tone}"><div class="de-type">${esc(e.type)}</div><div class="de-title">${esc(e.title)}</div></div>`).join("")
+      : '<div class="empty">Na tento den nic naplánováno.</div>';
+  }
+  function selectDay(day){selectedDay=day;paintMonth("calGrid");paintMonth("calGridBig");renderDayDetail();}
+
+  document.getElementById("calGridBig").addEventListener("click",e=>{const c=e.target.closest(".d.clickable");if(c)selectDay(+c.dataset.day);});
+  document.getElementById("calGrid").addEventListener("click",e=>{const c=e.target.closest(".d.clickable");if(c){selectDay(+c.dataset.day);go("calendar");}});
+  selectDay(TODAY);
 
   /* ---- upcoming creative list: plain date + title, no internal codes. Shared by both views. ---- */
   function paintUpcoming(listId,count){
@@ -475,10 +632,12 @@
     const m=VIEW_META[v];document.getElementById("pageTitle").innerHTML=m.t;document.getElementById("pageSub").textContent=m.s;
     if(location.hash!=="#"+v)history.pushState(null,"","#"+v);
     if(["home","orders","todo"].includes(v))fetchStudio();
+    if(v==="creatives"&&window.__cvFit)window.__cvFit();
     window.scrollTo({top:0,behavior:"instant"});
   }
   window.addEventListener("popstate",()=>go((location.hash||"#home").slice(1)));
-  document.addEventListener("keydown",e=>{if(e.key==="Escape"){if(document.getElementById("modal").classList.contains("on"))closeM();else if((location.hash||"#home")!=="#home")go("home");}});
+  document.getElementById("bell").addEventListener("click",()=>go("todo"));
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"&&(location.hash||"#home")!=="#home")go("home");});
 
   /* ---- theme ---- */
   (function(){

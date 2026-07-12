@@ -139,6 +139,20 @@ export function validateConfig(cfg) {
     );
   }
 
+  // The Kreativy AI image step: Google's Gemini image model ("Nano Banana Pro"). Disabled by default
+  // so the tool runs with no AI config at all; when the operator turns it on, a missing/placeholder
+  // key is a clear error rather than a request that silently 401s. The key is a billable Google
+  // credential and lives only in gitignored config.json — same posture as the generator token.
+  const aiRaw = cfg.ai && typeof cfg.ai === 'object' && !Array.isArray(cfg.ai) ? cfg.ai : {};
+  const aiEnabled = aiRaw.enabled === true;
+  const aiKey = typeof aiRaw.apiKey === 'string' && aiRaw.apiKey.trim() ? aiRaw.apiKey.trim() : null;
+  if (aiEnabled && (!aiKey || PLACEHOLDER.test(aiKey))) {
+    throw new ConfigError('ai.apiKey is required when ai.enabled is true (your Google Gemini / Nano Banana API key).');
+  }
+  const aiModel = typeof aiRaw.model === 'string' && aiRaw.model.trim() ? aiRaw.model.trim() : 'gemini-3-pro-image-preview';
+  const aiEndpoint = typeof aiRaw.endpoint === 'string' && aiRaw.endpoint.trim() ? aiRaw.endpoint.trim() : 'https://generativelanguage.googleapis.com/v1beta';
+  const aiTimeout = Number.isInteger(aiRaw.timeoutMs) && aiRaw.timeoutMs > 0 ? aiRaw.timeoutMs : 60000;
+
   // Board display: the first REAL order number. Older ids are test orders and are hidden from the
   // board and its counts. Null (default) shows everything, so nothing changes until the operator
   // sets it.
@@ -198,6 +212,9 @@ export function validateConfig(cfg) {
     // The dashboard's read-only Proton inbox tile (via Proton Bridge over local IMAP). `enabled`
     // false means the tile shows an "offline" state and never connects.
     mail: { enabled: mailEnabled, host: mailHost, port: mailPort, user: mailUser, pass: mailPass, secure: mailSecure, recentLimit: mailLimit },
+    // The Kreativy AI image step (Gemini / Nano Banana Pro). `enabled` false means the studio's
+    // "generate image" action is unavailable and never calls out.
+    ai: { enabled: aiEnabled, apiKey: aiKey, model: aiModel, endpoint: aiEndpoint, timeoutMs: aiTimeout },
     // Board display. `firstLiveOrder` hides older test orders; null shows everything.
     studio: { firstLiveOrder },
     retentionDays,

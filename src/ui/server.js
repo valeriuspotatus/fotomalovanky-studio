@@ -1,7 +1,8 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { readFileSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, statSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname, resolve, sep } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { loadConfig } from '../config.js';
@@ -11,6 +12,10 @@ import { runPipeline, formatEvent } from '../orchestrator.js';
 import { studioBoard, markDelivered, unmarkDelivered } from '../studio.js';
 import { createBridgeClient, BridgeError } from '../proton/bridgeClient.js';
 import { summarizeInbox } from '../proton/mailbox.js';
+import { renderCreativeHtml, creativeFromCampaign, CAMPAIGNS, PALETTES, FORMATS } from '../creatives/creativeTemplate.js';
+import { renderCreativePng, CreativeRenderError } from '../creatives/renderCreative.js';
+import { generateMarketingImage, AiImageError } from '../creatives/aiImage.js';
+import { generateAdImages, AdImageError, toDataUri } from '../creatives/adImages.js';
 import { ingestOrders, IngestError } from '../ingest.js';
 import {
   reviewState,
@@ -41,6 +46,17 @@ const THUMB_WIDTH = 720;
 // them out of the secrets-laden Marketing Automatization/ folder is what lets the whole tree be
 // served with a plain containment check instead of an asset whitelist (KTD2).
 const STATIC_DIR = join(HERE, 'static');
+
+// The real brand logo, embedded once as a data URI so every creative (live preview + PNG render) is
+// self-contained. Read at load; null if the asset is missing, in which case the template falls back
+// to its drawn mark rather than erroring.
+const CREATIVE_LOGO_URI = (() => {
+  try {
+    return `data:image/png;base64,${readFileSync(join(STATIC_DIR, 'creatives', 'logo.png')).toString('base64')}`;
+  } catch {
+    return null;
+  }
+})();
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -284,7 +300,7 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
  *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
  *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
  *  double-click launcher, where a real operator is watching, turns it on. */
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient } = {}) {
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient, adImageFn } = {}) {
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
@@ -301,6 +317,35 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   const mailLimit = config?.mail?.recentLimit ?? 6;
   let mailCache = null; // { at: epochMs, payload } — a successful read is reused briefly so the tile's
   const MAIL_TTL = 30_000; // poll doesn't reopen an IMAP session every few seconds.
+
+  // Kreativy AI images: the operator uploads a reference photo, Nano Banana Pro reimagines it into a
+  // marketing "before", and the existing RunPod generator turns that into the "after" line-art. The
+  // pair is cached by a short id so the preview/render can reference it without a huge data: URI in a
+  // GET URL. `adImageFn` is injectable so tests never touch the network or the GPU.
+  const creativeImages = new Map(); // id -> { before: dataUri, after: dataUri, at: epochMs }
+  let creativeImageSeq = 0;
+  const makeAdImages = adImageFn ?? (async ({ referenceBase64, referenceMime, prompt }) => {
+    if (!config?.ai?.enabled) throw new AiImageError('AI image generation is off (set ai.enabled + ai.apiKey in config.json).', 'not-configured');
+    return generateAdImages({
+      referenceBase64,
+      referenceMime,
+      prompt,
+      aiFn: (args) => generateMarketingImage({ config: config.ai, ...args }),
+      lineArtFn: async (before) => {
+        // Line-art via the real RunPod generator, through a throwaway temp file (it reads a path).
+        const dir = mkdtempSync(join(tmpdir(), 'fma-ad-'));
+        try {
+          const inPath = join(dir, before.mimeType?.includes('png') ? 'before.png' : 'before.jpg');
+          writeFileSync(inPath, Buffer.from(before.base64, 'base64'));
+          generator ??= createGeneratorDriver(config);
+          const { coloringPngPath } = await generator.generate(inPath, { workDir: dir });
+          return { base64: readFileSync(coloringPngPath).toString('base64'), mimeType: 'image/png' };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      },
+    });
+  });
 
   // The spellings used to live in the outbox, which is the one folder that gets emptied. Carry
   // any that are still there across, once, before anything can read the wrong one.
@@ -328,6 +373,27 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     if (!photo) throw new ReviewError(`Unknown photo "${base}" in order "${orderId}".`);
     return { order, photo };
   };
+
+  // Turn the Kreativy studio's query params into template fields: a campaign preset, then any of the
+  // operator's overrides (format, palette, copy, badge), plus the real brand logo. The before/after
+  // frames are deliberately NOT sourced from customer orders — those images will come from the AI
+  // marketing step (Weavy describe -> Nano Banana Pro generate), which is wired separately.
+  function creativeFieldsFrom(q) {
+    const overrides = { format: FORMATS[q.get('format')] ? q.get('format') : 'square' };
+    if (q.get('palette') && PALETTES[q.get('palette')]) overrides.palette = q.get('palette');
+    const fields = creativeFromCampaign(q.get('campaign') || 'obecny', overrides);
+    if (q.get('headline')) fields.headline = q.get('headline');
+    if (q.get('highlight')) fields.highlight = q.get('highlight');
+    if (q.has('badge')) fields.badge = q.get('badge') || null; // an explicit empty badge removes it
+    if (CREATIVE_LOGO_URI) fields.logoSrc = CREATIVE_LOGO_URI;
+    // A previously generated AI image pair, referenced by its short id (see POST /api/creative/ai-image).
+    const set = creativeImages.get(q.get('images'));
+    if (set) {
+      fields.beforeSrc = set.before;
+      fields.afterSrc = set.after;
+    }
+    return fields;
+  }
 
   /** A run holds each order's manifest in memory and rewrites it after every photo. A verdict
    *  saved meanwhile would be silently overwritten, so verdicts are refused while a run is on. */
@@ -498,6 +564,67 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           const reason = err instanceof BridgeError ? err.code : 'unknown';
           return json(res, 200, { available: false, reason, detail: err.message });
         }
+      }
+
+      // GET /api/creatives — the Kreativy studio's pickers: the campaign presets, the palettes, and
+      // the three ad formats. No order photos: marketing imagery never comes from customer orders.
+      if (req.method === 'GET' && url.pathname === '/api/creatives') {
+        return json(res, 200, {
+          campaigns: Object.entries(CAMPAIGNS).map(([key, c]) => ({ key, title: c.title, headline: c.headline, highlight: c.highlight, badge: c.badge, palette: c.palette, imagePrompt: c.imagePrompt })),
+          palettes: Object.keys(PALETTES),
+          formats: Object.entries(FORMATS).map(([key, f]) => ({ key, label: f.label, w: f.w, h: f.h })),
+          aiEnabled: Boolean(config?.ai?.enabled),
+        });
+      }
+
+      // GET /creative/preview?... — the live ad as HTML for the studio's <iframe>. Same-origin, so the
+      // escaped copy and (order,base)-addressed photos render with no path or token reaching the page.
+      if (req.method === 'GET' && url.pathname === '/creative/preview') {
+        const html = renderCreativeHtml(await creativeFieldsFrom(url.searchParams));
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end(html);
+      }
+
+      // GET /creative/render?... — the same ad rasterised to a PNG for download. The one place that
+      // spins up headless Chromium; photos are embedded as data URIs so the shot is self-contained.
+      if (req.method === 'GET' && url.pathname === '/creative/render') {
+        const format = FORMATS[url.searchParams.get('format')] ? url.searchParams.get('format') : 'square';
+        const F = FORMATS[format];
+        const html = renderCreativeHtml({ ...(await creativeFieldsFrom(url.searchParams)), format });
+        let buf;
+        try {
+          buf = await renderCreativePng({ html, width: F.w, height: F.h });
+        } catch (err) {
+          if (err instanceof CreativeRenderError) return json(res, 503, { error: err.message });
+          throw err;
+        }
+        const name = `fotomalovanky_${(url.searchParams.get('campaign') || 'kreativa').replace(/[^a-z0-9]/gi, '')}_${format}.png`;
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' });
+        return res.end(buf);
+      }
+
+      // POST /api/creative/ai-image { referenceBase64?, referenceMime?, prompt } — generate the ad's
+      // before (Nano Banana Pro reimagines the uploaded reference) + after (RunPod line-art), cache
+      // the pair, and return a short id the preview/render reference via ?images=<id>. This is the
+      // only creative route that spends money (a Gemini image call + a GPU line-art job).
+      if (req.method === 'POST' && url.pathname === '/api/creative/ai-image') {
+        const { referenceBase64, referenceMime, prompt } = await readJson(req, 16 * 1024 * 1024); // photos are big
+        if (!prompt || !String(prompt).trim()) return json(res, 400, { error: 'Zadejte prompt (co má AI vytvořit).' });
+        let pair;
+        try {
+          pair = await makeAdImages({ referenceBase64: referenceBase64 || null, referenceMime: referenceMime || 'image/jpeg', prompt });
+        } catch (err) {
+          if (err instanceof AiImageError || err instanceof AdImageError) {
+            const status = err.code === 'not-configured' ? 503 : err.code === 'auth' ? 502 : err.code === 'timeout' ? 504 : err.code === 'bad-input' ? 400 : 502;
+            return json(res, status, { error: err.message, code: err.code });
+          }
+          throw err;
+        }
+        const id = String(++creativeImageSeq);
+        creativeImages.set(id, { before: toDataUri(pair.before), after: toDataUri(pair.after), at: Date.now() });
+        // Bound the cache: drop the oldest once it grows past a couple dozen sets.
+        while (creativeImages.size > 24) creativeImages.delete(creativeImages.keys().next().value);
+        return json(res, 200, { id, before: toDataUri(pair.before), after: toDataUri(pair.after) });
       }
 
       // POST /api/_scan { path } — what orders are in that folder? Spends nothing, starts nothing.
