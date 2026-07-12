@@ -183,9 +183,19 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   runAutopilot({ config, onEvent: cliOnEvent })
     // A completed pass — whether it ran orders or exited inert — is a success (exit 0). Only a thrown
     // hard failure (bad config, poll error) is non-zero, so the scheduled task's next slot retries.
-    .then(() => process.exit(0))
+    .then(() => { process.exitCode = 0; })
     .catch((err) => {
       console.error(`Autopilot run failed at the ${err.seam ?? 'unknown'} seam: ${err.message}`);
-      process.exit(1);
+      process.exitCode = 1;
+    })
+    // Do NOT call process.exit() here. On Windows + Node 24 that aborts inside libuv's teardown while
+    // undici's keep-alive sockets (from the Shopify poll) are still closing — "Assertion failed:
+    // !(handle->flags & UV_HANDLE_CLOSING), async.c:94" — which turns every clean run into a 0xC0000409
+    // "failure" in Task Scheduler and makes the result code useless for monitoring. Instead we set
+    // exitCode and let the event loop drain, so Node exits with the right code on its own. The unref'd
+    // backstop force-exits only if some ref'd handle blocks the drain, so the task can never hang up to
+    // its 2h limit; the unref() ensures this timer itself never keeps the process alive.
+    .finally(() => {
+      setTimeout(() => process.exit(process.exitCode ?? 0), 8000).unref();
     });
 }

@@ -62,12 +62,16 @@ $NodePath = $node.Source
 # Run node with the working directory set to the repo so loadConfig() finds config.json.
 $action = New-ScheduledTaskAction -Execute $NodePath -Argument "src\autopilot.js" -WorkingDirectory $RepoRoot
 
-# Repeat every N minutes, indefinitely, starting a minute from now. A one-off trigger with a
+# Repeat every N minutes, effectively forever, starting a minute from now. A one-off trigger with a
 # repetition interval is the most compatible shape across Windows 10 builds.
+#
+# NB: do NOT use [TimeSpan]::MaxValue for the duration - PowerShell serializes it to
+# "P99999999DT23H59M59S", which Task Scheduler rejects as out-of-range (HRESULT 0x80041318). A large
+# finite duration (~27 years) means the same thing in practice and registers cleanly on Win 10.
 $start   = (Get-Date).AddMinutes(1)
 $trigger = New-ScheduledTaskTrigger -Once -At $start `
     -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
-    -RepetitionDuration ([TimeSpan]::MaxValue)
+    -RepetitionDuration (New-TimeSpan -Days 9999)
 
 # StartWhenAvailable catches up a slot missed while the machine was asleep/off; the task tolerates
 # running whether or not anyone is logged in. No battery gating so a laptop on mains still runs.
