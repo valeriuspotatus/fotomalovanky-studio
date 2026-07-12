@@ -116,16 +116,26 @@ try {
     `server: ${serverStates.join(',')} | client: ${clientStates.join(',')}`,
   );
 
-  // --- marketing tabs still render their static content (restyled, left functional) ---
+  // --- Kreativy studio: the deterministic layered template engine ---
   await page.evaluate(() => go('creatives'));
-  // <option>s only count as "visible" with the dropdown open, so assert on count, not visibility.
-  await page.waitForFunction(() => document.querySelectorAll('#v-creatives.on #cvCampaign option').length >= 3);
-  check('Kreativy studio renders its campaign picker from /api/creatives', (await page.locator('#v-creatives.on #cvCampaign option').count()) >= 3);
+  // The 5 template families load from /api/studio/templates and one is auto-selected.
+  await page.waitForFunction(() => document.querySelectorAll('#v-creatives.on #cvTemplates .cv-tpl').length >= 5);
+  check('Kreativy studio lists the 5 template families', (await page.locator('#v-creatives.on #cvTemplates .cv-tpl').count()) === 5);
+  check('Kreativy studio auto-selects a family', (await page.locator('#v-creatives.on #cvTemplates .cv-tpl.on').count()) === 1);
+  check('Kreativy studio offers feed/story/landscape formats', (await page.locator('#v-creatives.on #cvFormats .cv-chip').count()) === 3);
+  check('Kreativy studio builds copy fields for the family', (await page.locator('#v-creatives.on #cvFields .cv-field').count()) >= 1);
   check('Kreativy studio mounts a live preview frame', (await page.locator('#v-creatives.on #cvFrame').count()) === 1);
+  // The QC pill renders after an async /api/studio/validate fetch, so wait for it before asserting.
+  await page.waitForFunction(() => document.querySelector('#v-creatives.on #cvQc .cv-qc-pill'), { timeout: 5000 });
+  check('Kreativy studio shows a QC status pill', (await page.locator('#v-creatives.on #cvQc .cv-qc-pill').count()) === 1);
   check(
     'Kreativy studio exposes the AI image generator',
     (await page.locator('#v-creatives.on #cvGenerate').count()) === 1 && (await page.locator('#v-creatives.on #cvPrompt').count()) === 1,
   );
+  // Switching family swaps the composition: pick the 5th (Reference zákazníka) and confirm it selects.
+  await page.locator('#v-creatives.on #cvTemplates .cv-tpl').nth(4).click();
+  await page.waitForFunction(() => document.querySelectorAll('#v-creatives.on #cvTemplates .cv-tpl')[4].classList.contains('on'));
+  check('switching template family updates the selection', (await page.locator('#v-creatives.on #cvTemplates .cv-tpl').nth(4).getAttribute('class')).includes('on'));
   check('Sdělení tab is gone from the sidebar', (await page.locator('#nav a[data-view="sdeleni"]').count()) === 0);
 
   // --- Kalendář: the calendar opens on the REAL current month (today is pinned to new Date()) ---

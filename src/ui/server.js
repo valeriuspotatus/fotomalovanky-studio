@@ -19,6 +19,11 @@ import { renderCreativeHtml, creativeFromCampaign, CAMPAIGNS, PALETTES, FORMATS 
 import { renderCreativePng, CreativeRenderError } from '../creatives/renderCreative.js';
 import { generateMarketingImage, describeImage, AiImageError } from '../creatives/aiImage.js';
 import { generateAdImages, describeAndGenerate, AdImageError, toDataUri } from '../creatives/adImages.js';
+import { STUDIO_FORMATS, DEFAULT_FORMATS } from '../creatives/studio/formats.js';
+import { THEMES } from '../creatives/studio/brandKit.js';
+import { listTemplates, getTemplate, SEED_COPY } from '../creatives/studio/templates.js';
+import { renderStudioHtml } from '../creatives/studio/renderStudioHtml.js';
+import { validateConcept, creativeFilename, COPY_FIELDS } from '../creatives/studio/templateModel.js';
 import { ingestOrders, IngestError } from '../ingest.js';
 import {
   reviewState,
@@ -421,6 +426,29 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     return fields;
   }
 
+  /** Resolve a Creative Studio concept (template + format + copy + assets) from query params, for the
+   *  layered renderer. Copy comes from ?<field>= (falling back to the template's seed copy); the image
+   *  slots are filled from a generated AI pair (?images=<id>): the "before" marketing photo feeds the
+   *  original + lifestyle slots, the "after" line-art feeds the coloring slot. Customer photos never
+   *  reach here — the "before" is an identity-free AI image (see describeAndGenerate). */
+  function studioConceptFrom(q) {
+    const template = getTemplate(q.get('template')) ?? getTemplate('promena');
+    const format = STUDIO_FORMATS[q.get('format')] ? q.get('format') : 'feed';
+    const copy = { ...(SEED_COPY[template.id] ?? {}) };
+    for (const f of [...COPY_FIELDS, 'headlineHi']) {
+      if (q.has(f)) copy[f] = q.get(f); // an explicit empty value clears the seed
+    }
+    const assets = {};
+    const pair = creativeImages.get(q.get('images'));
+    if (pair) {
+      assets.original = pair.before;
+      assets.lifestyle = pair.before;
+      assets.coloring = pair.after;
+    }
+    const brand = CREATIVE_LOGO_URI ? { logoSrc: CREATIVE_LOGO_URI } : {};
+    return { template, format, copy, assets, brand };
+  }
+
   /** A run holds each order's manifest in memory and rewrites it after every photo. A verdict
    *  saved meanwhile would be silently overwritten, so verdicts are refused while a run is on. */
   const requireIdle = () => {
@@ -723,6 +751,52 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           throw err;
         }
         const name = `fotomalovanky_${(url.searchParams.get('campaign') || 'kreativa').replace(/[^a-z0-9]/gi, '')}_${format}.png`;
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' });
+        return res.end(buf);
+      }
+
+      // GET /api/studio/templates — the Creative Studio pickers: the 5 template families (each with the
+      // image slots + copy fields it needs and its seed copy), the colour themes (secondary styling), and
+      // the output formats. No customer data; marketing imagery is AI-made, never from orders.
+      if (req.method === 'GET' && url.pathname === '/api/studio/templates') {
+        return json(res, 200, {
+          templates: listTemplates(),
+          themes: Object.keys(THEMES),
+          formats: DEFAULT_FORMATS.map((k) => ({ key: k, label: STUDIO_FORMATS[k].label, w: STUDIO_FORMATS[k].w, h: STUDIO_FORMATS[k].h })),
+          aiEnabled: Boolean(config?.ai?.enabled),
+        });
+      }
+
+      // GET /studio/preview?template=&format=&theme=&<copy fields>=&images=<id> — the layered concept as
+      // HTML for the studio's <iframe>. The app assembles the ad from the template; the AI only supplied
+      // the slot images. Also returns its QC status via a header the client reads for the status pill.
+      if (req.method === 'GET' && url.pathname === '/studio/preview') {
+        const concept = studioConceptFrom(url.searchParams);
+        const qc = validateConcept(concept);
+        const html = renderStudioHtml(concept);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Studio-Status': qc.status });
+        return res.end(html);
+      }
+
+      // GET /api/studio/validate?... — the QC findings for the current concept (clickable warnings).
+      if (req.method === 'GET' && url.pathname === '/api/studio/validate') {
+        return json(res, 200, validateConcept(studioConceptFrom(url.searchParams)));
+      }
+
+      // GET /studio/render?... — the concept rasterised to a PNG for download, named per the export
+      // scheme (fotomalovanky_<occasion>_<angle>_<format>_NN.png). The one place headless Chromium runs.
+      if (req.method === 'GET' && url.pathname === '/studio/render') {
+        const concept = studioConceptFrom(url.searchParams);
+        const F = STUDIO_FORMATS[concept.format];
+        const html = renderStudioHtml(concept);
+        let buf;
+        try {
+          buf = await renderCreativePng({ html, width: F.w, height: F.h });
+        } catch (err) {
+          if (err instanceof CreativeRenderError) return json(res, 503, { error: err.message });
+          throw err;
+        }
+        const name = creativeFilename({ occasion: url.searchParams.get('occasion') || concept.template.family, angle: concept.template.id, format: concept.format, index: Number(url.searchParams.get('index')) || 1 });
         res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' });
         return res.end(buf);
       }

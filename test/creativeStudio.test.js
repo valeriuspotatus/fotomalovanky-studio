@@ -13,6 +13,10 @@ import {
 } from '../src/creatives/studio/templateModel.js';
 import { renderStudioHtml } from '../src/creatives/studio/renderStudioHtml.js';
 import { TEMPLATES, listTemplates, getTemplate, templateSlots, templateFields, SEED_COPY } from '../src/creatives/studio/templates.js';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createReviewServer } from '../src/ui/server.js';
 
 // ---- formats ---------------------------------------------------------------
 
@@ -195,4 +199,61 @@ test('a text element with no CTA copy renders nothing for it (no empty pill)', (
   const html = renderStudioHtml({ template: getTemplate('emotivni-darek'), format: 'feed', copy: { headline: 'H', support: 'S' }, assets: {} });
   // cta field is empty -> the cta branch returns '' so no accent button leaks in
   assert.ok(!/border-radius:999px/.test(html), 'empty CTA is not rendered');
+});
+
+// ---- server endpoints ------------------------------------------------------
+
+const CONFIG = { generator: { baseUrl: 'https://example.test/tok/', mode: 'api' }, builder: { baseUrl: 'https://example.test' }, paths: { inbox: './inbox', outbox: './outbox' } };
+
+async function withServer(run) {
+  const root = mkdtempSync(join(tmpdir(), 'fma-studio-'));
+  mkdirSync(join(root, 'inbox'), { recursive: true });
+  mkdirSync(join(root, 'outbox'), { recursive: true });
+  const { server } = createReviewServer({ config: CONFIG, inboxRoot: join(root, 'inbox'), outboxRoot: join(root, 'outbox'), memoryRoot: join(root, 'outbox'), driver: { generate: async () => {} } });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    await run(origin);
+  } finally {
+    server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('GET /api/studio/templates lists the families, themes and formats', async () => {
+  await withServer(async (origin) => {
+    const m = await (await fetch(`${origin}/api/studio/templates`)).json();
+    assert.equal(m.templates.length, 5);
+    assert.ok(m.templates.every((t) => t.id && t.family && Array.isArray(t.fields)));
+    assert.ok(m.themes.includes('rainbow'));
+    assert.deepEqual(m.formats.map((f) => f.key), ['feed', 'story', 'landscape']);
+    assert.equal(typeof m.aiEnabled, 'boolean');
+  });
+});
+
+test('GET /studio/preview returns the ad HTML + a QC status header', async () => {
+  await withServer(async (origin) => {
+    const res = await fetch(`${origin}/studio/preview?template=promena&format=feed`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-studio-status'), 'nedokonceno', 'promena needs both images -> nedokonceno');
+    const html = await res.text();
+    assert.ok(html.startsWith('<!doctype html>'));
+    assert.ok(html.includes('width:1080px'));
+  });
+});
+
+test('GET /api/studio/validate reports findings for the current concept', async () => {
+  await withServer(async (origin) => {
+    const qc = await (await fetch(`${origin}/api/studio/validate?template=promena&format=feed`)).json();
+    assert.equal(qc.status, 'nedokonceno');
+    assert.ok(qc.findings.some((f) => f.code === 'missing-asset'));
+  });
+});
+
+test('studio preview copy params override the seed and are HTML-escaped', async () => {
+  await withServer(async (origin) => {
+    const html = await (await fetch(`${origin}/studio/preview?template=promena&format=feed&headline=${encodeURIComponent('X <b>')}`)).text();
+    assert.ok(html.includes('X &lt;b&gt;'));
+    assert.ok(!html.includes('X <b>'));
+  });
 });

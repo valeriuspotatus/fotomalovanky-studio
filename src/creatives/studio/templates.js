@@ -148,6 +148,15 @@ export function templateFields(template) {
   return seen;
 }
 
+/** field -> maxChars (from the bound element's constraints), for the editor's live character counter. */
+export function templateFieldLimits(template) {
+  const limits = {};
+  for (const el of template.elements) {
+    if (el.field && el.constraints?.maxChars) limits[el.field] = el.constraints.maxChars;
+  }
+  return limits;
+}
+
 export function getTemplate(id) {
   return TEMPLATES[id] ?? null;
 }
@@ -164,6 +173,7 @@ export function listTemplates() {
     requiresCta: t.requiresCta,
     slots: templateSlots(t),
     fields: templateFields(t),
+    limits: templateFieldLimits(t),
     seedCopy: SEED_COPY[t.id] ?? {},
   }));
 }
