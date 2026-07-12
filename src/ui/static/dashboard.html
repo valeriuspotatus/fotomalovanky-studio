@@ -4,6 +4,19 @@
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/components.css">
 <style>
+  /* the overnight-autopilot morning banner (home + Objednávky). Tone follows the worst state present. */
+  .overnight[hidden]{display:none}
+  .on-card{display:flex;align-items:center;gap:12px;padding:12px 14px;margin:0 0 2px;border:1px solid var(--border);border-left:3px solid var(--brand);border-radius:12px;background:var(--surface)}
+  .on-card.good{border-left-color:var(--success)}
+  .on-card.warn{border-left-color:var(--warning)}
+  .on-card.bad{border-left-color:var(--danger)}
+  .on-ic{font-size:20px;line-height:1}
+  .on-body{flex:1;min-width:0}
+  .on-h{font-size:13.5px;color:var(--ink);font-weight:600}
+  .on-m{font-size:12px;color:var(--ink-2);margin-top:2px}
+  .on-stale{color:var(--warning);font-weight:600}
+  .on-x{flex:none;background:none;border:none;color:var(--ink-3);font-size:14px;line-height:1;cursor:pointer;padding:5px;border-radius:6px}
+  .on-x:hover{background:var(--surface-2);color:var(--ink)}
   /* page-local: the home two-column layout (work rail + calendar rail) */
   .home-grid{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:26px;align-items:start}
   .col-work{min-width:0;display:flex;flex-direction:column;gap:22px}
@@ -122,6 +135,7 @@
     <section class="view on" id="v-home">
       <div class="home-grid">
         <div class="col-work">
+          <div class="overnight" hidden></div>
           <section class="kpis">
             <button class="kpi" onclick="go('orders')"><div class="well w-brand"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16M16 10a4 4 0 0 1-8 0"/></svg></div><div class="val" id="kpi-queued">–</div><div class="lab">Nové objednávky</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
             <button class="kpi" onclick="go('orders')"><div class="well w-running"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/></svg></div><div class="val" id="kpi-generating">–</div><div class="lab">Generuje se</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
@@ -177,6 +191,7 @@
 
     <!-- ===== ORDERS ===== -->
     <section class="view" id="v-orders">
+      <div class="overnight" hidden></div>
       <div class="table"><table>
         <thead><tr><th>Objednávka</th><th>Fotky</th><th>Titulek</th><th>Stav</th><th></th></tr></thead>
         <tbody id="ordersBody"></tbody>
@@ -403,9 +418,42 @@
     });
   }
 
+  /* ---- overnight autopilot banner: what happened while the machine ran unattended ---- */
+  // `false`, not null: a report can legitimately carry ranAt:null, and null===null would read as
+  // "already dismissed" and hide a real banner. false never equals a ranAt, so nothing starts hidden.
+  let dismissedOvernight=false;
+  function overnightBanner(ov){
+    const {ready,held,failed}=ov.orders;
+    const tone=failed>0?"bad":held>0?"warn":"good";
+    const t=ov.ranAt?new Date(ov.ranAt):null;
+    const hhmm=t?String(t.getHours()).padStart(2,"0")+":"+String(t.getMinutes()).padStart(2,"0"):"—";
+    const ageMin=t?Math.round((Date.now()-t.getTime())/60000):null;
+    // A run older than an hour means the ~15-min poll didn't fire — the machine slept, rebooted, or is off.
+    const stale=ageMin!=null&&ageMin>60;
+    const staleNote=stale?` · <span class="on-stale">stroj možná spal — ${ageMin>=120?Math.round(ageMin/60)+" h":ageMin+" min"} bez běhu</span>`:"";
+    const spend=ov.estSpend!=null?` · odhad ~$${ov.estSpend}`:"";
+    return `<div class="on-card ${tone}">
+      <div class="on-ic">🌙</div>
+      <div class="on-body">
+        <div class="on-h">Přes noc: <b>${ready}</b> ke kontrole · <b>${held}</b> potřebuje vás · <b>${failed}</b> selhalo</div>
+        <div class="on-m">poslední běh ${hhmm} · ${ov.count} zpracováno${spend}${staleNote}</div>
+      </div>
+      <button class="on-x" aria-label="Skrýt">✕</button>
+    </div>`;
+  }
+  function renderOvernight(d){
+    const ov=d.overnight, boxes=document.querySelectorAll(".overnight");
+    const show=ov&&dismissedOvernight!==ov.ranAt;
+    boxes.forEach(box=>{
+      if(!show){box.hidden=true;box.innerHTML="";return;}
+      box.hidden=false;box.innerHTML=overnightBanner(ov);
+      box.querySelector(".on-x").onclick=()=>{dismissedOvernight=ov.ranAt;renderOvernight(d);};
+    });
+  }
+
   function renderStudio(){
     if(!studioData)return;
-    renderHome(studioData);renderOrders(studioData);renderNeedsYou(studioData);
+    renderOvernight(studioData);renderHome(studioData);renderOrders(studioData);renderNeedsYou(studioData);
   }
   async function fetchStudio(){
     try{const res=await fetch("/api/studio");if(!res.ok)return;studioData=await res.json();renderStudio();}

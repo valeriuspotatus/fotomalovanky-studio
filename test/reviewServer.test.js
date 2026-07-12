@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { createReviewServer, openCommand, powershellPath, openExternally, pickFolder, pickFolderScript } from '../src/ui/server.js';
 import { STATES, readManifest, getStatus, setStatus, setIntake, writeManifest, emptyManifest } from '../src/manifest.js';
+import { writeReport } from '../src/autopilotReport.js';
 
 const TOKEN = 'sup3r-s3cret-t0ken-abc123';
 const CONFIG = {
@@ -130,6 +131,42 @@ test('the studio board reports the order derived status, counts, and an empty ne
 
 test('the studio board never leaks the generator token either', async () => {
   assert.ok(!(await (await get('/api/studio')).text()).includes(TOKEN));
+});
+
+test('the studio board carries the overnight rollup when a night report is present; none crosses no secret', async () => {
+  const r = mkdtempSync(join(tmpdir(), 'fma-overnight-'));
+  const data = join(r, 'data');
+  // A report older than the poll interval — the server always returns it (staleness is the client's
+  // tell that the machine slept); it must still surface, not be dropped.
+  writeReport(data, {
+    ranAt: '2026-07-11T02:12:00.000Z',
+    counts: { ready: 4, held: 1, failed: 0 },
+    processed: 5,
+    estSpend: 1.5,
+    orders: [{ orderId: '1600', status: 'ready' }],
+  });
+  const config = { ...CONFIG, shopify: { dataDir: data } };
+  const { server: s } = createReviewServer({ config, inboxRoot: inbox, outboxRoot: outbox, memoryRoot: outbox });
+  await new Promise((done) => s.listen(0, '127.0.0.1', done));
+  try {
+    const res = await fetch(`http://127.0.0.1:${s.address().port}/api/studio`);
+    const text = await res.text();
+    assert.ok(!text.includes(TOKEN), 'the report read must never carry a secret to the page');
+    const board = JSON.parse(text);
+    assert.equal(board.overnight.orders.ready, 4);
+    assert.equal(board.overnight.orders.held, 1);
+    assert.equal(board.overnight.count, 5);
+    assert.equal(board.overnight.estSpend, 1.5);
+    assert.equal(board.overnight.ranAt, '2026-07-11T02:12:00.000Z', 'a stale run is still surfaced');
+  } finally {
+    s.close();
+    rmSync(r, { recursive: true, force: true });
+  }
+});
+
+test('with no night report the board simply carries no overnight block (manual-only day)', async () => {
+  const board = await (await get('/api/studio')).json();
+  assert.equal(board.overnight, null, 'the base server config has no shopify.dataDir, so no rollup');
 });
 
 test('an intake-held order surfaces under needs-you on the board, with its drafted email', async () => {

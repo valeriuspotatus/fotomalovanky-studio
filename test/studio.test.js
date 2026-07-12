@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildBoard, deriveOrderStatus, studioBoard, ORDER_BOARD_STATES, markDelivered, unmarkDelivered, deliveredMarkerPath } from '../src/studio.js';
+import { buildBoard, deriveOrderStatus, studioBoard, overnightSummary, ORDER_BOARD_STATES, markDelivered, unmarkDelivered, deliveredMarkerPath } from '../src/studio.js';
 
 // Review-state-shaped fakes. buildBoard is pure over these, so the whole status machine is tested
 // without a filesystem or a running server.
@@ -204,4 +204,52 @@ test('markDelivered writes the terminal marker (sent); unmarkDelivered removes i
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ---- overnight rollup (U5): the morning summary from the night report -------
+
+test('overnightSummary distils a report to counts + ranAt + count + spend', () => {
+  const report = {
+    ranAt: '2026-07-12T04:12:00.000Z',
+    counts: { ready: 4, held: 1, failed: 0 },
+    processed: 5,
+    estSpend: 1.5,
+    orders: [{ orderId: '1600', status: 'ready' }],
+  };
+  assert.deepEqual(overnightSummary(report), {
+    ranAt: '2026-07-12T04:12:00.000Z',
+    orders: { ready: 4, held: 1, failed: 0 },
+    count: 5,
+    estSpend: 1.5,
+  });
+});
+
+test('overnightSummary is null when there is no report (a manual-only day)', () => {
+  assert.equal(overnightSummary(null), null);
+  assert.equal(overnightSummary(undefined), null);
+});
+
+test('overnightSummary falls back to summed counts when processed is missing, and tolerates gaps', () => {
+  const s = overnightSummary({ counts: { ready: 2, failed: 1 } });
+  assert.equal(s.count, 3, 'count falls back to ready+held+failed');
+  assert.equal(s.orders.held, 0, 'a missing sub-count reads as zero');
+  assert.equal(s.estSpend, null, 'a missing spend reads as null, not 0');
+  assert.equal(s.ranAt, null);
+});
+
+test('studioBoard carries the overnight block when a report is present, and null when dataDir is unset', () => {
+  const fakeState = () => [order('1600', summary({ total: 1, eligible: 1, ready: true }), { orderDir: '/x/1600' })];
+  const report = { ranAt: '2026-07-12T04:00:00Z', counts: { ready: 1, held: 0, failed: 0 }, processed: 1, estSpend: 0.3 };
+
+  const withReport = studioBoard({ inboxRoot: null, outboxRoot: null, state: fakeState, dataDir: '/data', readReportFn: () => report });
+  assert.equal(withReport.overnight.orders.ready, 1);
+  assert.equal(withReport.overnight.estSpend, 0.3);
+
+  // No dataDir -> the report is never read and the board simply carries no overnight block (R9).
+  const noDir = studioBoard({ inboxRoot: null, outboxRoot: null, state: fakeState });
+  assert.equal(noDir.overnight, null);
+
+  // dataDir set but no report on disk -> still null, dashboard renders normally.
+  const noReport = studioBoard({ inboxRoot: null, outboxRoot: null, state: fakeState, dataDir: '/data', readReportFn: () => null });
+  assert.equal(noReport.overnight, null);
 });

@@ -545,6 +545,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           only: selected,
           memoryRoot,
           firstLiveOrder: config.studio?.firstLiveOrder ?? null,
+          dataDir: config.shopify?.dataDir ?? null,
         });
         return json(res, 200, { ...board, inbox, run: { active: run.active, orderId: run.orderId } });
       }

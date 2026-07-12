@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { reviewState } from './review.js';
 import { pdfPathFor } from './orchestrator.js';
 import { intakeSummary } from './intake.js';
+import { readReport } from './autopilotReport.js';
 
 // The live order board behind the dashboard's Objednávky and Potřebuje vás tabs (KTD5/KTD6).
 //
@@ -145,14 +146,36 @@ export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => fal
   return { orders: board, counts, needsYou };
 }
 
+/** The compact overnight rollup the dashboard banner reads, distilled from the night report the
+ *  autopilot wrote (src/autopilot.js → autopilotReport.js). Aggregate counts only — no order email,
+ *  no token, nothing beyond the order numbers already on the board — so it is safe for the page.
+ *  Returns null when there is no report (a manual-only day / fresh install), so the banner hides. */
+export function overnightSummary(report) {
+  if (!report || typeof report !== 'object') return null;
+  const c = report.counts && typeof report.counts === 'object' ? report.counts : {};
+  const ready = Number.isInteger(c.ready) ? c.ready : 0;
+  const held = Number.isInteger(c.held) ? c.held : 0;
+  const failed = Number.isInteger(c.failed) ? c.failed : 0;
+  return {
+    ranAt: typeof report.ranAt === 'string' ? report.ranAt : null,
+    orders: { ready, held, failed },
+    count: Number.isInteger(report.processed) ? report.processed : ready + held + failed,
+    estSpend: typeof report.estSpend === 'number' ? report.estSpend : null,
+  };
+}
+
 /** The live board over a real inbox/outbox: reads the review state and stats each order's PDF and
- *  delivery marker. `state` is injected so a test can drive the wiring with a fake review state. */
-export function studioBoard({ inboxRoot, outboxRoot, runningOrderId = null, only = null, memoryRoot, firstLiveOrder = null, state = reviewState } = {}) {
+ *  delivery marker. `state` is injected so a test can drive the wiring with a fake review state.
+ *  `dataDir` (config.shopify.dataDir) is where the overnight report lives; when set and a report is
+ *  present, the board carries the morning rollup. `readReportFn` is injected for tests. */
+export function studioBoard({ inboxRoot, outboxRoot, runningOrderId = null, only = null, memoryRoot, firstLiveOrder = null, dataDir = null, state = reviewState, readReportFn = readReport } = {}) {
   const orders = state({ inboxRoot, outboxRoot, only, memoryRoot });
-  return buildBoard(orders, {
+  const board = buildBoard(orders, {
     runningOrderId,
     firstLiveOrder,
     pdfBuilt: (o) => existsSync(pdfPathFor(o.orderDir, o.orderId)),
     delivered: (o) => existsSync(deliveredMarkerPath(o.orderDir)),
   });
+  const overnight = dataDir ? overnightSummary(readReportFn(dataDir)) : null;
+  return { ...board, overnight };
 }
