@@ -137,6 +137,19 @@ try {
   await page.waitForFunction(() => /Spuštění/.test(document.querySelector('#dayBody')?.textContent || ''));
   check('clicking a calendar day shows that day’s events', (await page.locator('#dayTitle').textContent()).includes('14'));
 
+  // --- Kalendář: the month nav moves across the year to the marketing plan ---
+  check('the calendar starts on the reference month', (await page.locator('#calLabelBig').textContent()).trim() === 'Červenec 2026');
+  await page.locator('#v-calendar.on .cal .top .nav-btns button[aria-label="Další"]').click();
+  await page.waitForFunction(() => document.querySelector('#calLabelBig')?.textContent.trim() === 'Srpen 2026');
+  check('the next-month button advances the calendar', true);
+  // Srpen 8 = Mezinárodní den koček, a marketing occasion carrying its angle + a "make a creative" link
+  await page.locator('#v-calendar.on #calGridBig .d.clickable', { hasText: '8' }).first().click();
+  await page.waitForFunction(() => /koček/.test(document.querySelector('#dayBody')?.textContent || ''));
+  check('a marketing occasion shows its persona/angle', /Majitelé koček/.test(await page.locator('#dayBody').textContent()));
+  check('a marketing occasion offers a jump to Kreativy', (await page.locator('#dayBody .de-cta').count()) > 0);
+  // the upcoming panel lists opportunities from the plan, and clicking one jumps to its day
+  check('upcoming opportunities are listed', (await page.locator('#upListBig .up-item').count()) > 0);
+
   // --- Objednávky: the live order table from /api/studio, oldest-first, with sent orders hidden ---
   await page.evaluate(() => go('orders'));
   await page.waitForSelector('#v-orders.on #ordersBody .oid');

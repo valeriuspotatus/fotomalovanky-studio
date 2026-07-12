@@ -56,12 +56,20 @@
   .cal-grid .d.sel:not(.today){box-shadow:0 0 0 2px var(--brand) inset}
   .cal-grid .d .ev i.tone-brand{background:var(--brand)}
   .cal-grid .d .ev i.tone-info{background:var(--info)}
+  .cal-grid .d .ev i.tone-warm{background:var(--warning)}
   .day-ev{padding:10px 12px;border-radius:var(--r-md);background:var(--surface-2);margin-bottom:8px;border-left:3px solid var(--ink-3)}
   .day-ev:last-child{margin-bottom:0}
   .day-ev.tone-brand{border-left-color:var(--brand)}
   .day-ev.tone-info{border-left-color:var(--info)}
+  .day-ev.tone-warm{border-left-color:var(--warning)}
   .de-type{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-3)}
   .de-title{font-size:13.5px;color:var(--ink);margin-top:2px}
+  .de-angle{font-size:12px;color:var(--ink-2);margin-top:5px;line-height:1.45}
+  .de-cta{display:inline-block;margin-top:9px;font-size:12px;font-weight:600;color:var(--brand);text-decoration:none}
+  .de-cta:hover{text-decoration:underline}
+  .up-item.clickable{cursor:pointer;border-radius:var(--r-md)}
+  .up-item.clickable:hover{background:var(--surface-2)}
+  .cal .top .nav-btns button{cursor:pointer}
   /* order-board row actions (mark sent / undo) + the "show done" toggle */
   .act-cell{text-align:right;white-space:nowrap}
   .btn.sm{padding:5px 11px;font-size:12px}
@@ -195,7 +203,7 @@
             </table></div>
           </section>
 
-          <div class="preview-note"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>Živá data z generátoru. Kalendář je zatím náhled — plná verze přijde v další fázi.</div>
+          <div class="preview-note"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>Živá data z generátoru. Kalendář ukazuje roční marketingový plán — listujte měsíci.</div>
         </div>
 
         <aside class="rail">
@@ -204,7 +212,7 @@
             <div id="mailBody"><div class="empty">Načítám…</div></div>
           </div>
           <div class="cal">
-            <div class="top"><h2>Červenec 2026</h2><div class="nav-btns"><button aria-label="Předchozí"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button aria-label="Další"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
+            <div class="top"><h2 id="calLabel">Červenec 2026</h2><div class="nav-btns"><button aria-label="Předchozí"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button aria-label="Další"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
             <div class="cal-grid" id="calGrid"></div>
           </div>
           <div class="card" style="padding:18px">
@@ -275,7 +283,7 @@
     <section class="view" id="v-calendar">
       <div class="cal-layout">
         <div class="cal">
-          <div class="top"><h2>Červenec 2026</h2><div class="nav-btns"><button aria-label="Předchozí"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button aria-label="Další"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
+          <div class="top"><h2 id="calLabelBig">Červenec 2026</h2><div class="nav-btns"><button aria-label="Předchozí"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button aria-label="Další"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
           <div class="cal-grid" id="calGridBig"></div>
         </div>
         <div class="cal-side">
@@ -284,8 +292,8 @@
             <div id="dayBody"></div>
           </div>
           <div class="card" style="padding:18px">
-            <div class="sec-h"><h2>Nadcházející kreativa</h2></div>
-            <div class="cap" style="color:var(--ink-2);font-size:13px;margin:0 2px 12px">Robot připomíná novou kreativu 1. a 15. každý měsíc.</div>
+            <div class="sec-h"><h2>Nadcházející příležitosti</h2></div>
+            <div class="cap" style="color:var(--ink-2);font-size:13px;margin:0 2px 12px">Marketingový kalendář Fotomalovánky — klepněte na den nebo příležitost.</div>
             <div class="up-list" id="upListBig"></div>
           </div>
         </div>
@@ -726,65 +734,138 @@
     bw.append(d);
   });
 
-  /* ---- month calendar: reused by the Přehled rail AND the Kalendář tab so they match.
-         July 2026 (1st = Wed; today = Sat 11). Days are clickable → a day-detail panel. ---- */
-  // What's happening each day: creative launches (from LANE) + the 1st/15th robot reminders.
+  /* ---- month-navigable marketing calendar: the Přehled rail and the Kalendář tab share one
+         (year, month) state so they always match. Days carry the year's marketing occasions
+         (from David's calendar plan), the creative launches (LANE), and the 1st/15th reminders. ---- */
+  // The 2026 marketing plan, mined from "Our callendar" (occasion → persona → message angle). Dates
+  // are the resolved 2026 days (fixed + nth-weekday computed once); undated seasonal rows sit on a
+  // representative day of their period. tone: brand=love/family, warm=seasonal/gift, info=general.
+  const MARKETING_CAL=[
+    {m:1,d:2,name:"Novoroční detox & Slow Living",persona:"Dospělí (mindfulness)",angle:"Po shonu Vánoc vypněte. Nalijte si čaj a vybarvěte vzpomínku na klidnou zimní krajinu.",tone:"info"},
+    {m:1,d:19,name:"Blue Monday",persona:"Přátelé / kolegové",angle:"Nejdepresivnější den v roce? Pošlete kamarádovi vtipnou fotku z poslední akce jako omalovánku.",tone:"info"},
+    {m:2,d:13,name:"Galentine’s Day",persona:"Kamarádky",angle:"Kdo potřebuje chlapa, když má nejlepší kámošku? Omalovánka z vaší dámské jízdy.",tone:"brand"},
+    {m:2,d:14,name:"Sv. Valentýn",persona:"Páry",angle:"Rande s vínem a pastelkami nad vaší společnou fotkou — originální obraz do ložnice.",tone:"brand"},
+    {m:2,d:16,name:"Jarní prázdniny",persona:"Rodiče, prarodiče",angle:"Když na horách prší nebo děti nelyžují — zábava na chatě bez Wi-Fi.",tone:"warm"},
+    {m:3,d:8,name:"MDŽ",persona:"Muži pro ženy / ženy sobě",angle:"Pro ženu vašeho života. Nejen kytku, ale chvilku pro sebe, kdy může tvořit a relaxovat.",tone:"brand"},
+    {m:3,d:13,name:"Světový den spánku",persona:"Dospělí (stresovaní)",angle:"Nemůžete spát? Místo koukání do mobilu zkuste vybarvovat — prokazatelně uklidňuje.",tone:"info"},
+    {m:3,d:20,name:"První jarní den",persona:"Všichni (hobby)",angle:"Svět se barví, vy taky. Vyfoťte první sněženky a zachyťte to kouzlo.",tone:"warm"},
+    {m:4,d:1,name:"Apríl",persona:"Přátelé (vtipálci)",angle:"Máte fotku, kde se kamarád tváří „inteligentně“? Udělejte z toho omalovánku.",tone:"info"},
+    {m:4,d:5,name:"Velikonoce",persona:"Rodina / kreativci",angle:"Letos žádné čokoládové figurky. Kreativní výslužka, která se nezkazí.",tone:"warm"},
+    {m:4,d:15,name:"Svatební sezóna (start)",persona:"Svatebčané",angle:"Omalovánka místa seznámení — nebo zábava pro děti na svatební hostině.",tone:"brand"},
+    {m:5,d:1,name:"1. máj (lásky čas)",persona:"Páry",angle:"Nestihli jste polibek pod rozkvetlou třešní? Nevadí, vybarvěte si ho doma.",tone:"brand"},
+    {m:5,d:10,name:"Den matek",persona:"Děti pro mámy",angle:"Mámo, díky za vše. Naše společná chvíle, kterou si můžeš vybarvit a zarámovat.",tone:"brand"},
+    {m:5,d:15,name:"Mezinárodní den rodiny",persona:"Rodina",angle:"Vypněte TV, sedněte si všichni ke stolu. Velká sada omalovánek pro celou rodinu.",tone:"warm"},
+    {m:6,d:1,name:"Den dětí",persona:"Rodiče / prarodiče",angle:"Dítě jako hlavní hrdina — omalovánka, kde je on sám Batmanem nebo princeznou.",tone:"warm"},
+    {m:6,d:21,name:"Den otců",persona:"Děti pro táty",angle:"Pro tátu a jeho „hračky“ — omalovánka jeho auta, motorky, psa nebo fotbalu.",tone:"info"},
+    {m:6,d:30,name:"Konec školního roku",persona:"Žáci pro učitele",angle:"Místo bonboniéry koláž třídy jako omalovánka. Památka na vaše „zlobidla“.",tone:"warm"},
+    {m:7,d:1,name:"Cestování & prázdniny",persona:"Cestovatelé",angle:"Vyfoť, pošli, vybarvi. Až se vrátíte z dovolené, prodlužte si ten pocit.",tone:"info"},
+    {m:7,d:15,name:"Letní festivaly & párty",persona:"Mladí dospělí",angle:"Legendární fotka z festivalu? Zvěčněte ji. Skvělý dárek k narozeninám pro parťáka.",tone:"warm"},
+    {m:8,d:8,name:"Mezinárodní den koček",persona:"Majitelé koček",angle:"Váš kočičí vládce si zaslouží portrét. Relaxace u vybarvování chlupáče.",tone:"info"},
+    {m:8,d:15,name:"Svatby (vrchol sezóny)",persona:"Rozlučka se svobodou",angle:"Vtipný dárek pro nevěstu? Omalovánka ženicha (nebo svalnatého plavčíka).",tone:"brand"},
+    {m:8,d:26,name:"Mezinárodní den psů",persona:"Majitelé psů",angle:"Z fotky z parku uděláme umělecké dílo. Nejlepší dekorace do bytu pejskaře.",tone:"info"},
+    {m:9,d:1,name:"Back to School / Work",persona:"Dospělí (office)",angle:"Šéf vás štve? Uklidněte se u omalovánky z letní dovolené. Zenová pauza v kanceláři.",tone:"info"},
+    {m:9,d:15,name:"Výročí & rande",persona:"Páry",angle:"První výročí je „papírové“. Co je lepšího než papírová vzpomínka na váš den D?",tone:"brand"},
+    {m:10,d:1,name:"Den prarodičů",persona:"Vnoučata pro prarodiče",angle:"Trénink bystrosti pro babičku a dědu — a největší motivací je fotka vnoučat.",tone:"warm"},
+    {m:10,d:10,name:"Světový den duševního zdraví",persona:"Dospělí (self-care)",angle:"Terapie uměním. Vypněte hlavu, vnímejte jen tahy tužkou. Vaše fotka jako mandala.",tone:"info"},
+    {m:10,d:31,name:"Halloween",persona:"Rodiny / přátelé",angle:"Ta maska se fakt povedla! Uchovejte ji navždy — nebo strašidelný dárek pro kamarády.",tone:"warm"},
+    {m:11,d:1,name:"Movember",persona:"Muži / přátelé",angle:"Máte fotku s knírem? Udělejte z ní vtipnou omalovánku pro kámoše.",tone:"info"},
+    {m:11,d:27,name:"Black Friday",persona:"Všichni",angle:"Nekupujte lapače prachu. Kupte zážitek a emoci — dárek, který má smysl.",tone:"brand"},
+    {m:11,d:29,name:"Adventní přípravy",persona:"Rodiny",angle:"24 malých fotek jako omalovánkový adventní kalendář? Proč ne!",tone:"warm"},
+    {m:12,d:5,name:"Mikuláš",persona:"Děti",angle:"Zdravější než sladkosti. Omalovánka čerta, kterého dítě „přemaluje“ na hodného.",tone:"warm"},
+    {m:12,d:24,name:"Vánoce",persona:"Všichni (hlavní sezóna)",angle:"Ten NEJ dárek — pro babičku vnoučata, pro partnera rande, pro kamaráda momentka.",tone:"brand"},
+    {m:12,d:31,name:"Silvestr",persona:"Přátelé",angle:"Originální PF? Vybarvená fotka vaší rodiny nebo týmu. Pošlete to dál.",tone:"info"}
+  ];
+
+  // Events keyed "month-day" (month 1-12). Marketing occasions carry cta:true (a jump to Kreativy).
   const CAL_EVENTS={};
-  const addCalEvent=(day,ev)=>{(CAL_EVENTS[day]=CAL_EVENTS[day]||[]).push(ev);};
-  LANE.forEach(f=>{const [d,m]=f.d.replace(/\.$/,"").split(".").map(Number);if(m===7)addCalEvent(d,{type:"Spuštění kreativy",title:f.t,tone:"brand"});});
-  [1,15].forEach(d=>addCalEvent(d,{type:"Připomínka",title:"Nová kreativa — připomíná robot",tone:"info"}));
-  const TODAY=11;
-  let selectedDay=TODAY;
+  const addCalEvent=(m,d,ev)=>{const k=m+"-"+d;(CAL_EVENTS[k]=CAL_EVENTS[k]||[]).push(ev);};
+  MARKETING_CAL.forEach(o=>addCalEvent(o.m,o.d,{type:o.persona,title:o.name,angle:o.angle,tone:o.tone,cta:true}));
+  LANE.forEach(f=>{const [d,m]=f.d.replace(/\.$/,"").split(".").map(Number);addCalEvent(m,d,{type:"Spuštění kreativy",title:f.t,tone:"brand"});});
+  for(let m=1;m<=12;m++)[1,15].forEach(d=>addCalEvent(m,d,{type:"Připomínka",title:"Nová kreativa — připomíná robot",tone:"info"}));
+
+  const MON_NOM=["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
+  const MON_GEN=["ledna","února","března","dubna","května","června","července","srpna","září","října","listopadu","prosince"];
+  const WEEKDAYS=["neděle","pondělí","úterý","středa","čtvrtek","pátek","sobota"];
+  const TODAY={y:2026,m:7,d:12};      // the studio's reference "today" (Sun 12. 7. 2026)
+  let curY=TODAY.y, curM=TODAY.m;     // the month both grids currently show
+  let sel={...TODAY};                 // the day whose detail the panel shows
+
+  const daysInMonth=(y,m)=>new Date(y,m,0).getDate();          // m 1-12
+  const leadMon=(y,m)=>(new Date(y,m-1,1).getDay()+6)%7;       // cells before the 1st (Mon-based week)
 
   function paintMonth(gridId){
     const grid=document.getElementById(gridId); if(!grid) return;
     grid.innerHTML="";
-    const wd=["PO","ÚT","ST","ČT","PÁ","SO","NE"];
-    wd.forEach(w=>grid.append(el("div","wd",w)));
-    const cells=[];[29,30].forEach(n=>cells.push({n,mut:true}));
-    for(let i=1;i<=31;i++)cells.push({n:i,mut:false});
-    [1,2].forEach(n=>cells.push({n,mut:true}));
+    ["PO","ÚT","ST","ČT","PÁ","SO","NE"].forEach(w=>grid.append(el("div","wd",w)));
+    const lead=leadMon(curY,curM), dim=daysInMonth(curY,curM);
+    const pm=curM===1?12:curM-1, py=curM===1?curY-1:curY, pdim=daysInMonth(py,pm);
+    const cells=[];
+    for(let i=lead;i>0;i--)cells.push({n:pdim-i+1,mut:true});
+    for(let i=1;i<=dim;i++)cells.push({n:i,mut:false});
+    for(let t=1;cells.length%7!==0;t++)cells.push({n:t,mut:true});
     cells.forEach(c=>{
-      const d=el("div","d"+(c.mut?" mut":"")+(!c.mut&&c.n===TODAY?" today":"")+(!c.mut&&c.n===selectedDay?" sel":""));
+      const isToday=!c.mut&&curY===TODAY.y&&curM===TODAY.m&&c.n===TODAY.d;
+      const isSel=!c.mut&&curY===sel.y&&curM===sel.m&&c.n===sel.d;
+      const d=el("div","d"+(c.mut?" mut":"")+(isToday?" today":"")+(isSel?" sel":""));
       d.innerHTML="<span>"+c.n+"</span>";
-      if(!c.mut&&CAL_EVENTS[c.n]){let ev='<span class="ev">';CAL_EVENTS[c.n].forEach(e=>ev+=`<i class="tone-${e.tone}"></i>`);ev+="</span>";d.innerHTML+=ev;}
+      const evs=!c.mut&&CAL_EVENTS[curM+"-"+c.n];
+      if(evs){let ev='<span class="ev">';evs.forEach(e=>ev+=`<i class="tone-${e.tone}"></i>`);ev+="</span>";d.innerHTML+=ev;}
       if(!c.mut){d.classList.add("clickable");d.dataset.day=c.n;}
       grid.append(d);
     });
   }
 
-  const WEEKDAYS=["neděle","pondělí","úterý","středa","čtvrtek","pátek","sobota"];
+  function updateLabels(){const s=MON_NOM[curM-1]+" "+curY;["calLabel","calLabelBig"].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=s;});}
+
   function renderDayDetail(){
     const title=document.getElementById("dayTitle"), body=document.getElementById("dayBody");
     if(!title||!body) return;
-    const dow=new Date(2026,6,selectedDay).getDay();
-    title.textContent=`${selectedDay}. července · ${WEEKDAYS[dow]}${selectedDay===TODAY?" · dnes":""}`;
-    const evs=CAL_EVENTS[selectedDay]||[];
+    const dow=new Date(sel.y,sel.m-1,sel.d).getDay();
+    const today=sel.y===TODAY.y&&sel.m===TODAY.m&&sel.d===TODAY.d;
+    title.textContent=`${sel.d}. ${MON_GEN[sel.m-1]} · ${WEEKDAYS[dow]}${today?" · dnes":""}`;
+    const evs=CAL_EVENTS[sel.m+"-"+sel.d]||[];
     body.innerHTML=evs.length
-      ? evs.map(e=>`<div class="day-ev tone-${e.tone}"><div class="de-type">${esc(e.type)}</div><div class="de-title">${esc(e.title)}</div></div>`).join("")
+      ? evs.map(e=>`<div class="day-ev tone-${e.tone}"><div class="de-type">${esc(e.type)}</div><div class="de-title">${esc(e.title)}</div>${e.angle?`<div class="de-angle">${esc(e.angle)}</div>`:""}${e.cta?`<a class="de-cta" href="#creatives" onclick="go('creatives');return false">Vytvořit kreativu →</a>`:""}</div>`).join("")
       : '<div class="empty">Na tento den nic naplánováno.</div>';
   }
-  function selectDay(day){selectedDay=day;paintMonth("calGrid");paintMonth("calGridBig");renderDayDetail();}
+  function selectDay(day){sel={y:curY,m:curM,d:day};paintMonth("calGrid");paintMonth("calGridBig");renderDayDetail();}
+
+  const firstEventDay=(y,m)=>{const dim=daysInMonth(y,m);for(let d=1;d<=dim;d++)if(CAL_EVENTS[m+"-"+d])return d;return 1;};
+  function shiftMonth(delta){
+    let m=curM+delta, y=curY;
+    if(m<1){m=12;y--;} if(m>12){m=1;y++;}
+    curY=y; curM=m; sel={y,m,d:firstEventDay(y,m)};
+    updateLabels(); paintMonth("calGrid"); paintMonth("calGridBig"); renderDayDetail();
+  }
+  document.querySelectorAll(".cal .top .nav-btns").forEach(nb=>{const b=nb.querySelectorAll("button");if(b[0])b[0].onclick=()=>shiftMonth(-1);if(b[1])b[1].onclick=()=>shiftMonth(1);});
 
   document.getElementById("calGridBig").addEventListener("click",e=>{const c=e.target.closest(".d.clickable");if(c)selectDay(+c.dataset.day);});
   document.getElementById("calGrid").addEventListener("click",e=>{const c=e.target.closest(".d.clickable");if(c){selectDay(+c.dataset.day);go("calendar");}});
-  selectDay(TODAY);
 
-  /* ---- upcoming creative list: plain date + title, no internal codes. Shared by both views. ---- */
+  /* ---- upcoming opportunities: marketing occasions + creative launches, from today forward. ---- */
+  const UPCOMING=[
+    ...MARKETING_CAL.map(o=>({y:2026,m:o.m,d:o.d,title:o.name,sub:o.persona,tone:o.tone})),
+    ...LANE.map(f=>{const [d,m]=f.d.replace(/\.$/,"").split(".").map(Number);return {y:2026,m,d,title:f.t,sub:"Spuštění kreativy",tone:"brand"};})
+  ].sort((a,b)=>a.m-b.m||a.d-b.d);
+  const upcomingFrom=()=>UPCOMING.filter(o=>o.m>TODAY.m||(o.m===TODAY.m&&o.d>=TODAY.d));
   function paintUpcoming(listId,count){
     const up=document.getElementById(listId); if(!up) return;
     up.innerHTML="";
-    LANE.slice(0,count).forEach(f=>{
-      const [day,mon]=f.d.replace(/\.$/,"").split(".").map(Number);
-      const it=el("div","up-item");
-      it.innerHTML=`<div class="up-date"><div class="dow">${MON[mon-1]||""}</div><div class="dnum">${day}</div></div>
-        <div class="up-body"><div class="tt"><b>${esc(f.t)}</b></div><span>Spuštění kreativy</span></div>
+    const items=upcomingFrom().slice(0,count);
+    if(!items.length){up.innerHTML='<div class="empty">Žádné nadcházející příležitosti.</div>';return;}
+    items.forEach(o=>{
+      const it=el("div","up-item clickable");
+      it.innerHTML=`<div class="up-date"><div class="dow">${MON[o.m-1]||""}</div><div class="dnum">${o.d}</div></div>
+        <div class="up-body"><div class="tt"><b>${esc(o.title)}</b></div><span>${esc(o.sub)}</span></div>
         <div class="avatar" style="width:24px;height:24px;font-size:10px">D</div>`;
+      it.onclick=()=>{curY=o.y;curM=o.m;updateLabels();selectDay(o.d);go("calendar");};
       up.append(it);
     });
   }
+  updateLabels();
+  selectDay(TODAY.d);            // paints both grids + the day panel for today
   paintUpcoming("upList",5);     // Přehled rail (nearest 5)
-  paintUpcoming("upListBig",8);  // Kalendář tab (all)
+  paintUpcoming("upListBig",8);  // Kalendář tab
 
   /* ---- router ---- */
   const views=["home","orders","creatives","sdeleni","calendar","todo"];
