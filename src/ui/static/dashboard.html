@@ -805,7 +805,8 @@
   const MON_NOM=["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
   const MON_GEN=["ledna","února","března","dubna","května","června","července","srpna","září","října","listopadu","prosince"];
   const WEEKDAYS=["neděle","pondělí","úterý","středa","čtvrtek","pátek","sobota"];
-  const TODAY={y:2026,m:7,d:12};      // the studio's reference "today" (Sun 12. 7. 2026)
+  const _now=new Date();              // real "today" — the calendar opens here and highlights it
+  const TODAY={y:_now.getFullYear(),m:_now.getMonth()+1,d:_now.getDate()};
   let curY=TODAY.y, curM=TODAY.m;     // the month both grids currently show
   let sel={...TODAY};                 // the day whose detail the panel shows
 
@@ -866,7 +867,9 @@
     ...MARKETING_CAL.map(o=>({y:2026,m:o.m,d:o.d,title:o.name,sub:o.persona,tone:o.tone})),
     ...LANE.map(f=>{const [d,m]=f.d.replace(/\.$/,"").split(".").map(Number);return {y:2026,m,d,title:f.t,sub:"Spuštění kreativy",tone:"brand"};})
   ].sort((a,b)=>a.m-b.m||a.d-b.d);
-  const upcomingFrom=()=>UPCOMING.filter(o=>o.m>TODAY.m||(o.m===TODAY.m&&o.d>=TODAY.d));
+  // Cyclic: the rest of this year first, then wrap into next year — so the panel is never empty
+  // (e.g. late December still shows January's occasions), whatever the real date is.
+  const upcomingFrom=()=>{const key=o=>o.m*100+o.d, t=TODAY.m*100+TODAY.d;return [...UPCOMING.filter(o=>key(o)>=t),...UPCOMING.filter(o=>key(o)<t)];};
   function paintUpcoming(listId,count){
     const up=document.getElementById(listId); if(!up) return;
     up.innerHTML="";

@@ -130,19 +130,32 @@ try {
   await page.waitForSelector('#v-sdeleni.on .bubbles .bub');
   check('Sdělení still renders its static bubbles', (await page.locator('#v-sdeleni.on .bubbles .bub').count()) === 8);
 
-  // --- Kalendář: days are clickable and the detail panel shows that day's events ---
+  // --- Kalendář: the calendar opens on the REAL current month (today is pinned to new Date()) ---
   await page.evaluate(() => go('calendar'));
   await page.waitForSelector('#v-calendar.on #calGridBig .d.clickable');
+  const MON_NOM = ['Leden', 'Únor', 'Březen', 'Duben', 'Květen', 'Červen', 'Červenec', 'Srpen', 'Září', 'Říjen', 'Listopad', 'Prosinec'];
+  const now = new Date();
+  const expectLabel = `${MON_NOM[now.getMonth()]} ${now.getFullYear()}`;
+  check('the calendar opens on the real current month', (await page.locator('#calLabelBig').textContent()).trim() === expectLabel);
+  // Navigate forward until a target month's label shows (year-agnostic: every month carries the plan).
+  const nextBtn = page.locator('#v-calendar.on .cal .top .nav-btns button[aria-label="Další"]');
+  const gotoMonthName = async (name) => {
+    for (let i = 0; i < 13; i++) {
+      if ((await page.locator('#calLabelBig').textContent()).trim().startsWith(name + ' ')) return true;
+      await nextBtn.click();
+      await page.waitForTimeout(50);
+    }
+    return false;
+  };
+
+  // Days are clickable and the detail shows that day's events. July 14 = a creative launch (LANE).
+  check('the next-month button navigates the year', await gotoMonthName('Červenec'));
   await page.locator('#v-calendar.on #calGridBig .d.clickable', { hasText: '14' }).first().click();
   await page.waitForFunction(() => /Spuštění/.test(document.querySelector('#dayBody')?.textContent || ''));
   check('clicking a calendar day shows that day’s events', (await page.locator('#dayTitle').textContent()).includes('14'));
 
-  // --- Kalendář: the month nav moves across the year to the marketing plan ---
-  check('the calendar starts on the reference month', (await page.locator('#calLabelBig').textContent()).trim() === 'Červenec 2026');
-  await page.locator('#v-calendar.on .cal .top .nav-btns button[aria-label="Další"]').click();
-  await page.waitForFunction(() => document.querySelector('#calLabelBig')?.textContent.trim() === 'Srpen 2026');
-  check('the next-month button advances the calendar', true);
   // Srpen 8 = Mezinárodní den koček, a marketing occasion carrying its angle + a "make a creative" link
+  await gotoMonthName('Srpen');
   await page.locator('#v-calendar.on #calGridBig .d.clickable', { hasText: '8' }).first().click();
   await page.waitForFunction(() => /koček/.test(document.querySelector('#dayBody')?.textContent || ''));
   check('a marketing occasion shows its persona/angle', /Majitelé koček/.test(await page.locator('#dayBody').textContent()));
