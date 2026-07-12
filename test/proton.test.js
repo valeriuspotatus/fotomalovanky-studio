@@ -82,6 +82,10 @@ function fakeImapFactory(seed) {
       if (!seed.one) return null;
       return { uid: seed.one.uid, source: Buffer.from(seed.one.source ?? ''), flags: new Set(seed.one.seen ? ['\\Seen'] : []) };
     }
+    async messageFlagsAdd(range, flags, opts) {
+      (seed.flagsAdded ??= []).push({ range, flags, opts });
+      return true;
+    }
     async logout() {}
   }
   return async () => ({ ImapFlow: FakeImapFlow });
@@ -233,6 +237,24 @@ test('fetchMessage opens one message by uid and returns its parsed body + thread
 test('fetchMessage without a uid is a clear error, not a crash', async () => {
   const client = createBridgeClient({ user: 'u', pass: 'p', imapFactory: fakeImapFactory({}), parseFactory: fakeParseFactory({}) });
   await assert.rejects(() => client.fetchMessage({}), (e) => e instanceof BridgeError);
+});
+
+test('opening an UNREAD message marks it \\Seen so the unread badge clears', async () => {
+  const seed = { one: { uid: 77, source: 'raw', seen: false } };
+  const client = createBridgeClient({ user: 'u', pass: 'p', imapFactory: fakeImapFactory(seed), parseFactory: fakeParseFactory({ subject: 'x' }) });
+  const msg = await client.fetchMessage({ uid: 77 });
+  assert.equal(msg.seen, false, 'reports the state as opened (was unread)');
+  assert.equal(seed.flagsAdded?.length, 1, 'the \\Seen flag was added exactly once');
+  assert.deepEqual(seed.flagsAdded[0].flags, ['\\Seen']);
+  assert.equal(seed.flagsAdded[0].opts?.uid, true, 'flagged by UID, not sequence number');
+});
+
+test('opening an already-read message does NOT re-flag it', async () => {
+  const seed = { one: { uid: 5, source: 'raw', seen: true } };
+  const client = createBridgeClient({ user: 'u', pass: 'p', imapFactory: fakeImapFactory(seed), parseFactory: fakeParseFactory({ subject: 'x' }) });
+  const msg = await client.fetchMessage({ uid: 5 });
+  assert.equal(msg.seen, true);
+  assert.equal(seed.flagsAdded, undefined, 'no flag write for a message already \\Seen');
 });
 
 // ---- templates (pure) ------------------------------------------------------

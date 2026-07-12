@@ -621,26 +621,9 @@
     return mailTemplates;
   }
 
-  async function openMessage(uid){
-    openMail('<div class="mm-pad"><div class="empty">Načítám zprávu…</div></div>');
-    let msg;
-    try{const r=await fetch("/api/mail/message?uid="+encodeURIComponent(uid));if(!r.ok)throw 0;msg=await r.json();}
-    catch{openMail('<div class="mm-pad"><div class="mm-err">Zprávu se nepodařilo načíst.</div><div class="mm-actions"><button class="btn btn-secondary" onclick="document.getElementById(\'mailModal\').hidden=true">Zavřít</button></div></div>');return;}
-    const dt=msg.date?new Date(msg.date).toLocaleString("cs-CZ"):"";
-    const text=msg.text||(msg.html?msg.html.replace(/<[^>]+>/g," "):"")||"(prázdná zpráva)";
-    openMail(`<div class="mm-pad">
-      <div class="mm-h">${esc(msg.subject||"(bez předmětu)")}</div>
-      <div class="mm-meta">${esc(msg.from||"")}${msg.fromAddress?" &lt;"+esc(msg.fromAddress)+"&gt;":""}${dt?" · "+esc(dt):""}</div>
-      <div class="mm-body">${esc(text)}</div>
-      <div class="mm-actions"><button class="btn btn-primary" id="mmReply">Odpovědět</button><button class="btn btn-secondary" id="mmCloseBtn">Zavřít</button></div></div>`);
-    document.getElementById("mmCloseBtn").onclick=closeMail;
-    document.getElementById("mmReply").onclick=()=>openComposer({
-      to:msg.fromAddress||"",
-      subject:/^re:/i.test(msg.subject||"")?msg.subject:"Re: "+(msg.subject||""),
-      inReplyTo:msg.messageId||"",
-      references:(msg.references||[]).concat(msg.messageId?[msg.messageId]:[]),
-    });
-  }
+  // Clicking a message anywhere (home tile or Pošta list) opens it in the full-height Pošta reading
+  // pane — a real mail view, not the little modal box. The modal stays only for composing/replying.
+  function openMailMessage(uid){ go("mail"); openMessageInPane(uid); }
 
   async function openComposer(pre){
     pre=pre||{};
@@ -678,7 +661,7 @@
     (to.value?bodyEl:to).focus();
   }
 
-  document.getElementById("mailBody").addEventListener("click",e=>{const it=e.target.closest(".mail-item[data-uid]");if(it&&it.dataset.uid)openMessage(it.dataset.uid);});
+  document.getElementById("mailBody").addEventListener("click",e=>{const it=e.target.closest(".mail-item[data-uid]");if(it&&it.dataset.uid)openMailMessage(it.dataset.uid);});
   document.getElementById("mailCompose").onclick=()=>openComposer({});
   document.getElementById("mmClose").onclick=closeMail;
   mmOverlay().addEventListener("click",e=>{if(e.target===mmOverlay())closeMail();});
@@ -712,6 +695,28 @@
       const m=await r.json(); renderMailList(m); setNavMailBadge(m);
     }catch{if(list)list.innerHTML='<div class="empty" style="padding:16px">Server neodpovídá.</div>';}
   }
+  // Drop one from the nav badge and the home-tile chip. The server also marked the message \Seen, so
+  // the reconcile poll below confirms the count — this is just the instant, optimistic update.
+  function decMailBadge(){
+    const nav=document.getElementById("nav-mail");
+    if(nav){const n=parseInt(nav.textContent,10);if(Number.isFinite(n)){const v=Math.max(0,n-1);nav.textContent=v>0?v:"";nav.style.display=v>0?"":"none";}}
+    const chip=document.getElementById("mailUnread");
+    if(chip){const n=parseInt(chip.textContent,10);if(Number.isFinite(n)){const v=Math.max(0,n-1);chip.textContent=v;chip.className="chip "+(v>0?"c-danger":"c-success");}}
+  }
+  // Once a message is opened it's read: clear the unread styling in both lists, drop the badges, and
+  // (only if it had been unread) reconcile with the authoritative IMAP count a moment later.
+  function afterMailRead(uid){
+    let wasUnread=false;
+    document.querySelectorAll('#mailTabList .mail-row[data-uid="'+uid+'"], #mailBody .mail-item[data-uid="'+uid+'"]').forEach(el=>{
+      if(el.classList.contains("unread"))wasUnread=true;
+      el.classList.remove("unread");
+    });
+    if(wasUnread){
+      decMailBadge();
+      clearTimeout(afterMailRead._t);
+      afterMailRead._t=setTimeout(()=>{fetchMail();fetchMailTab();},1500);
+    }
+  }
   async function openMessageInPane(uid){
     mailTabSelUid=uid;
     document.querySelectorAll("#mailTabList .mail-row").forEach(r=>r.classList.toggle("active",r.dataset.uid===String(uid)));
@@ -732,7 +737,7 @@
       inReplyTo:msg.messageId||"",
       references:(msg.references||[]).concat(msg.messageId?[msg.messageId]:[]),
     });
-    const row=document.querySelector('#mailTabList .mail-row[data-uid="'+uid+'"]'); if(row) row.classList.remove("unread");
+    afterMailRead(uid);
   }
   document.getElementById("mailTabList").addEventListener("click",e=>{const it=e.target.closest(".mail-row[data-uid]");if(it&&it.dataset.uid)openMessageInPane(it.dataset.uid);});
   document.getElementById("mailTabCompose").onclick=()=>openComposer({});

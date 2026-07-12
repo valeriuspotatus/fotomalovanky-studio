@@ -111,8 +111,21 @@ export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass
     try {
       const msg = await client.fetchOne(String(uid), { uid: true, source: true, flags: true }, { uid: true });
       if (!msg || !msg.source) throw new BridgeError('unknown', `Message ${uid} was not found in ${box}.`);
+      const wasSeen = seenOf(msg.flags); // the state as opened — reported below, before we flip it
       const parsed = await simpleParser(msg.source);
       const fromAddr = parsed.from?.value?.[0] ?? null;
+
+      // Opening a message marks it read on the server, so the unread badge clears and stays cleared
+      // across polls (the tile's unread count is the IMAP unseen count, not a client-side guess).
+      // Best-effort and only when it was actually unread: a flag-set hiccup must never stop the
+      // operator from reading the message they just clicked.
+      if (!wasSeen) {
+        try {
+          await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true });
+        } catch {
+          /* keep the read; the next open or an explicit refresh will reconcile the flag */
+        }
+      }
       return {
         uid: Number(uid),
         from: fromAddr?.name || fromAddr?.address || '—',
@@ -120,7 +133,7 @@ export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass
         to: parsed.to?.text ?? '',
         subject: parsed.subject ?? '',
         date: parsed.date ? parsed.date.toISOString() : null,
-        seen: seenOf(msg.flags),
+        seen: wasSeen,
         text: parsed.text ?? '',
         html: typeof parsed.html === 'string' ? parsed.html : '',
         messageId: parsed.messageId ?? '',

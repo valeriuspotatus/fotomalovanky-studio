@@ -598,6 +598,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         if (!Number.isInteger(uid) || uid <= 0) return json(res, 400, { error: 'Neplatné id zprávy.' });
         try {
           const message = await mail.fetchMessage({ uid });
+          mailCache = null; // opening marked the message \Seen; drop the cache so the unread badge re-reads
           return json(res, 200, message);
         } catch (err) {
           const code = err instanceof BridgeError ? err.code : 'unknown';
