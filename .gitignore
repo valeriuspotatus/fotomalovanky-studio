@@ -54,6 +54,9 @@ Marketing Automatization/
 # Operator scratch notes and throwaway dev drivers dropped at the repo root (order pulls, run probes).
 workflow.txt
 /_*
+# David's feature specs and the marketing calendar PDF dropped in for reference — not app code.
+Revamped generator.txt
+Our callendar/
 
 # Overnight autopilot: the read_orders token, the poll cursor / handled-set, and the night report all
 # carry a full-store credential or customer PII. They default OUTSIDE the repo (config.shopify.dataDir),
