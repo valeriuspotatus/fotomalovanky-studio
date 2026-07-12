@@ -30,8 +30,9 @@ function seenOf(flags) {
 
 /** Build a reader bound to one Bridge account. `imapFactory` returns `{ ImapFlow }` — it defaults
  *  to the real dependency, imported on first use, and is overridden in tests with a fake. */
-export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass, secure = false, mailbox = 'INBOX', imapFactory } = {}) {
+export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass, secure = false, mailbox = 'INBOX', imapFactory, parseFactory } = {}) {
   const factory = imapFactory ?? (() => import('imapflow'));
+  const parser = parseFactory ?? (() => import('mailparser')); // lazy: the reader path pulls in mailparser only when a message is opened
 
   /** Fetch mailbox totals + the most recent `limit` envelopes. Returns
    *  { total, unread, messages: [{ from, subject, date, seen }] }. Throws BridgeError on failure. */
@@ -65,8 +66,9 @@ export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass
         const lock = await client.getMailboxLock(mailbox);
         try {
           const first = Math.max(1, total - limit + 1); // last `limit` by sequence number
-          for await (const msg of client.fetch(`${first}:*`, { envelope: true, flags: true })) {
+          for await (const msg of client.fetch(`${first}:*`, { uid: true, envelope: true, flags: true })) {
             messages.push({
+              uid: msg.uid ?? null, // the stable handle the reader opens a message by
               from: msg.envelope?.from ?? null,
               subject: msg.envelope?.subject ?? '',
               date: msg.envelope?.date ?? null,
@@ -90,5 +92,52 @@ export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass
     }
   }
 
-  return { fetchInbox };
+  /** Fetch one message's full body by UID, parsed into display + threading fields. Returns
+   *  { uid, from, fromAddress, to, subject, date, seen, text, html, messageId, references } — the
+   *  reader shows text/html; messageId/references let a reply thread correctly. Throws BridgeError. */
+  async function fetchMessage({ box = mailbox, uid } = {}) {
+    if (uid == null) throw new BridgeError('unknown', 'A message uid is required to open it.');
+    const { ImapFlow } = await factory();
+    const { simpleParser } = await parser();
+    const client = new ImapFlow({ host, port, secure, auth: { user, pass }, logger: false, emitLogs: false, tls: { rejectUnauthorized: false } });
+
+    try {
+      await client.connect();
+    } catch (err) {
+      throw new BridgeError(classifyConnectError(err), `Cannot reach Proton Bridge at ${host}:${port} — ${err.message}`, err);
+    }
+
+    const lock = await client.getMailboxLock(box);
+    try {
+      const msg = await client.fetchOne(String(uid), { uid: true, source: true, flags: true }, { uid: true });
+      if (!msg || !msg.source) throw new BridgeError('unknown', `Message ${uid} was not found in ${box}.`);
+      const parsed = await simpleParser(msg.source);
+      const fromAddr = parsed.from?.value?.[0] ?? null;
+      return {
+        uid: Number(uid),
+        from: fromAddr?.name || fromAddr?.address || '—',
+        fromAddress: fromAddr?.address ?? '',
+        to: parsed.to?.text ?? '',
+        subject: parsed.subject ?? '',
+        date: parsed.date ? parsed.date.toISOString() : null,
+        seen: seenOf(msg.flags),
+        text: parsed.text ?? '',
+        html: typeof parsed.html === 'string' ? parsed.html : '',
+        messageId: parsed.messageId ?? '',
+        references: Array.isArray(parsed.references) ? parsed.references : parsed.references ? [parsed.references] : [],
+      };
+    } catch (err) {
+      if (err instanceof BridgeError) throw err;
+      throw new BridgeError('unknown', `Reading message ${uid} failed — ${err.message}`, err);
+    } finally {
+      try {
+        lock.release();
+        await client.logout();
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  return { fetchInbox, fetchMessage };
 }

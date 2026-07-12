@@ -1,0 +1,57 @@
+// Adapter: send mail through Proton Mail Bridge's local SMTP (127.0.0.1:1025 by default), with the
+// same username + Bridge password as IMAP and the same self-signed cert on loopback. This is the ONE
+// outbound seam — the dashboard composer calls it only on an explicit "Odeslat" click; nothing here
+// sends on its own. nodemailer is imported lazily so the module loads even where the dep/Bridge isn't
+// present yet, and so tests can inject a fake transport.
+
+export class SmtpError extends Error {
+  /** code: 'bad-input' | 'auth' | 'offline' | 'send'. */
+  constructor(code, message, cause) {
+    super(message);
+    this.name = 'SmtpError';
+    this.code = code;
+    if (cause) this.cause = cause;
+  }
+}
+
+/** Build a sender bound to one Bridge account. `transportFactory` returns a nodemailer-like transport
+ *  ({ sendMail }); it defaults to the real dependency and is overridden in tests. `fromName` is the
+ *  display name on the From header; the address is always the authenticated Bridge user. */
+export function createSmtpClient({ host = '127.0.0.1', port = 1025, user, pass, secure = false, fromName = 'Fotomalovánky.cz', transportFactory } = {}) {
+  const makeTransport =
+    transportFactory ??
+    (async () => {
+      const nm = await import('nodemailer');
+      const createTransport = nm.createTransport ?? nm.default?.createTransport;
+      // Bridge presents a self-signed cert on loopback and upgrades via STARTTLS on the SMTP port.
+      return createTransport({ host, port, secure, auth: { user, pass }, tls: { rejectUnauthorized: false } });
+    });
+
+  /** Send one message. `to` and `text` are required; `inReplyTo`/`references` thread a reply; the
+   *  From address is fixed to the Bridge account (Proton rejects any other sender). */
+  async function sendMail({ to, subject = '', text, inReplyTo = '', references = [], attachments = [] } = {}) {
+    if (!to || !String(to).trim()) throw new SmtpError('bad-input', 'A recipient (to) is required.');
+    if (!text || !String(text).trim()) throw new SmtpError('bad-input', 'The message body is empty.');
+
+    const message = { from: fromName ? `${fromName} <${user}>` : user, to: String(to).trim(), subject: String(subject), text: String(text) };
+    if (inReplyTo) message.inReplyTo = inReplyTo;
+    if (references && references.length) message.references = references;
+    if (attachments && attachments.length) message.attachments = attachments;
+
+    let transport;
+    try {
+      transport = await makeTransport();
+    } catch (err) {
+      throw new SmtpError('offline', `Could not open an SMTP connection to Bridge at ${host}:${port} — ${err.message}`, err);
+    }
+    try {
+      const info = await transport.sendMail(message);
+      return { messageId: info?.messageId ?? null, accepted: info?.accepted ?? [] };
+    } catch (err) {
+      const code = /auth/i.test(err?.message || '') ? 'auth' : /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ESOCKET/i.test(err?.code || err?.message || '') ? 'offline' : 'send';
+      throw new SmtpError(code, `Could not send the email — ${err.message}`, err);
+    }
+  }
+
+  return { sendMail };
+}

@@ -143,6 +143,12 @@ export function validateConfig(cfg) {
   if (!Number.isInteger(mailPort) || mailPort < 1 || mailPort > 65535) {
     throw new ConfigError(`mail.port must be an integer 1-65535 (the Proton Bridge IMAP port); got ${JSON.stringify(mailRaw.port)}.`);
   }
+  // Bridge exposes SMTP on a second port (default 1025) with the same username + Bridge password.
+  // This is the outbound seam the dashboard composer sends through — nothing sends without an explicit click.
+  const mailSmtpPort = mailRaw.smtpPort ?? 1025;
+  if (!Number.isInteger(mailSmtpPort) || mailSmtpPort < 1 || mailSmtpPort > 65535) {
+    throw new ConfigError(`mail.smtpPort must be an integer 1-65535 (the Proton Bridge SMTP port); got ${JSON.stringify(mailRaw.smtpPort)}.`);
+  }
   const mailUser = typeof mailRaw.user === 'string' && mailRaw.user.trim() ? mailRaw.user.trim() : null;
   const mailPass = typeof mailRaw.pass === 'string' && mailRaw.pass ? mailRaw.pass : null;
   const mailSecure = mailRaw.secure === true;
@@ -278,7 +284,7 @@ export function validateConfig(cfg) {
     delivery: { format: deliveryFormat, formatMap },
     // The dashboard's read-only Proton inbox tile (via Proton Bridge over local IMAP). `enabled`
     // false means the tile shows an "offline" state and never connects.
-    mail: { enabled: mailEnabled, host: mailHost, port: mailPort, user: mailUser, pass: mailPass, secure: mailSecure, recentLimit: mailLimit },
+    mail: { enabled: mailEnabled, host: mailHost, port: mailPort, smtpPort: mailSmtpPort, user: mailUser, pass: mailPass, secure: mailSecure, recentLimit: mailLimit },
     // The Kreativy AI image step (Gemini / Nano Banana Pro). `enabled` false means the studio's
     // "generate image" action is unavailable and never calls out.
     ai: { enabled: aiEnabled, apiKey: aiKey, model: aiModel, endpoint: aiEndpoint, timeoutMs: aiTimeout },

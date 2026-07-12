@@ -11,7 +11,9 @@ import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent } from '../orchestrator.js';
 import { studioBoard, markDelivered, unmarkDelivered } from '../studio.js';
 import { createBridgeClient, BridgeError } from '../proton/bridgeClient.js';
+import { createSmtpClient, SmtpError } from '../proton/smtpClient.js';
 import { summarizeInbox } from '../proton/mailbox.js';
+import { templateList, unfilledPlaceholders } from '../proton/templates.js';
 import { renderCreativeHtml, creativeFromCampaign, CAMPAIGNS, PALETTES, FORMATS } from '../creatives/creativeTemplate.js';
 import { renderCreativePng, CreativeRenderError } from '../creatives/renderCreative.js';
 import { generateMarketingImage, AiImageError } from '../creatives/aiImage.js';
@@ -300,7 +302,7 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
  *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
  *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
  *  double-click launcher, where a real operator is watching, turns it on. */
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient, adImageFn } = {}) {
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient, smtpClient, adImageFn } = {}) {
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
@@ -314,6 +316,9 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   // The dashboard's read-only Proton inbox tile. A caller can inject a client (tests do); otherwise
   // one is built from config only when mail is enabled, so an unconfigured tool never connects.
   const mail = mailClient ?? (config?.mail?.enabled ? createBridgeClient(config.mail) : null);
+  // The outbound SMTP seam, wired only when mail is on. `smtp` null → the composer's Send is refused
+  // with a clear message rather than silently failing. Same Bridge creds, the SMTP port (default 1025).
+  const smtp = smtpClient ?? (config?.mail?.enabled ? createSmtpClient({ host: config.mail.host, port: config.mail.smtpPort, user: config.mail.user, pass: config.mail.pass, secure: config.mail.secure }) : null);
   const mailLimit = config?.mail?.recentLimit ?? 6;
   let mailCache = null; // { at: epochMs, payload } — a successful read is reused briefly so the tile's
   const MAIL_TTL = 30_000; // poll doesn't reopen an IMAP session every few seconds.
@@ -564,6 +569,52 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         } catch (err) {
           const reason = err instanceof BridgeError ? err.code : 'unknown';
           return json(res, 200, { available: false, reason, detail: err.message });
+        }
+      }
+
+      // GET /api/mail/message?uid=N — one message's full body, opened by clicking it in the tile.
+      if (req.method === 'GET' && url.pathname === '/api/mail/message') {
+        if (!mail) return json(res, 503, { error: 'Pošta není nastavena.', code: 'not-configured' });
+        const uid = Number(url.searchParams.get('uid'));
+        if (!Number.isInteger(uid) || uid <= 0) return json(res, 400, { error: 'Neplatné id zprávy.' });
+        try {
+          const message = await mail.fetchMessage({ uid });
+          return json(res, 200, message);
+        } catch (err) {
+          const code = err instanceof BridgeError ? err.code : 'unknown';
+          return json(res, 502, { error: `Zprávu se nepodařilo načíst — ${err.message}`, code });
+        }
+      }
+
+      // GET /api/mail/templates — the approved prewritten messages the composer's picker offers.
+      if (req.method === 'GET' && url.pathname === '/api/mail/templates') {
+        return json(res, 200, { templates: templateList() });
+      }
+
+      // POST /api/mail/send { to, subject, body, inReplyTo?, references? } — the composer's Send. This
+      // is the only outbound action; it runs solely on an explicit click. A body still carrying a
+      // [PLACEHOLDER] token is refused so a half-filled template can't go to a customer by accident.
+      if (req.method === 'POST' && url.pathname === '/api/mail/send') {
+        if (!smtp) return json(res, 503, { error: 'Odesílání pošty není nastaveno.', code: 'not-configured' });
+        const { to, subject, body, inReplyTo, references } = await readJson(req, 1024 * 1024);
+        if (!to || !String(to).trim()) return json(res, 400, { error: 'Chybí příjemce (komu).' });
+        if (!body || !String(body).trim()) return json(res, 400, { error: 'Zpráva je prázdná.' });
+        const left = unfilledPlaceholders(String(subject ?? ''), String(body));
+        if (left.length) return json(res, 400, { error: `Před odesláním vyplňte: ${left.join(', ')}`, code: 'placeholder', placeholders: left });
+        try {
+          const sent = await smtp.sendMail({
+            to: String(to).trim(),
+            subject: String(subject ?? ''),
+            text: String(body),
+            inReplyTo: inReplyTo ? String(inReplyTo) : '',
+            references: Array.isArray(references) ? references : references ? [String(references)] : [],
+          });
+          mailCache = null; // the Sent copy shifts the mailbox; let the next tile poll re-read
+          return json(res, 200, { sent: true, messageId: sent.messageId });
+        } catch (err) {
+          const status = err instanceof SmtpError && err.code === 'bad-input' ? 400 : err instanceof SmtpError && err.code === 'auth' ? 502 : 502;
+          const code = err instanceof SmtpError ? err.code : 'unknown';
+          return json(res, status, { error: `Zprávu se nepodařilo odeslat — ${err.message}`, code });
         }
       }
 

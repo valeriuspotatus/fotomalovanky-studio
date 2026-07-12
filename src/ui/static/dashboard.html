@@ -17,6 +17,30 @@
   .on-stale{color:var(--warning);font-weight:600}
   .on-x{flex:none;background:none;border:none;color:var(--ink-3);font-size:14px;line-height:1;cursor:pointer;padding:5px;border-radius:6px}
   .on-x:hover{background:var(--surface-2);color:var(--ink)}
+  /* Pošta: clickable messages + a read/compose modal that sends through Bridge SMTP */
+  .mail-item{cursor:pointer;border-radius:8px;transition:background .12s}
+  .mail-item:hover{background:var(--surface-2)}
+  .mail-head-r{display:flex;align-items:center;gap:8px}
+  .mail-write{background:none;border:1px solid var(--border);border-radius:8px;color:var(--ink-2);font:inherit;font-size:12px;font-weight:600;padding:4px 10px;cursor:pointer}
+  .mail-write:hover{background:var(--surface-2);color:var(--ink)}
+  .mm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}
+  .mm-overlay[hidden]{display:none}
+  .mm-dialog{background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:640px;width:100%;max-height:88vh;overflow:auto;position:relative;box-shadow:0 24px 60px rgba(0,0,0,.28)}
+  .mm-x{position:absolute;top:12px;right:12px;background:none;border:none;color:var(--ink-3);font-size:15px;cursor:pointer;padding:6px;border-radius:8px;line-height:1;z-index:1}
+  .mm-x:hover{background:var(--surface-2);color:var(--ink)}
+  .mm-pad{padding:22px 24px}
+  .mm-h{font-size:16px;font-weight:700;color:var(--ink);margin:0 40px 3px 0}
+  .mm-meta{font-size:12.5px;color:var(--ink-2);margin-bottom:14px}
+  .mm-body{white-space:pre-wrap;word-break:break-word;font-size:13.5px;line-height:1.55;color:var(--ink);background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px;max-height:340px;overflow:auto}
+  .mm-actions{display:flex;gap:10px;margin-top:16px}
+  .mm-field{margin-bottom:12px}
+  .mm-field label{display:block;font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:4px}
+  .mm-field input,.mm-field select,.mm-field textarea{width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px}
+  .mm-field textarea{min-height:200px;resize:vertical;line-height:1.55}
+  .mm-field input:focus,.mm-field select:focus,.mm-field textarea:focus{outline:none;border-color:var(--brand)}
+  .mm-err{color:var(--danger);font-size:12.5px;margin-top:8px;min-height:15px}
+  .mm-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--ink-inv);padding:11px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:200;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+  .mm-toast[hidden]{display:none}
   /* page-local: the home two-column layout (work rail + calendar rail) */
   .home-grid{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:26px;align-items:start}
   .col-work{min-width:0;display:flex;flex-direction:column;gap:22px}
@@ -174,7 +198,7 @@
 
         <aside class="rail">
           <div class="card" style="padding:18px" id="mailCard">
-            <div class="sec-h"><h2>Pošta</h2><span class="chip c-neutral" id="mailUnread">–</span></div>
+            <div class="sec-h"><h2>Pošta</h2><div class="mail-head-r"><button class="mail-write" id="mailCompose">Napsat</button><span class="chip c-neutral" id="mailUnread">–</span></div></div>
             <div id="mailBody"><div class="empty">Načítám…</div></div>
           </div>
           <div class="cal">
@@ -268,6 +292,8 @@
     <!-- ===== NEEDS YOU ===== -->
     <section class="view" id="v-todo"><div class="todo" id="todo"></div></section>
   </main>
+  <div id="mailModal" class="mm-overlay" hidden><div class="mm-dialog"><button class="mm-x" id="mmClose" aria-label="Zavřít">✕</button><div id="mmContent"></div></div></div>
+  <div id="mmToast" class="mm-toast" hidden></div>
 </div>
 
 <script>
@@ -497,7 +523,7 @@
     }
     badge.textContent=m.unread; badge.className="chip "+(m.unread>0?"c-danger":"c-success");
     if(!m.recent||!m.recent.length){body.innerHTML='<div class="empty">Žádné zprávy.</div>';return;}
-    body.innerHTML=m.recent.map(x=>`<div class="mail-item${x.seen?"":" unread"}">
+    body.innerHTML=m.recent.map(x=>`<div class="mail-item${x.seen?"":" unread"}" data-uid="${x.uid==null?"":x.uid}">
       <div class="mail-line"><span class="mail-from">${esc(x.from)}</span><span class="mail-date">${esc(fmtMailDate(x.date))}</span></div>
       <div class="mail-sub">${esc(x.subject)}</div></div>`).join("");
   }
@@ -507,6 +533,83 @@
   }
   fetchMail();
   setInterval(fetchMail,60000);
+
+  /* ---- Pošta: open a message, reply/compose, and send through Proton Bridge ---- */
+  let mailTemplates=null;
+  const mmOverlay=()=>document.getElementById("mailModal");
+  function closeMail(){mmOverlay().hidden=true;document.getElementById("mmContent").innerHTML="";}
+  function openMail(html){document.getElementById("mmContent").innerHTML=html;mmOverlay().hidden=false;}
+  let toastT=null;
+  function toast(msg){const t=document.getElementById("mmToast");t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>{t.hidden=true;},2600);}
+
+  async function loadTemplates(){
+    if(mailTemplates)return mailTemplates;
+    try{const r=await fetch("/api/mail/templates");mailTemplates=(await r.json()).templates||[];}catch{mailTemplates=[];}
+    return mailTemplates;
+  }
+
+  async function openMessage(uid){
+    openMail('<div class="mm-pad"><div class="empty">Načítám zprávu…</div></div>');
+    let msg;
+    try{const r=await fetch("/api/mail/message?uid="+encodeURIComponent(uid));if(!r.ok)throw 0;msg=await r.json();}
+    catch{openMail('<div class="mm-pad"><div class="mm-err">Zprávu se nepodařilo načíst.</div><div class="mm-actions"><button class="btn btn-secondary" onclick="document.getElementById(\'mailModal\').hidden=true">Zavřít</button></div></div>');return;}
+    const dt=msg.date?new Date(msg.date).toLocaleString("cs-CZ"):"";
+    const text=msg.text||(msg.html?msg.html.replace(/<[^>]+>/g," "):"")||"(prázdná zpráva)";
+    openMail(`<div class="mm-pad">
+      <div class="mm-h">${esc(msg.subject||"(bez předmětu)")}</div>
+      <div class="mm-meta">${esc(msg.from||"")}${msg.fromAddress?" &lt;"+esc(msg.fromAddress)+"&gt;":""}${dt?" · "+esc(dt):""}</div>
+      <div class="mm-body">${esc(text)}</div>
+      <div class="mm-actions"><button class="btn btn-primary" id="mmReply">Odpovědět</button><button class="btn btn-secondary" id="mmCloseBtn">Zavřít</button></div></div>`);
+    document.getElementById("mmCloseBtn").onclick=closeMail;
+    document.getElementById("mmReply").onclick=()=>openComposer({
+      to:msg.fromAddress||"",
+      subject:/^re:/i.test(msg.subject||"")?msg.subject:"Re: "+(msg.subject||""),
+      inReplyTo:msg.messageId||"",
+      references:(msg.references||[]).concat(msg.messageId?[msg.messageId]:[]),
+    });
+  }
+
+  async function openComposer(pre){
+    pre=pre||{};
+    const tpls=await loadTemplates();
+    const opts=['<option value="">— vložit šablonu —</option>'].concat(tpls.map(t=>`<option value="${esc(t.id)}">${esc(t.label)}</option>`)).join("");
+    openMail(`<div class="mm-pad">
+      <div class="mm-h">${pre.inReplyTo?"Odpověď":"Nová zpráva"}</div>
+      <div class="mm-field"><label>Komu</label><input id="mmTo" type="email" value="${esc(pre.to||"")}" placeholder="jmeno@example.cz"></div>
+      <div class="mm-field"><label>Předmět</label><input id="mmSubject" value="${esc(pre.subject||"")}"></div>
+      <div class="mm-field"><label>Šablona</label><select id="mmTpl">${opts}</select></div>
+      <div class="mm-field"><label>Zpráva</label><textarea id="mmBody" placeholder="Napište zprávu…">${esc(pre.body||"")}</textarea></div>
+      <div class="mm-err" id="mmErr"></div>
+      <div class="mm-actions"><button class="btn btn-primary" id="mmSend">Odeslat</button><button class="btn btn-secondary" id="mmCancel">Zrušit</button></div></div>`);
+    const to=document.getElementById("mmTo"),subj=document.getElementById("mmSubject"),bodyEl=document.getElementById("mmBody"),err=document.getElementById("mmErr");
+    document.getElementById("mmCancel").onclick=closeMail;
+    document.getElementById("mmTpl").onchange=(e)=>{
+      const t=tpls.find(x=>x.id===e.target.value);e.target.value="";if(!t)return;
+      if(!subj.value.trim()&&t.subject)subj.value=t.subject;
+      bodyEl.value=(bodyEl.value.trim()?bodyEl.value.replace(/\s+$/,"")+"\n\n":"")+t.body;
+      bodyEl.focus();
+    };
+    document.getElementById("mmSend").onclick=async()=>{
+      err.textContent="";
+      const payload={to:to.value.trim(),subject:subj.value,body:bodyEl.value,inReplyTo:pre.inReplyTo||"",references:pre.references||[]};
+      if(!payload.to){err.textContent="Zadejte příjemce.";return;}
+      if(!payload.body.trim()){err.textContent="Zpráva je prázdná.";return;}
+      const btn=document.getElementById("mmSend");btn.disabled=true;btn.textContent="Odesílám…";
+      try{
+        const r=await fetch("/api/mail/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
+        const j=await r.json();
+        if(r.ok&&j.sent){closeMail();toast("E-mail odeslán ✓");fetchMail();}
+        else{err.textContent=j.error||"Odeslání se nezdařilo.";btn.disabled=false;btn.textContent="Odeslat";}
+      }catch{err.textContent="Odeslání se nezdařilo (server neodpovídá).";btn.disabled=false;btn.textContent="Odeslat";}
+    };
+    (to.value?bodyEl:to).focus();
+  }
+
+  document.getElementById("mailBody").addEventListener("click",e=>{const it=e.target.closest(".mail-item[data-uid]");if(it&&it.dataset.uid)openMessage(it.dataset.uid);});
+  document.getElementById("mailCompose").onclick=()=>openComposer({});
+  document.getElementById("mmClose").onclick=closeMail;
+  mmOverlay().addEventListener("click",e=>{if(e.target===mmOverlay())closeMail();});
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!mmOverlay().hidden)closeMail();});
 
   /* ---- Kreativy studio: pick a campaign + format + palette + copy, preview live, download the PNG.
          The preview is an <iframe> onto /creative/preview (the same HTML the PNG is shot from),

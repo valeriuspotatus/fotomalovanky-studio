@@ -23,6 +23,20 @@ export function formatSender(from) {
   return '—';
 }
 
+/** The bare email address of an envelope "from", for prefilling a reply's recipient. Accepts the
+ *  structured { address } (or an array of them) and a raw "Name <addr@host>" string. '' when none. */
+export function addressOf(from) {
+  if (!from) return '';
+  const one = Array.isArray(from) ? from[0] : from;
+  if (one && typeof one === 'object' && typeof one.address === 'string') return one.address.trim();
+  if (typeof one === 'string') {
+    const m = one.match(/<([^>]+)>/);
+    if (m) return m[1].trim();
+    return one.includes('@') ? one.trim() : '';
+  }
+  return '';
+}
+
 /** Coerce a message date (Date, ISO string, or epoch ms) to an ISO string, or null if unusable.
  *  The client formats it for display; we only guarantee it sorts and parses. */
 export function toIso(date) {
@@ -46,7 +60,9 @@ export function summarizeInbox(raw, { limit = 6 } = {}) {
 
   const recent = messages
     .map((m) => ({
+      uid: Number.isInteger(m?.uid) ? m.uid : null, // the handle the reader opens the message by
       from: formatSender(m?.from),
+      fromAddress: addressOf(m?.from),
       subject: typeof m?.subject === 'string' && m.subject.trim() ? m.subject.trim() : '(bez předmětu)',
       date: toIso(m?.date),
       seen: m?.seen === true,
