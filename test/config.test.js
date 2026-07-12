@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isAbsolute } from 'node:path';
-import { validateConfig, redactForLog, ConfigError, loadConfig, defaultSessionDir } from '../src/config.js';
+import { validateConfig, redactForLog, ConfigError, loadConfig, defaultSessionDir, defaultAutopilotDir } from '../src/config.js';
 
 const good = {
   generator: { baseUrl: 'https://fotomalovanky-app.onrender.com/abc123/', mode: 'api', variant: '1024' },
@@ -124,4 +124,103 @@ test('maxDiffusionSteps defaults to 12 and must leave room above diffusionSteps'
   assert.equal(withSteps(8, 8).generator.maxDiffusionSteps, 8, 'equal means "no re-rolls", which is legal');
   assert.throws(() => withSteps(8, 7), ConfigError, 'a ceiling below the floor is a typo, not a policy');
   assert.throws(() => withSteps(8, 9.5), ConfigError);
+});
+
+// ---- Overnight autopilot: the shopify block (U1) ----------------------------
+
+// Every shopify test drives token resolution through config only — clear the env var first so a
+// token in the developer's own shell can't mask a "missing token" assertion.
+const noEnvToken = () => {
+  delete process.env.FMA_SHOPIFY_TOKEN;
+};
+
+test('shopify is disabled by default and needs no store or token', () => {
+  noEnvToken();
+  const cfg = validateConfig(good);
+  assert.equal(cfg.shopify.enabled, false);
+  assert.equal(cfg.shopify.storeDomain, null);
+  assert.equal(cfg.shopify.accessToken, null);
+});
+
+test('shopify.enabled=true without a storeDomain is a clear error naming the missing key', () => {
+  noEnvToken();
+  assert.throws(
+    () => validateConfig({ ...good, shopify: { enabled: true, accessToken: 'shpat_x' } }),
+    (err) => err instanceof ConfigError && /shopify\.storeDomain/.test(err.message),
+  );
+});
+
+test('shopify.enabled=true without an accessToken (config or env) is a clear error naming the missing key', () => {
+  noEnvToken();
+  assert.throws(
+    () => validateConfig({ ...good, shopify: { enabled: true, storeDomain: 'aqi8it-7n.myshopify.com' } }),
+    (err) => err instanceof ConfigError && /shopify\.accessToken/.test(err.message),
+  );
+});
+
+test('a placeholder accessToken counts as no token', () => {
+  noEnvToken();
+  assert.throws(
+    () => validateConfig({ ...good, shopify: { enabled: true, storeDomain: 'x.myshopify.com', accessToken: 'REPLACE_WITH_READ_ORDERS_TOKEN' } }),
+    (err) => err instanceof ConfigError && /shopify\.accessToken/.test(err.message),
+  );
+});
+
+test('the accessToken resolves from the FMA_SHOPIFY_TOKEN env var when config omits it', () => {
+  noEnvToken();
+  process.env.FMA_SHOPIFY_TOKEN = 'shpat_from_env_123';
+  try {
+    const cfg = validateConfig({ ...good, shopify: { enabled: true, storeDomain: 'x.myshopify.com' } });
+    assert.equal(cfg.shopify.accessToken, 'shpat_from_env_123');
+  } finally {
+    noEnvToken();
+  }
+});
+
+test('shopify defaults are applied when omitted (api version, matchers, allowlist, spend)', () => {
+  noEnvToken();
+  const cfg = validateConfig({ ...good, shopify: { enabled: true, storeDomain: 'x.myshopify.com', accessToken: 'shpat_x' } });
+  assert.equal(cfg.shopify.apiVersion, '2026-07');
+  assert.equal(cfg.shopify.photoKeyMatch, 'fotka');
+  assert.equal(cfg.shopify.dedicationKeyMatch, 'věnování');
+  assert.equal(cfg.shopify.layoutKeyMatch, 'rozvržení');
+  assert.deepEqual(cfg.shopify.photoHostAllowlist, ['cdn.tigren.com']);
+  assert.equal(cfg.shopify.estSpendPerOrder, 0.3);
+});
+
+test('redactForLog drops the shopify access token entirely', () => {
+  noEnvToken();
+  const cfg = validateConfig({ ...good, shopify: { enabled: true, storeDomain: 'x.myshopify.com', accessToken: 'shpat_super_secret' } });
+  const redacted = redactForLog(cfg);
+  const json = JSON.stringify(redacted);
+  assert.ok(!json.includes('shpat_super_secret'), 'the token must never appear in redacted output');
+  assert.equal(redacted.shopify.accessToken, '<redacted>');
+});
+
+test('the resolved shopify.dataDir is an absolute path outside the repo tree', () => {
+  noEnvToken();
+  const cfg = validateConfig(good);
+  assert.ok(isAbsolute(cfg.shopify.dataDir), 'data dir must be absolute');
+  assert.ok(!cfg.shopify.dataDir.startsWith(process.cwd()), `data dir ${cfg.shopify.dataDir} is inside the repo`);
+});
+
+test('an explicit shopify.dataDir INSIDE the repo tree is rejected (holds customer PII)', () => {
+  noEnvToken();
+  for (const inside of ['./autopilot', 'autopilot', 'sub/state', '.']) {
+    assert.throws(
+      () => validateConfig({ ...good, shopify: { enabled: true, storeDomain: 'x.myshopify.com', accessToken: 'shpat_x', dataDir: inside } }),
+      (err) => err instanceof ConfigError && /dataDir/.test(err.message) && /inside the project tree/.test(err.message),
+      `expected ${inside} to be rejected`,
+    );
+  }
+});
+
+test('defaultAutopilotDir places state under an OS per-user data dir, never the cwd', () => {
+  const norm = (p) => p.replace(/\\/g, '/');
+  const win = defaultAutopilotDir({ LOCALAPPDATA: 'C:\\Users\\x\\AppData\\Local' }, 'win32', 'C:\\Users\\x');
+  assert.match(norm(win), /AppData\/Local\/fotomalovanky\/autopilot$/);
+  const linux = defaultAutopilotDir({ XDG_DATA_HOME: '/home/x/.local/share' }, 'linux', '/home/x');
+  assert.match(norm(linux), /\.local\/share\/fotomalovanky\/autopilot$/);
+  const mac = defaultAutopilotDir({}, 'darwin', '/Users/x');
+  assert.match(norm(mac), /Library\/Application Support\/fotomalovanky\/autopilot$/);
 });

@@ -55,6 +55,16 @@ Marketing Automatization/
 workflow.txt
 /_*
 
+# Overnight autopilot: the read_orders token, the poll cursor / handled-set, and the night report all
+# carry a full-store credential or customer PII. They default OUTSIDE the repo (config.shopify.dataDir),
+# but never commit them whatever folder they land in — nor a Shopify order CSV export (also PII).
+shopify-token*.json
+autopilot-state.json
+overnight-report.json
+/autopilot/
+*_export*.csv
+*_orders_export*.csv
+
 # Node
 node_modules/
 npm-debug.log*

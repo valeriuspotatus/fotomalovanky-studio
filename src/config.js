@@ -27,6 +27,20 @@ export function defaultSessionDir(env = process.env, platform = process.platform
   return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'fotomalovanky', 'whatsapp-session');
 }
 
+/** A per-user data directory OUTSIDE the repo tree for the overnight autopilot's cursor, handled-order
+ *  set, and the night report. Those files hold customer PII (order emails/names in the report), so —
+ *  like the WhatsApp store — they must never be able to land in the working tree. Defaults to the OS
+ *  per-user data dir; the operator can override with an absolute path in config.json. */
+export function defaultAutopilotDir(env = process.env, platform = process.platform, home = homedir()) {
+  if (platform === 'win32') {
+    return join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'fotomalovanky', 'autopilot');
+  }
+  if (platform === 'darwin') {
+    return join(home, 'Library', 'Application Support', 'fotomalovanky', 'autopilot');
+  }
+  return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'fotomalovanky', 'autopilot');
+}
+
 /** The product/variant -> build-mode map (U9), dropping anything malformed and rejecting a typoed
  *  mode rather than silently building the wrong layout. */
 function normalizeFormatMap(raw) {
@@ -153,6 +167,59 @@ export function validateConfig(cfg) {
   const aiEndpoint = typeof aiRaw.endpoint === 'string' && aiRaw.endpoint.trim() ? aiRaw.endpoint.trim() : 'https://generativelanguage.googleapis.com/v1beta';
   const aiTimeout = Number.isInteger(aiRaw.timeoutMs) && aiRaw.timeoutMs > 0 ? aiRaw.timeoutMs : 60000;
 
+  // The overnight autopilot: a scheduled Admin API poll that pulls new PAID photo orders into the
+  // inbox and runs the existing pipeline (KTD2). Disabled by default so the tool runs with no Shopify
+  // config at all; when the operator turns it on, a missing store or token is a clear error rather
+  // than a poll that silently authenticates as nobody. The access token is a full-store `read_orders`
+  // credential — a leak exposes every order's customer PII — so it lives ONLY in gitignored
+  // config.json or the FMA_SHOPIFY_TOKEN env var, never in source, and redactForLog drops it whole.
+  const shopRaw = cfg.shopify && typeof cfg.shopify === 'object' && !Array.isArray(cfg.shopify) ? cfg.shopify : {};
+  const shopEnabled = shopRaw.enabled === true;
+  const storeDomain = typeof shopRaw.storeDomain === 'string' && shopRaw.storeDomain.trim() ? shopRaw.storeDomain.trim() : null;
+  // The token resolves from config OR the env var, so it can live entirely outside the committed file.
+  const envToken = typeof process.env.FMA_SHOPIFY_TOKEN === 'string' && process.env.FMA_SHOPIFY_TOKEN.trim() ? process.env.FMA_SHOPIFY_TOKEN.trim() : null;
+  const cfgToken =
+    typeof shopRaw.accessToken === 'string' && shopRaw.accessToken.trim() && !PLACEHOLDER.test(shopRaw.accessToken)
+      ? shopRaw.accessToken.trim()
+      : null;
+  const accessToken = cfgToken || envToken;
+  if (shopEnabled && !storeDomain) {
+    throw new ConfigError('shopify.storeDomain is required when shopify.enabled is true (e.g. aqi8it-7n.myshopify.com).');
+  }
+  if (shopEnabled && !accessToken) {
+    throw new ConfigError(
+      'shopify.accessToken is required when shopify.enabled is true (the read_orders token — set it in config.json or the FMA_SHOPIFY_TOKEN env var).',
+    );
+  }
+  const apiVersion = typeof shopRaw.apiVersion === 'string' && shopRaw.apiVersion.trim() ? shopRaw.apiVersion.trim() : '2026-07';
+  const photoKeyMatch = typeof shopRaw.photoKeyMatch === 'string' && shopRaw.photoKeyMatch.trim() ? shopRaw.photoKeyMatch.trim() : 'fotka';
+  const dedicationKeyMatch =
+    typeof shopRaw.dedicationKeyMatch === 'string' && shopRaw.dedicationKeyMatch.trim() ? shopRaw.dedicationKeyMatch.trim() : 'věnování';
+  const layoutKeyMatch = typeof shopRaw.layoutKeyMatch === 'string' && shopRaw.layoutKeyMatch.trim() ? shopRaw.layoutKeyMatch.trim() : 'rozvržení';
+  const photoHostAllowlist =
+    Array.isArray(shopRaw.photoHostAllowlist) && shopRaw.photoHostAllowlist.some((h) => typeof h === 'string' && h.trim())
+      ? shopRaw.photoHostAllowlist.filter((h) => typeof h === 'string' && h.trim()).map((h) => h.trim())
+      : ['cdn.tigren.com'];
+  // A rough per-order RunPod spend, shown in the morning summary (count × this). A placeholder to
+  // refine from real invoices — no cap is enforced (David's choice); this only makes spend visible.
+  const estSpendPerOrder =
+    typeof shopRaw.estSpendPerOrder === 'number' && Number.isFinite(shopRaw.estSpendPerOrder) && shopRaw.estSpendPerOrder >= 0
+      ? shopRaw.estSpendPerOrder
+      : 0.3;
+  // The cursor, handled-order set and night report land here — always an absolute path OUTSIDE the
+  // repo tree (it holds customer PII), same guard as whatsapp.sessionDir. Only the default is trusted blind.
+  let dataDir = defaultAutopilotDir();
+  if (typeof shopRaw.dataDir === 'string' && shopRaw.dataDir.trim()) {
+    dataDir = resolve(shopRaw.dataDir.trim());
+    const rel = relative(process.cwd(), dataDir);
+    const outsideRepo = isAbsolute(rel) || rel === '..' || rel.startsWith('..' + sep);
+    if (!outsideRepo) {
+      throw new ConfigError(
+        `shopify.dataDir (${dataDir}) resolves inside the project tree. It holds the poll cursor, the handled-order set and the overnight report (customer PII) and must never be committable — use an absolute path outside the repo, or omit it to use the safe default.`,
+      );
+    }
+  }
+
   // Board display: the first REAL order number. Older ids are test orders and are hidden from the
   // board and its counts. Null (default) shows everything, so nothing changes until the operator
   // sets it.
@@ -215,6 +282,21 @@ export function validateConfig(cfg) {
     // The Kreativy AI image step (Gemini / Nano Banana Pro). `enabled` false means the studio's
     // "generate image" action is unavailable and never calls out.
     ai: { enabled: aiEnabled, apiKey: aiKey, model: aiModel, endpoint: aiEndpoint, timeoutMs: aiTimeout },
+    // The overnight autopilot (Shopify Admin API poll). `enabled` false means no poll ever runs and
+    // the runner exits inert. `dataDir` is always an absolute path outside the repo tree; `accessToken`
+    // is a full-store credential and never leaves gitignored config / the env var.
+    shopify: {
+      enabled: shopEnabled,
+      storeDomain,
+      accessToken,
+      apiVersion,
+      photoKeyMatch,
+      dedicationKeyMatch,
+      layoutKeyMatch,
+      photoHostAllowlist,
+      estSpendPerOrder,
+      dataDir,
+    },
     // Board display. `firstLiveOrder` hides older test orders; null shows everything.
     studio: { firstLiveOrder },
     retentionDays,
@@ -222,7 +304,8 @@ export function validateConfig(cfg) {
   };
 }
 
-/** Mask the token-scoped generator URL so config can be logged safely. */
+/** Mask the token-scoped generator URL and the Shopify access token so config can be logged safely.
+ *  The Shopify token is a bare string, not a URL, so it is dropped whole rather than URL-masked. */
 export function redactForLog(cfg) {
   const mask = (url) => {
     try {
@@ -235,5 +318,6 @@ export function redactForLog(cfg) {
   return {
     ...cfg,
     generator: { ...cfg.generator, baseUrl: mask(cfg.generator.baseUrl) },
+    ...(cfg.shopify ? { shopify: { ...cfg.shopify, accessToken: cfg.shopify.accessToken ? '<redacted>' : null } } : {}),
   };
 }
