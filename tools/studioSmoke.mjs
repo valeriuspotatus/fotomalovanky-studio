@@ -126,9 +126,7 @@ try {
     'Kreativy studio exposes the AI image generator',
     (await page.locator('#v-creatives.on #cvGenerate').count()) === 1 && (await page.locator('#v-creatives.on #cvPrompt').count()) === 1,
   );
-  await page.evaluate(() => go('sdeleni'));
-  await page.waitForSelector('#v-sdeleni.on .bubbles .bub');
-  check('Sdělení still renders its static bubbles', (await page.locator('#v-sdeleni.on .bubbles .bub').count()) === 8);
+  check('Sdělení tab is gone from the sidebar', (await page.locator('#nav a[data-view="sdeleni"]').count()) === 0);
 
   // --- Kalendář: the calendar opens on the REAL current month (today is pinned to new Date()) ---
   await page.evaluate(() => go('calendar'));
