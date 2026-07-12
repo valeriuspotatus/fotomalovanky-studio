@@ -8,12 +8,13 @@ import sharp from 'sharp';
 import { loadConfig } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
-import { runPipeline, formatEvent } from '../orchestrator.js';
+import { runPipeline, formatEvent, pdfPathFor } from '../orchestrator.js';
 import { studioBoard, markDelivered, unmarkDelivered } from '../studio.js';
 import { createBridgeClient, BridgeError } from '../proton/bridgeClient.js';
 import { createSmtpClient, SmtpError } from '../proton/smtpClient.js';
 import { summarizeInbox } from '../proton/mailbox.js';
 import { templateList, unfilledPlaceholders } from '../proton/templates.js';
+import { createWhatsAppClient, WhatsAppError, deliveryCaption } from '../whatsapp/whatsappClient.js';
 import { renderCreativeHtml, creativeFromCampaign, CAMPAIGNS, PALETTES, FORMATS } from '../creatives/creativeTemplate.js';
 import { renderCreativePng, CreativeRenderError } from '../creatives/renderCreative.js';
 import { generateMarketingImage, describeImage, AiImageError } from '../creatives/aiImage.js';
@@ -308,7 +309,7 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
  *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
  *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
  *  double-click launcher, where a real operator is watching, turns it on. */
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient, smtpClient, adImageFn } = {}) {
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient, smtpClient, waClient, adImageFn } = {}) {
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
@@ -328,6 +329,11 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   const mailLimit = config?.mail?.recentLimit ?? 6;
   let mailCache = null; // { at: epochMs, payload } — a successful read is reused briefly so the tile's
   const MAIL_TTL = 30_000; // poll doesn't reopen an IMAP session every few seconds.
+
+  // The one WhatsApp seam: deliver the finished book to Jirka on the operator's explicit "Odeslat
+  // Jirkovi" click. Built from config only when whatsapp is enabled (a caller/test may inject one);
+  // null → the deliver action is refused with a clear message. The session links lazily on first use.
+  const wa = waClient ?? (config?.whatsapp?.enabled ? createWhatsAppClient({ recipient: config.whatsapp.recipient, sessionDir: config.whatsapp.sessionDir }) : null);
 
   // Kreativy AI images: the operator uploads a reference photo, Nano Banana Pro reimagines it into a
   // marketing "before", and the existing RunPod generator turns that into the "after" line-art. The
@@ -673,6 +679,17 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         }
       }
 
+      // GET /api/whatsapp — the delivery channel's link state, so the board can show "propojeno" or a
+      // QR to scan. Always 200 with a stable shape; the session links lazily on the first read.
+      if (req.method === 'GET' && url.pathname === '/api/whatsapp') {
+        if (!wa) return json(res, 200, { available: false, state: 'disabled' });
+        try {
+          return json(res, 200, await wa.status());
+        } catch (err) {
+          return json(res, 200, { available: false, state: 'offline', detail: err.message });
+        }
+      }
+
       // GET /api/creatives — the Kreativy studio's pickers: the campaign presets, the palettes, and
       // the three ad formats. No order photos: marketing imagery never comes from customer orders.
       if (req.method === 'GET' && url.pathname === '/api/creatives') {
@@ -840,9 +857,31 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, { override: overrideIntake(order.orderDir) });
       }
 
+      // POST /api/<order>/deliver — the operator's explicit "Odeslat Jirkovi": send the finished
+      // <order> Final.pdf to Jirka's WhatsApp with the order number as caption, THEN mark it delivered.
+      // The order is written to 'sent' ONLY when the WhatsApp send resolves — a failed send leaves the
+      // order on the board with a visible error so the operator can retry. Sent regardless of payment.
+      // This is the sole point books leave for the printer; the overnight autopilot never reaches here.
+      if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'deliver') {
+        if (!wa) return json(res, 503, { error: 'WhatsApp odesílání není nastaveno.', code: 'not-configured' });
+        const order = state().find((o) => o.orderId === parts[1]);
+        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+        const pdfPath = pdfPathFor(order.orderDir, order.orderId);
+        if (!existsSync(pdfPath)) return json(res, 409, { error: 'PDF ještě není hotové — nejdřív ho vytvořte.', code: 'no-pdf' });
+        try {
+          const sent = await wa.sendDocument({ filePath: pdfPath, caption: deliveryCaption(order.orderId) });
+          const status = markDelivered(order.orderDir, { by: 'whatsapp', to: sent.to, messageId: sent.id }); // marks 'sent' — only reached on a successful send
+          return json(res, 200, { status, sent: true, messageId: sent.id });
+        } catch (err) {
+          const code = err instanceof WhatsAppError ? err.code : 'unknown';
+          return json(res, 502, { error: `Odeslání Jirkovi selhalo — ${err.message}`, code });
+        }
+      }
+
       // POST /api/<order>/sent — the operator confirms the finished book has gone to Jirka. Writes
       // the delivery marker so the order derives to 'sent' and drops off the active board. Manual
-      // only: nothing here contacts anyone, it records that the operator already did.
+      // only: nothing here contacts anyone, it records that the operator already did (the fallback
+      // when WhatsApp isn't linked and David sent the book by hand).
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'sent') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);

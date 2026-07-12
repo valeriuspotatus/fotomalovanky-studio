@@ -136,6 +136,17 @@
   .mr-del{margin-left:auto;color:var(--danger);border-color:var(--border)}
   .mr-del:hover{background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
   @media (max-width:820px){.mail-app{grid-template-columns:1fr;height:auto;min-height:0}.mail-scroll{max-height:50vh}}
+  /* WhatsApp delivery strip on the Objednávky tab: link state + a QR to scan the one time */
+  .wa-strip{display:flex;align-items:center;gap:14px;padding:12px 16px;border:1px solid var(--border);border-radius:12px;background:var(--surface);margin-bottom:14px}
+  .wa-strip[hidden]{display:none}
+  .wa-strip.linked{border-color:color-mix(in srgb,var(--success) 45%,var(--border))}
+  .wa-strip.needs-qr,.wa-strip.not-installed,.wa-strip.offline{border-color:color-mix(in srgb,var(--warn,#d98a00) 40%,var(--border))}
+  .wa-strip img{width:132px;height:132px;flex:none;border-radius:8px;background:#fff;padding:6px}
+  .wa-strip .wa-t{font-size:13.5px;font-weight:600;color:var(--ink)}
+  .wa-strip .wa-s{font-size:12.5px;color:var(--ink-2);margin-top:2px}
+  .wa-dot{width:8px;height:8px;border-radius:50%;flex:none}
+  .wa-dot.ok{background:var(--success)} .wa-dot.warn{background:var(--warn,#d98a00)} .wa-dot.off{background:var(--ink-3)}
+  .act-cell .btn+.btn{margin-left:6px}
   /* bell: jumps to Potřebuje vás; a coral dot when something is waiting */
   .icon-btn{position:relative}
   .icon-btn.has::after{content:"";position:absolute;top:7px;right:7px;width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 2px var(--surface)}
@@ -268,6 +279,7 @@
     <!-- ===== ORDERS ===== -->
     <section class="view" id="v-orders">
       <div class="overnight" hidden></div>
+      <div id="waStrip" class="wa-strip" hidden></div>
       <div class="table"><table>
         <thead><tr><th>Objednávka</th><th>Fotky</th><th>Titulek</th><th>Stav</th><th></th></tr></thead>
         <tbody id="ordersBody"></tbody>
@@ -408,6 +420,7 @@
 
   /* ---- live board from /api/studio ---- */
   let studioData=null;
+  let waState=null; // WhatsApp delivery link state, polled from /api/whatsapp
 
   function orderFaceSvg(){return '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="9" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>';}
 
@@ -415,7 +428,13 @@
     const ph=o.photos.total?`${o.photos.eligible}/${o.photos.total}`:"–";
     let act="";
     if(opts.actions){
-      if(o.status==="ready-to-send") act=`<button class="btn btn-secondary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`;
+      if(o.status==="ready-to-send"){
+        // With WhatsApp linked, the primary action sends the book to Jirka and marks it in one step;
+        // a manual "mark sent" stays as the fallback for when David sends it by hand.
+        const waOn=waState&&waState.available&&waState.state!=="disabled";
+        const send=waOn?`<button class="btn btn-primary sm act-deliver" data-deliver="${esc(o.orderId)}">Odeslat Jirkovi</button>`:"";
+        act=send+`<button class="btn btn-secondary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`;
+      }
       else if(o.status==="sent") act=`<button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
     }
     return `<tr>
@@ -549,12 +568,47 @@
   }
   setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["home","orders","todo"].includes(v))fetchStudio();},2500);
 
-  /* ---- board actions: mark a finished order as sent to Jirka, or undo; plus the done toggle ---- */
+  /* ---- WhatsApp delivery link state: shows "propojeno" or a QR to scan the one time ---- */
+  const WA_TEXT={
+    "linked":["dot ok","WhatsApp propojen","Hotové knihy odešlete Jirkovi tlačítkem „Odeslat Jirkovi“."],
+    "connecting":["dot warn","Připojuji WhatsApp…","Chvíli strpení, načítá se relace."],
+    "needs-qr":["dot warn","Propojte WhatsApp","V telefonu: WhatsApp → Propojená zařízení → Propojit zařízení, a naskenujte QR kód."],
+    "not-installed":["dot off","WhatsApp není nainstalován","Spusťte v terminálu: npm install whatsapp-web.js qrcode a restartujte studio."],
+    "offline":["dot off","WhatsApp nedostupný","Relaci se nepodařilo připojit. Zkuste restartovat studio."]
+  };
+  function renderWa(){
+    const strip=document.getElementById("waStrip"); if(!strip) return;
+    if(!waState||!waState.available||waState.state==="disabled"){strip.hidden=true;strip.innerHTML="";strip.className="wa-strip";return;}
+    const [dot,t,s]=WA_TEXT[waState.state]||["dot off","WhatsApp",""];
+    strip.className="wa-strip "+waState.state;strip.hidden=false;
+    const qr=waState.state==="needs-qr"&&waState.qr?`<img src="${esc(waState.qr)}" alt="WhatsApp QR">`:"";
+    strip.innerHTML=`${qr}<span class="wa-dot ${dot.split(" ")[1]||"off"}"></span><div><div class="wa-t">${esc(t)}</div><div class="wa-s">${esc(s)}</div></div>`;
+  }
+  async function fetchWa(){
+    try{const r=await fetch("/api/whatsapp");if(!r.ok)return;const prev=waState&&waState.state;waState=await r.json();renderWa();if(prev!==(waState&&waState.state)&&studioData)renderOrders(studioData);}
+    catch(e){/* leave last state */}
+  }
+  fetchWa();
+  setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["orders","home"].includes(v))fetchWa();},8000);
+
+  /* ---- board actions: send a finished order to Jirka on WhatsApp (or mark sent by hand), or undo ---- */
   async function orderAction(id,action){
     try{const r=await fetch(`/api/${encodeURIComponent(id)}/${action}`,{method:"POST"});if(r.ok)await fetchStudio();}
     catch(e){/* offline — leave the board as-is */}
   }
+  // Send the book to Jirka on WhatsApp. The order becomes 'sent' only if the server's send succeeded;
+  // a failure leaves it on the board with a toast so David can retry (or mark it sent by hand).
+  async function deliverToJirka(id,btn){
+    if(btn){btn.disabled=true;btn.textContent="Odesílám…";}
+    try{
+      const r=await fetch(`/api/${encodeURIComponent(id)}/deliver`,{method:"POST"});
+      const j=await r.json().catch(()=>({}));
+      if(r.ok&&j.sent){toast("Odesláno Jirkovi ✓");await fetchStudio();}
+      else{toast(j.error||"Odeslání selhalo.");if(btn){btn.disabled=false;btn.textContent="Odeslat Jirkovi";}}
+    }catch(e){toast("Server neodpovídá.");if(btn){btn.disabled=false;btn.textContent="Odeslat Jirkovi";}}
+  }
   document.getElementById("ordersBody").addEventListener("click",e=>{
+    const d=e.target.closest(".act-deliver");if(d){deliverToJirka(d.dataset.deliver,d);return;}
     const s=e.target.closest(".act-sent");if(s){s.disabled=true;orderAction(s.dataset.sent,"sent");return;}
     const u=e.target.closest(".act-unsent");if(u){u.disabled=true;orderAction(u.dataset.unsent,"unsent");}
   });
