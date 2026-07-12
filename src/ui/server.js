@@ -187,7 +187,13 @@ const systemRoot = (env) => env.SystemRoot ?? env.windir ?? 'C:\\Windows';
 /** The command that hands `target` to the desktop. Absolute on Windows, by design. */
 export function openCommand(target, platform = process.platform, env = process.env) {
   if (platform === 'win32') {
-    return [env.ComSpec ?? join(systemRoot(env), 'System32', 'cmd.exe'), ['/c', 'start', '', target]];
+    // A filesystem target must be an absolute, native-separator path before it reaches cmd's `start`:
+    // a relative or forward-slashed one like "./outbox" (straight from config.paths) makes Explorer
+    // report `cannot find …\.\outbox`. URLs (http://, file://) are left untouched — resolve() would
+    // wreck them. The `://` test cleanly separates a URL from a Windows drive path (`C:\…` has no `://`).
+    const isUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(target);
+    const t = isUrl ? target : resolve(target);
+    return [env.ComSpec ?? join(systemRoot(env), 'System32', 'cmd.exe'), ['/c', 'start', '', t]];
   }
   if (platform === 'darwin') return ['open', [target]];
   return ['xdg-open', [target]];

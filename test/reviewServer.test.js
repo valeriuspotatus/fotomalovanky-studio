@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import sharp from 'sharp';
 import { createReviewServer, openCommand, powershellPath, openExternally, pickFolder, pickFolderScript } from '../src/ui/server.js';
 import { STATES, readManifest, getStatus, setStatus, setIntake, writeManifest, emptyManifest } from '../src/manifest.js';
@@ -301,6 +301,19 @@ test('on Windows the desktop is opened through an absolute cmd.exe, never a bare
   const [bin, args] = openCommand('http://127.0.0.1:4173/', 'win32', { ComSpec: 'C:\\WINDOWS\\system32\\cmd.exe' });
   assert.equal(bin, 'C:\\WINDOWS\\system32\\cmd.exe');
   assert.deepEqual(args, ['/c', 'start', '', 'http://127.0.0.1:4173/']);
+});
+
+test('a relative/forward-slashed folder target is resolved absolute for cmd start', () => {
+  // Regression: revealing the finished folder passed config's "./outbox" straight to `start`, and
+  // Explorer failed with `cannot find …\.\outbox`. A path must be absolute + native-separator; a URL
+  // must be left exactly as-is.
+  const [, args] = openCommand('./outbox', 'win32', { ComSpec: 'C:\\WINDOWS\\system32\\cmd.exe' });
+  const opened = args[3];
+  assert.equal(opened, resolve('./outbox'), 'the relative path is resolved to an absolute one');
+  assert.ok(!opened.includes('/'), 'no forward slashes survive into the Windows target');
+  assert.ok(!/[\\/]\.[\\/]/.test(opened), 'the "./" segment is collapsed');
+  const [, urlArgs] = openCommand('file:///C:/x', 'win32', { ComSpec: 'C:\\WINDOWS\\system32\\cmd.exe' });
+  assert.equal(urlArgs[3], 'file:///C:/x', 'a URL target is passed through untouched');
 });
 
 test('without ComSpec it is still absolute, derived from SystemRoot', () => {
