@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Fotomalovánky — review</title>
+<title>Fotomalovánky — generátor</title>
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/components.css">
 <style>
@@ -196,19 +196,19 @@
       </div>
       <div class="topbar-actions">
         <button id="history" hidden></button>
-        <span class="chip c-neutral" id="c-live">live</span>
+        <span class="chip c-neutral" id="c-live">živě</span>
         <button class="icon-btn" id="themeBtn2" aria-label="Přepnout režim"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
       </div>
     </div>
 
     <div class="go">
-      <label for="inbox">Order photos</label>
-      <input type="text" id="inbox" spellcheck="false" placeholder="the folder your Chrome extension downloads into">
-      <button id="browse">Browse…</button>
+      <label for="inbox">Fotky objednávky</label>
+      <input type="text" id="inbox" spellcheck="false" placeholder="složka, do které stahuje vaše rozšíření pro Chrome">
+      <button id="browse">Procházet…</button>
       <button class="primary" id="run" title="Vygenerovat omalovánky (bez PDF)">Go</button>
       <button id="pdf" title="Až zkontrolujete stránky, vytvořte z nich PDF">PDF</button>
-      <button class="danger" id="stop" hidden>Stop</button>
-      <label class="chk"><input type="checkbox" id="force"> reprint finished PDFs</label>
+      <button class="danger" id="stop" hidden>Zastavit</button>
+      <label class="chk"><input type="checkbox" id="force"> znovu vytisknout hotová PDF</label>
     </div>
 
     <div id="queue" hidden></div>
@@ -223,21 +223,21 @@
 <dialog id="editor">
   <div class="etop">
     <b id="e-name"></b>
-    <button id="e-draw" class="on">White pencil</button>
-    <button id="e-crop">Crop</button>
-    <label class="size">size <input type="range" id="e-size" min="3" max="60" value="14"></label>
+    <button id="e-draw" class="on">Bílá tužka</button>
+    <button id="e-crop">Oříznout</button>
+    <label class="size">velikost <input type="range" id="e-size" min="3" max="60" value="14"></label>
     <span class="n" id="e-zoom">100%</span>
-    <button id="e-fit" disabled>Fit</button>
-    <button id="e-undo">Undo</button>
-    <button id="e-clear">Clear</button>
+    <button id="e-fit" disabled>Přizpůsobit</button>
+    <button id="e-undo">Zpět</button>
+    <button id="e-clear">Vymazat</button>
     <span class="grow"></span>
-    <button id="e-elsewhere">Repair elsewhere…</button>
-    <button id="e-revert" class="danger" hidden>Revert to the generated page</button>
-    <button id="e-cancel">Cancel</button>
-    <button id="e-save" class="primary">Save</button>
+    <button id="e-elsewhere">Opravit jinde…</button>
+    <button id="e-revert" class="danger" hidden>Vrátit vygenerovanou stránku</button>
+    <button id="e-cancel">Zrušit</button>
+    <button id="e-save" class="primary">Uložit</button>
   </div>
   <div class="ewrap"><img id="e-img" alt=""><canvas id="e-canvas"></canvas></div>
-  <div class="hint" id="e-hint">Paint over what you want gone — the pencil is white, like the paper. Drag a box in Crop mode to trim the page. <b>Scroll to zoom in; drag with the right button or hold Space to move the page.</b> This edits the vector page the book is printed from.</div>
+  <div class="hint" id="e-hint">Přemalujte to, co chcete odstranit — tužka je bílá jako papír. V režimu Oříznout tažením rámečku stránku ořežte. <b>Kolečkem přiblížíte; tažením pravým tlačítkem nebo s podrženou mezerníkem stránku posunete.</b> Toto upravuje vektorovou stránku, ze které se kniha tiskne.</div>
 </dialog>
 
 <script>
@@ -245,22 +245,26 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const enc = encodeURIComponent;
 
+// Czech plural forms: 1 / 2–4 / 5+ (used for "fotka/fotky/fotek" and "objednávka/objednávky/objednávek").
+const plF = (n) => (n === 1 ? 'fotka' : n >= 2 && n <= 4 ? 'fotky' : 'fotek');
+const plO = (n) => (n === 1 ? 'objednávka' : n >= 2 && n <= 4 ? 'objednávky' : 'objednávek');
+
 const LABEL = {
-  ok: 'clean', approved: 'approved', flagged: 'needs review',
-  pending_review: 'repaired — needs approval', manual_in_progress: 'out for manual repair',
-  failed: 'failed', pending: 'not generated yet',
+  ok: 'v pořádku', approved: 'schváleno', flagged: 'ke kontrole',
+  pending_review: 'opraveno — ke schválení', manual_in_progress: 'ruční oprava',
+  failed: 'selhalo', pending: 'zatím nevygenerováno',
 };
 
 // Human text for one intake finding, mirroring intake.js describeFinding on the server.
 const FINDING = {
-  'missing-photos': (f) => `only ${f.unique} of ${f.expected} photos — ${f.missing} missing`,
-  'extra-photos': (f) => `${f.uploaded} photos, more than the ${f.expected} the product includes`,
-  'duplicate-identical': (f) => `the same photo appears more than once (${(f.bases || []).join(', ')})`,
-  'possible-duplicate': (f) => `two photos look like the same shot (${(f.bases || []).join(', ')})`,
-  unreadable: (f) => `${f.base} will not open`,
-  'low-resolution': (f) => `${f.base} is too small to print (${f.mp} MP)`,
-  blurry: (f) => `${f.base} looks blurry`,
-  dark: (f) => `${f.base} is very dark`,
+  'missing-photos': (f) => `jen ${f.unique} z ${f.expected} fotek — ${f.missing} chybí`,
+  'extra-photos': (f) => `${f.uploaded} fotek, víc než ${f.expected} v produktu`,
+  'duplicate-identical': (f) => `stejná fotka je vícekrát (${(f.bases || []).join(', ')})`,
+  'possible-duplicate': (f) => `dvě fotky vypadají jako stejný záběr (${(f.bases || []).join(', ')})`,
+  unreadable: (f) => `${f.base} nelze otevřít`,
+  'low-resolution': (f) => `${f.base} je moc malá na tisk (${f.mp} MP)`,
+  blurry: (f) => `${f.base} je rozmazaná`,
+  dark: (f) => `${f.base} je hodně tmavá`,
 };
 const describeFinding = (f) => (FINDING[f.reason] ? FINDING[f.reason](f) : `${f.base ?? ''} ${f.reason}`.trim());
 
@@ -284,8 +288,8 @@ async function act(orderId, base, action) {
   try {
     const res = await fetch(`/api/${enc(orderId)}/${enc(base)}/${action}`, { method: 'POST' });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || `${action} failed (HTTP ${res.status})`);
-    if (action === 'redo') toast('Regenerating — this takes a couple of minutes.');
+    if (!res.ok) throw new Error(body.error || `akce „${action}“ selhala (HTTP ${res.status})`);
+    if (action === 'redo') toast('Přegenerovávám — pár minut.');
   } catch (err) {
     toast(err.message, true);
   }
@@ -297,7 +301,7 @@ async function act(orderId, base, action) {
 async function open(what, orderId) {
   const res = await fetch(`/api/_open/${what}${orderId ? '/' + enc(orderId) : ''}`, { method: 'POST' });
   const body = await res.json().catch(() => ({}));
-  if (!body.opened) toast('Could not open it from here — open it yourself.', true);
+  if (!body.opened) toast('Nešlo to odsud otevřít — otevřete to ručně.', true);
 }
 
 const INBOX_KEY = 'fma:inbox';
@@ -351,24 +355,24 @@ function paintQueue(queue, selected, locked) {
   q.hidden = false;
   q.innerHTML = `
     <div class="head">
-      <b>${queue.length} order${queue.length > 1 ? 's' : ''} in this folder</b>
-      <span class="n">${sel.size} ticked${sel.size > 1 ? ' — they run one after another' : ''}</span>
+      <b>${queue.length} ${plO(queue.length)} v této složce</b>
+      <span class="n">${sel.size} zaškrtnuto${sel.size > 1 ? ' — poběží jedna po druhé' : ''}</span>
       <span class="grow"></span>
-      <button data-tick="all"${locked || allVisibleTicked ? ' disabled' : ''}>tick shown</button>
-      <button data-tick="none"${locked || sel.size === 0 ? ' disabled' : ''}>tick none</button>
-      <button id="toggle-queue">${showQueue ? 'hide' : 'show'} the list</button>
+      <button data-tick="all"${locked || allVisibleTicked ? ' disabled' : ''}>zaškrtnout zobrazené</button>
+      <button data-tick="none"${locked || sel.size === 0 ? ' disabled' : ''}>odškrtnout vše</button>
+      <button id="toggle-queue">${showQueue ? 'skrýt' : 'zobrazit'} seznam</button>
     </div>
     <div class="list"${showQueue ? '' : ' hidden'}>${visible
       .map(
         (o) => `<label class="${sel.has(o.orderId) ? '' : 'off'}">
           <input type="checkbox" data-order="${esc(o.orderId)}"${sel.has(o.orderId) ? ' checked' : ''}${locked ? ' disabled' : ''}>
-          <span>${esc(o.orderId)}</span><span class="n">${o.photos} photo${o.photos > 1 ? 's' : ''}</span>
+          <span>${esc(o.orderId)}</span><span class="n">${o.photos} ${plF(o.photos)}</span>
         </label>`,
       )
       .join('')}</div>
     ${
       showQueue && (capped || (queueAll && ordered.length > QUEUE_RECENT))
-        ? `<button id="show-all" class="more">${capped ? `show all ${queue.length} — ${olderHidden} older` : 'show only the recent'}</button>`
+        ? `<button id="show-all" class="more">${capped ? `zobrazit všech ${queue.length} — ${olderHidden} starších` : 'zobrazit jen nedávné'}</button>`
         : ''
     }`;
 }
@@ -385,11 +389,11 @@ async function scan(path) {
       body: JSON.stringify({ path }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || `could not read that folder (HTTP ${res.status})`);
+    if (!res.ok) throw new Error(body.error || `složku nešlo přečíst (HTTP ${res.status})`);
     $('#inbox').value = body.inbox;
     localStorage.setItem(INBOX_KEY, body.inbox);
-    if (!body.orders.length) toast('No orders in that folder — it needs .jpg photos.', true);
-    else if (!body.selected.length) toast(`${body.orders.length} orders in there — tick the ones you want.`);
+    if (!body.orders.length) toast('Ve složce nejsou žádné objednávky — potřebuje fotky .jpg.', true);
+    else if (!body.selected.length) toast(`${body.orders.length} ${plO(body.orders.length)} — zaškrtněte ty, které chcete.`);
   } catch (err) {
     toast(err.message, true);
   }
@@ -403,7 +407,7 @@ async function select(orders) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orders }),
     });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'could not change the ticks');
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'zaškrtnutí se nepodařilo změnit');
   } catch (err) {
     toast(err.message, true);
   }
@@ -425,9 +429,9 @@ async function startRun(buildPdfs = false) {
       body: JSON.stringify({ inbox, force: $('#force').checked, buildPdfs }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || `could not start (HTTP ${res.status})`);
+    if (!res.ok) throw new Error(body.error || `nešlo spustit (HTTP ${res.status})`);
     if (inbox) localStorage.setItem(INBOX_KEY, inbox);
-    toast(buildPdfs ? 'Building the books from the checked pages…' : 'Generating — a couple of minutes per photo. Check the pages, then press PDF.');
+    toast(buildPdfs ? 'Stavím knihy ze zkontrolovaných stránek…' : 'Generuji — pár minut na fotku. Zkontrolujte stránky a stiskněte PDF.');
   } catch (err) {
     toast(err.message, true);
   }
@@ -437,12 +441,12 @@ async function startRun(buildPdfs = false) {
 async function stopRun() {
   const btn = $('#stop');
   btn.disabled = true;
-  btn.textContent = 'Stopping…';
+  btn.textContent = 'Zastavuji…';
   try {
     await fetch('/api/_stop', { method: 'POST' });
-    toast('Stopping — the photo being made now will finish, then it stops.');
+    toast('Zastavuji — rozdělaná fotka se dodělá, pak se to zastaví.');
   } catch {
-    toast('Could not reach the tool to stop it.', true);
+    toast('Nepodařilo se spojit s nástrojem pro zastavení.', true);
   }
   await refresh(true);
 }
@@ -454,7 +458,7 @@ async function browse() {
   const btn = $('#browse');
   picking = true;
   btn.disabled = true;
-  btn.textContent = 'Choose a folder…';
+  btn.textContent = 'Vyberte složku…';
   try {
     const { path, available } = await (
       await fetch('/api/_pick-folder', {
@@ -470,14 +474,14 @@ async function browse() {
     } else if (!available) {
       // Cancelling gives no path either, and that is not worth a warning. Only a dialog that
       // never appeared is.
-      toast('Could not open the folder picker — type or paste the path into the box instead.', true);
+      toast('Nešlo otevřít výběr složky — napište nebo vložte cestu do pole.', true);
     }
   } catch {
-    toast('Could not open the folder picker — type or paste the path into the box instead.', true);
+    toast('Nešlo otevřít výběr složky — napište nebo vložte cestu do pole.', true);
   }
   picking = false;
   btn.disabled = false;
-  btn.textContent = 'Browse…';
+  btn.textContent = 'Procházet…';
 }
 
 /** The run log lives outside #root so a new line never repaints (and refetches) the grid. */
@@ -489,14 +493,14 @@ function paintRun(run) {
 
   const parts = [];
   if (run.lines.length) parts.push(esc(run.lines.join('\n')));
-  if (run.error) parts.push(`<span class="err">Run stopped: ${esc(run.error)}</span>`);
+  if (run.error) parts.push(`<span class="err">Běh zastaven: ${esc(run.error)}</span>`);
   if (run.report) {
     const c = run.report.counts;
-    parts.push(`\n<span class="hdr">${c.done} done, ${c.held} waiting for you, ${c.failed} failed.</span>`);
+    parts.push(`\n<span class="hdr">${c.done} hotovo, ${c.held} čeká na vás, ${c.failed} selhalo.</span>`);
     for (const o of run.report.orders) {
-      if (o.status === 'failed') parts.push(`<span class="err">  ${esc(o.orderId)}  FAILED  ${esc(o.reason)}</span>`);
-      else if (o.status === 'held') parts.push(`  ${esc(o.orderId)}  held    ${esc(o.reason)}`);
-      else parts.push(`  ${esc(o.orderId)}  done    PDF written${o.titled ? '' : ' (no dedication)'}`);
+      if (o.status === 'failed') parts.push(`<span class="err">  ${esc(o.orderId)}  SELHALO  ${esc(o.reason)}</span>`);
+      else if (o.status === 'held') parts.push(`  ${esc(o.orderId)}  drženo   ${esc(o.reason)}`);
+      else parts.push(`  ${esc(o.orderId)}  hotovo   PDF vytvořeno${o.titled ? '' : ' (bez věnování)'}`);
     }
   }
   const html = parts.join('\n');
@@ -511,7 +515,7 @@ function paintGoBar(data) {
   const running = data.run.active;
   const stopping = data.run.stopping;
   $('#run').disabled = running;
-  $('#run').textContent = running ? 'Running…' : 'Go';
+  $('#run').textContent = running ? 'Generuji…' : 'Go';
   // PDF (build) shares the same GPU/browser queue, so it's disabled during any run. It lights up as
   // the primary action when there are pages generated and waiting to be built.
   const readyToBuild = data.orders.some((o) => o.inInbox && !o.built && o.summary?.ready);
@@ -523,12 +527,12 @@ function paintGoBar(data) {
   const stop = $('#stop');
   stop.hidden = !running;
   stop.disabled = stopping;
-  stop.textContent = stopping ? 'Stopping…' : 'Stop';
+  stop.textContent = stopping ? 'Zastavuji…' : 'Zastavit';
   // The poll repaints this bar every second. Without `picking` it would re-enable the button under
   // an open dialog — a second click, a second dialog — and leave the label stuck on "Choose a
   // folder…" once the first one closed.
   $('#browse').disabled = running || picking;
-  $('#browse').textContent = picking ? 'Choose a folder…' : 'Browse…';
+  $('#browse').textContent = picking ? 'Vyberte složku…' : 'Procházet…';
   $('#force').disabled = running;
   const inbox = $('#inbox');
   // The box opens at the folder the tool is configured for (config.json paths.inbox), which the
@@ -546,8 +550,8 @@ async function saveDedication(orderId, text) {
       body: JSON.stringify({ text }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || 'could not save the title page text');
-    toast(body.dedication ? 'Title page saved.' : 'Title page cleared — this book will print without a dedication.');
+    if (!res.ok) throw new Error(body.error || 'text titulní strany se nepodařilo uložit');
+    toast(body.dedication ? 'Titulní strana uložena.' : 'Titulní strana smazána — kniha se vytiskne bez věnování.');
   } catch (err) {
     toast(err.message, true);
   }
@@ -560,8 +564,8 @@ async function intakeProceed(orderId) {
   try {
     const res = await fetch(`/api/${enc(orderId)}/intake-override`, { method: 'POST' });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || 'could not update this order');
-    toast('It will generate on the next Go.');
+    if (!res.ok) throw new Error(body.error || 'objednávku se nepodařilo aktualizovat');
+    toast('Vygeneruje se při dalším stisknutí Go.');
   } catch (err) {
     toast(err.message, true);
   }
@@ -575,16 +579,16 @@ function tile(orderId, orderDir, p, locked) {
 
   const shot = (kind, cap) => {
     const has = kind === 'coloring' ? p.hasColoring : p.hasOriginal;
-    if (!has) return `<figure><div class="ph">${kind === 'coloring' ? 'no line-art yet' : 'photo purged'}</div><figcaption>${cap}</figcaption></figure>`;
+    if (!has) return `<figure><div class="ph">${kind === 'coloring' ? 'zatím bez omalovánky' : 'fotka smazána'}</div><figcaption>${cap}</figcaption></figure>`;
     const v = kind === 'coloring' ? `?v=${p.coloringVersion}` : '';
     return `<figure><img loading="lazy" src="/img/${enc(orderId)}/${enc(p.base)}/${kind}${v}" alt="${esc(cap)}"><figcaption>${cap}</figcaption></figure>`;
   };
 
   let why = '';
   if (status === 'failed') why = `<p class="why err">${esc(p.reason)}</p>`;
-  else if (status === 'flagged' && p.reason && p.reason !== 'ok') why = `<p class="why">auto-flagged: ${esc(p.reason)}</p>`;
+  else if (status === 'flagged' && p.reason && p.reason !== 'ok') why = `<p class="why">automaticky označeno: ${esc(p.reason)}</p>`;
   else if (p.reason && p.reason !== 'ok') why = `<p class="why">${esc(p.reason)}</p>`;
-  if (p.edited) why += '<p class="why">fixed by hand — the generated page can still be restored</p>';
+  if (p.edited) why += '<p class="why">ručně opraveno — vygenerovanou stránku lze stále obnovit</p>';
 
   let acts = '';
   if (busy) {
@@ -593,48 +597,48 @@ function tile(orderId, orderDir, p, locked) {
     // A spinning wheel means "something is happening". Nothing is happening until a run is on:
     // ticking an order queues it, it does not start it. Say which of the two this is.
     acts = locked
-      ? `<div class="busy"><div class="spin"></div><span>waiting for the batch to reach this photo</span></div>`
-      : `<div class="idle"><span>not made yet — press Go to make it</span></div>`;
+      ? `<div class="busy"><div class="spin"></div><span>čeká, až k této fotce dojde dávka</span></div>`
+      : `<div class="idle"><span>zatím nevytvořeno — vytvoříte stisknutím Go</span></div>`;
   } else if (status === 'manual_in_progress') {
     acts = `<div class="manualbox">
-        Repair it, then save <code>${esc(p.base)}.svg</code> and <code>${esc(p.base)}_bw.png</code> into<br>
+        Opravte to a uložte <code>${esc(p.base)}.svg</code> a <code>${esc(p.base)}_bw.png</code> do<br>
         <code>${esc(orderDir)}</code>
       </div>
       <div class="acts">
-        <button class="primary" data-a="replaced">I've replaced it</button>
-        <button data-open="generator">Open generator</button>
-        <button data-open="folder">Open folder</button>
-        <button data-a="redo">Give up, regenerate</button>
+        <button class="primary" data-a="replaced">Nahradil jsem to</button>
+        <button data-open="generator">Otevřít generátor</button>
+        <button data-open="folder">Otevřít složku</button>
+        <button data-a="redo">Vzdát to, přegenerovat</button>
       </div>`;
   } else if (status === 'failed') {
-    acts = `<div class="acts"><button class="danger" data-a="redo">Try again</button></div>`;
+    acts = `<div class="acts"><button class="danger" data-a="redo">Zkusit znovu</button></div>`;
   } else if (status === 'approved') {
-    acts = `<div class="acts"><button class="danger" data-a="reject">Mark bad</button></div>`;
+    acts = `<div class="acts"><button class="danger" data-a="reject">Označit špatně</button></div>`;
   } else if (status === 'ok') {
     acts = `<div class="acts">
-        <button class="danger" data-a="reject">Mark bad</button>
-        <button data-a="redo">Redo</button>
-        <button data-edit>Fix by hand</button>
+        <button class="danger" data-a="reject">Označit špatně</button>
+        <button data-a="redo">Přegenerovat</button>
+        <button data-edit>Opravit ručně</button>
       </div>`;
   } else {
     // flagged / pending_review — the two states that hold the order back.
     acts = `<div class="acts">
-        <button class="primary" data-a="approve">Approve</button>
-        <button data-a="redo">Redo</button>
-        <button data-edit>Fix by hand</button>
+        <button class="primary" data-a="approve">Schválit</button>
+        <button data-a="redo">Přegenerovat</button>
+        <button data-edit>Opravit ručně</button>
       </div>`;
   }
 
   // The editor draws on the SVG, because the SVG is what the book prints. A photo that has none
   // yet has nothing to fix.
-  if (!p.hasSvg) acts = acts.replaceAll('<button data-edit>', '<button data-edit disabled title="no coloring page yet">');
+  if (!p.hasSvg) acts = acts.replaceAll('<button data-edit>', '<button data-edit disabled title="zatím bez omalovánky">');
 
   // A run rewrites each order's state.json as it goes; a verdict saved meanwhile would be
   // overwritten. The server refuses them, so don't offer them.
   if (locked) acts = acts.replaceAll('<button ', '<button disabled ');
 
   return `<div class="tile ${status}" data-key="${esc(key)}" data-order="${esc(orderId)}" data-base="${esc(p.base)}"${p.edited ? ' data-edited="1"' : ''}>
-    <div class="imgs">${shot('original', 'original photo')}${shot('coloring', 'coloring page')}</div>
+    <div class="imgs">${shot('original', 'původní fotka')}${shot('coloring', 'omalovánka')}</div>
     <p class="name">${esc(p.base)}</p>
     <span class="pill ${status}">${LABEL[status]}</span>
     ${why}
@@ -841,12 +845,12 @@ async function openEditor(orderId, base, edited) {
 
   try {
     const res = await fetch(`/svg/${enc(orderId)}/${enc(base)}`);
-    if (!res.ok) throw new Error('that photo has no coloring page yet');
+    if (!res.ok) throw new Error('tato fotka zatím nemá omalovánku');
     const text = await res.text();
     const vb = text.match(VIEWBOX_RE);
-    if (!vb) throw new Error('that coloring page has no viewBox');
+    if (!vb) throw new Error('tato omalovánka nemá viewBox');
     const [x, y, w, h] = vb[1].trim().split(/[\s,]+/).map(Number);
-    if (!(w > 0 && h > 0)) throw new Error('that coloring page has no size');
+    if (!(w > 0 && h > 0)) throw new Error('tato omalovánka nemá rozměr');
     ed.box = { x, y, w, h };
 
     if (ed.url) URL.revokeObjectURL(ed.url);
@@ -865,7 +869,7 @@ async function openEditor(orderId, base, edited) {
     img.src = ed.url;
   });
   if (!loaded) {
-    toast('That coloring page will not display, so it cannot be edited here.', true);
+    toast('Tuto omalovánku nelze zobrazit, takže ji tady nejde upravit.', true);
     return;
   }
   $('#editor').showModal();
@@ -911,7 +915,7 @@ function closeEditor() {
 async function saveEdit() {
   const btn = $('#e-save');
   btn.disabled = true;
-  btn.textContent = 'Saving…';
+  btn.textContent = 'Ukládám…';
   try {
     const res = await fetch(`/api/${enc(ed.order)}/${enc(ed.base)}/edit`, {
       method: 'POST',
@@ -919,13 +923,13 @@ async function saveEdit() {
       body: JSON.stringify({ strokes: ed.strokes, crop: ed.crop }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || `could not save the fix (HTTP ${res.status})`);
-    toast('Fixed. Look it over, then approve it.');
+    if (!res.ok) throw new Error(body.error || `opravu se nepodařilo uložit (HTTP ${res.status})`);
+    toast('Opraveno. Zkontrolujte to a pak schvalte.');
     closeEditor();
   } catch (err) {
     toast(err.message, true);
   }
-  btn.textContent = 'Save';
+  btn.textContent = 'Uložit';
   btn.disabled = false;
   await refresh(true);
 }
@@ -940,22 +944,22 @@ function intakePanel(o, locked) {
     .map((f) => `<li>${esc(describeFinding(f))}</li>`)
     .join('');
   const mail = o.draftEmail
-    ? `<details class="imail"><summary>Draft email to the customer</summary><pre>${esc(o.draftEmail)}</pre><button data-copy-email>Copy email</button></details>`
+    ? `<details class="imail"><summary>Návrh e-mailu zákazníkovi</summary><pre>${esc(o.draftEmail)}</pre><button data-copy-email>Kopírovat e-mail</button></details>`
     : '';
   return `<div class="intake" data-order="${esc(o.orderId)}">
-      <div class="ihead"><b>Held — check the photos before generating.</b> Nothing was made for this order.</div>
+      <div class="ihead"><b>Drženo — před generováním zkontrolujte fotky.</b> Pro tuto objednávku se nic nevytvořilo.</div>
       <ul class="ilist">${items}</ul>
       ${mail}
-      <div class="iacts"><button data-intake-proceed${locked ? ' disabled' : ''}>Generate it anyway</button></div>
+      <div class="iacts"><button data-intake-proceed${locked ? ' disabled' : ''}>Přesto vygenerovat</button></div>
     </div>`;
 }
 
 function orderSection(o, locked) {
   const s = o.summary;
-  const note = o.dirName && o.dirName !== o.orderId ? `<span class="note">folder: ${esc(o.dirName)}</span>` : '';
+  const note = o.dirName && o.dirName !== o.orderId ? `<span class="note">složka: ${esc(o.dirName)}</span>` : '';
   const badge = s.ready
-    ? `<span class="chip ready">ready — ${s.total} photo${s.total > 1 ? 's' : ''}</span>`
-    : `<span class="chip hold">${s.eligible}/${s.total} ready</span>`;
+    ? `<span class="chip ready">hotovo — ${s.total} ${plF(s.total)}</span>`
+    : `<span class="chip hold">${s.eligible}/${s.total} hotovo</span>`;
 
   // An untouched order shows the text recovered from the photo names; the operator's own answer,
   // once given, always wins — including the answer of emptying the box, which is undoable.
@@ -964,26 +968,26 @@ function orderSection(o, locked) {
   if (!o.dedication) {
     // Straight out of the shop, exactly as the customer typed it. Nothing to check.
     if (o.suggestionSource === 'shop')
-      hint = '<span class="note">from the shop — the customer’s own spelling</span>';
+      hint = '<span class="note">z obchodu — jak to napsal zákazník</span>';
     else if (o.suggestionRemembered)
-      hint = '<span class="note">the spelling you saved for this name</span>';
+      hint = '<span class="note">pravopis, který jste pro toto jméno uložili</span>';
     // An older download names the photos without accents, so a name recovered from one is spelled
     // the way the shop left it. Say so, rather than let a bare "Pro Jiricka" get printed.
     else if (o.suggestedDedication)
-      hint = '<span class="note">from the photo names — check the accents, then it is remembered</span>';
+      hint = '<span class="note">z názvů fotek — zkontrolujte diakritiku, pak se zapamatuje</span>';
     else if (o.clearedDedication)
       hint =
-        `<span class="note">no dedication — was “${esc(o.clearedDedication)}”</span>` +
-        `<button class="restore" data-restore="${esc(o.clearedDedication)}"${locked ? ' disabled' : ''}>restore</button>`;
-    else hint = '<span class="note">no dedication — the title page prints without text</span>';
+        `<span class="note">bez věnování — bylo „${esc(o.clearedDedication)}“</span>` +
+        `<button class="restore" data-restore="${esc(o.clearedDedication)}"${locked ? ' disabled' : ''}>obnovit</button>`;
+    else hint = '<span class="note">bez věnování — titulní strana bude bez textu</span>';
   }
   const ded = `<div class="ded" data-order="${esc(o.orderId)}">
-      <label for="ded-${esc(o.orderId)}">Title page</label>
-      <input id="ded-${esc(o.orderId)}" value="${esc(shown)}"${locked ? ' disabled' : ''} placeholder="no dedication — the title page will have no text">
+      <label for="ded-${esc(o.orderId)}">Titulní strana</label>
+      <input id="ded-${esc(o.orderId)}" value="${esc(shown)}"${locked ? ' disabled' : ''} placeholder="bez věnování — titulní strana bude bez textu">
       ${hint}
     </div>`;
   return `<section class="order">
-    <header><h2>Order ${esc(o.orderId)}</h2>${note}${badge}${ded}<button class="mode-toggle" data-focus="${esc(o.orderId)}">${focusOrders.has(o.orderId) ? 'Grid' : 'Focus'}</button></header>
+    <header><h2>Objednávka ${esc(o.orderId)}</h2>${note}${badge}${ded}<button class="mode-toggle" data-focus="${esc(o.orderId)}">${focusOrders.has(o.orderId) ? 'Mřížka' : 'Detail'}</button></header>
     ${intakePanel(o, locked)}
     <div class="grid${focusOrders.has(o.orderId) ? ' focus' : ''}">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
   </section>`;
@@ -1017,11 +1021,11 @@ function render(data, force) {
 
   if (!primary.length) {
     root.innerHTML = `<div class="empty">
-      <p><b>${data.run.active ? 'Working…' : 'Nothing open.'}</b></p>
-      <p>${data.run.active ? 'Photos will appear as they finish.' : 'Choose the folder your order photos are in, tick the orders, then press <b>Go</b>.'}</p>
-      <p style="font-size:13px;color:#888">Finished books go to <code>${esc(data.outbox)}</code></p></div>`;
+      <p><b>${data.run.active ? 'Pracuji…' : 'Nic otevřeno.'}</b></p>
+      <p>${data.run.active ? 'Fotky se objeví, jakmile budou hotové.' : 'Vyberte složku s fotkami objednávek, zaškrtněte objednávky a stiskněte <b>Go</b>.'}</p>
+      <p style="font-size:13px;color:#888">Hotové knihy jdou do <code>${esc(data.outbox)}</code></p></div>`;
     paintEarlier(earlier, data.run.active);
-    $('#c-orders').textContent = 'no orders open';
+    $('#c-orders').textContent = 'žádné otevřené objednávky';
     $('#c-hold').hidden = true;
     $('#c-ready').hidden = true;
     return;
@@ -1032,11 +1036,11 @@ function render(data, force) {
     held += o.summary.held + o.summary.failed + (o.intake?.verdict === 'hold' && !o.intake.override ? 1 : 0);
     if (o.summary.ready) ready++;
   }
-  $('#c-orders').textContent = `${primary.length} order${primary.length > 1 ? 's' : ''}`;
+  $('#c-orders').textContent = `${primary.length} ${plO(primary.length)}`;
   $('#c-hold').hidden = !held;
-  $('#c-hold').textContent = `${held} need${held === 1 ? 's' : ''} you`;
+  $('#c-hold').textContent = `${held} ${held === 1 ? 'čeká' : 'čekají'} na vás`;
   $('#c-ready').hidden = !ready;
-  $('#c-ready').textContent = `${ready} ready for the builder`;
+  $('#c-ready').textContent = `${ready} připraveno pro PDF`;
 
   const locked = data.run.active;
 
@@ -1054,7 +1058,7 @@ function render(data, force) {
 function paintHistoryButton(count) {
   const btn = $('#history');
   btn.hidden = count === 0;
-  btn.textContent = `${showEarlier ? 'Hide' : 'Order'} history (${count})`;
+  btn.textContent = `${showEarlier ? 'Skrýt historii' : 'Historie objednávek'} (${count})`;
 }
 
 function paintEarlier(earlier, locked) {
@@ -1064,7 +1068,7 @@ function paintEarlier(earlier, locked) {
     return;
   }
   box.innerHTML =
-    `<div class="divider"><hr><span>${earlier.length} order${earlier.length > 1 ? 's' : ''} already done, not in this folder</span><hr></div>` +
+    `<div class="divider"><hr><span>${earlier.length} ${plO(earlier.length)} už hotových, mimo tuto složku</span><hr></div>` +
     earlier.map((o) => orderSection(o, locked)).join('');
 }
 
@@ -1075,9 +1079,9 @@ async function refresh(force) {
   try {
     const res = await fetch('/api/state');
     render(await res.json(), force);
-    $('#c-live').textContent = 'live';
+    $('#c-live').textContent = 'živě';
   } catch {
-    $('#c-live').textContent = 'disconnected — is the tool still running?';
+    $('#c-live').textContent = 'odpojeno — běží ještě nástroj?';
   } finally {
     inFlight = false;
   }
@@ -1089,7 +1093,7 @@ document.addEventListener('error', (e) => {
   if (img.tagName !== 'IMG' || !img.closest('.imgs')) return;
   const fig = img.closest('figure');
   const cap = fig.querySelector('figcaption')?.textContent ?? '';
-  fig.innerHTML = `<div class="ph">unreadable file</div><figcaption>${esc(cap)}</figcaption>`;
+  fig.innerHTML = `<div class="ph">nečitelný soubor</div><figcaption>${esc(cap)}</figcaption>`;
 }, true);
 
 // The baseline for "did they actually change it". Everything else — a repaint, the window losing
@@ -1144,8 +1148,8 @@ document.addEventListener('click', (e) => {
   if (copyEmail) {
     const text = copyEmail.closest('.imail').querySelector('pre').textContent;
     navigator.clipboard?.writeText(text).then(
-      () => toast('Email copied — paste it into your mail app.'),
-      () => toast('Could not copy it here — select the text and copy it.', true),
+      () => toast('E-mail zkopírován — vložte ho do své pošty.'),
+      () => toast('Nešlo to tady zkopírovat — označte text a zkopírujte ho.', true),
     );
     return;
   }
