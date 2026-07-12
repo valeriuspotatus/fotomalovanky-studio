@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateMarketingImage, AiImageError } from '../src/creatives/aiImage.js';
+import { generateMarketingImage, describeImage, DESCRIBE_INSTRUCTION, AiImageError } from '../src/creatives/aiImage.js';
 
 // The adapter is the one seam that calls Gemini ("Nano Banana Pro"). These exercise its logic —
 // request shape, response parsing, and every error path — with an injected fetch, so the suite
@@ -83,5 +83,47 @@ test('an aborted request maps to a timeout error', async () => {
   await assert.rejects(
     () => generateMarketingImage({ config: CONFIG, prompt: 'p', fetchImpl: abort }),
     (e) => e instanceof AiImageError && e.code === 'timeout',
+  );
+});
+
+// --- describeImage: photo -> identity-free text prompt (the vision half of describe-then-generate) ---
+
+const okText = (text) => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }) });
+
+test('describeImage targets the describeModel, sends the photo + instruction, returns the trimmed text', async () => {
+  const cap = {};
+  const cfg = { ...CONFIG, describeModel: 'gemini-2.5-flash' };
+  const out = await describeImage({ config: cfg, referenceBase64: 'PHOTO64', referenceMime: 'image/png', fetchImpl: fakeFetch(okText('  a cosy family scene  '), cap) });
+  assert.equal(out, 'a cosy family scene');
+  assert.equal(cap.url, 'https://gen.example/v1beta/models/gemini-2.5-flash:generateContent');
+  assert.equal(cap.opts.headers['x-goog-api-key'], 'test-key');
+  assert.equal(cap.body.contents[0].parts[0].text, DESCRIBE_INSTRUCTION, 'the default privacy instruction is sent');
+  const inline = cap.body.contents[0].parts.find((p) => p.inlineData);
+  assert.equal(inline.inlineData.data, 'PHOTO64');
+  assert.equal(inline.inlineData.mimeType, 'image/png');
+  assert.ok(!cap.body.generationConfig, 'no IMAGE responseModalities on the describe call');
+});
+
+test('describeImage honours a per-call instruction override and config.describeInstruction', async () => {
+  const cap = {};
+  await describeImage({ config: CONFIG, referenceBase64: 'P', instruction: 'CUSTOM ONE', fetchImpl: fakeFetch(okText('x'), cap) });
+  assert.equal(cap.body.contents[0].parts[0].text, 'CUSTOM ONE');
+  const cap2 = {};
+  await describeImage({ config: { ...CONFIG, describeInstruction: 'FROM CONFIG' }, referenceBase64: 'P', fetchImpl: fakeFetch(okText('x'), cap2) });
+  assert.equal(cap2.body.contents[0].parts[0].text, 'FROM CONFIG');
+});
+
+test('describeImage refuses without a key or a reference photo, and maps errors', async () => {
+  await assert.rejects(() => describeImage({ config: {}, referenceBase64: 'P' }), (e) => e instanceof AiImageError && e.code === 'not-configured');
+  await assert.rejects(() => describeImage({ config: CONFIG, referenceBase64: '' }), (e) => e instanceof AiImageError && e.code === 'bad-input');
+  const empty = { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [] } }], promptFeedback: { blockReason: 'SAFETY' } }) };
+  await assert.rejects(
+    () => describeImage({ config: CONFIG, referenceBase64: 'P', fetchImpl: async () => empty }),
+    (e) => e instanceof AiImageError && e.code === 'no-image' && /SAFETY/.test(e.message),
+  );
+  const authRes = { ok: false, status: 401, text: async () => 'nope' };
+  await assert.rejects(
+    () => describeImage({ config: CONFIG, referenceBase64: 'P', fetchImpl: async () => authRes }),
+    (e) => e instanceof AiImageError && e.code === 'auth',
   );
 });

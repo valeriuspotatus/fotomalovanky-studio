@@ -87,6 +87,32 @@ test('POST /api/creative/ai-image caches the pair; the preview references it by 
   }, { adImageFn: stub });
 });
 
+test('POST /api/creative/ai-image auto mode requires a reference photo, not a prompt', async () => {
+  const stub = async () => ({ before: { base64: 'B' }, after: { base64: 'A' } });
+  await withServer(async (origin) => {
+    const res = await fetch(`${origin}/api/creative/ai-image`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ auto: true }) });
+    assert.equal(res.status, 400, 'auto with no photo is refused');
+    assert.match((await res.json()).error, /nahrajte fotku/i);
+  }, { adImageFn: stub });
+});
+
+test('POST /api/creative/ai-image auto mode describes then returns the AI prompt', async () => {
+  const stub = async ({ auto, referenceBase64, prompt }) => {
+    assert.equal(auto, true, 'the auto flag is forwarded to the generator');
+    assert.equal(referenceBase64, 'PHOTO', 'the photo is forwarded to the describe step');
+    assert.equal(prompt, undefined, 'no operator prompt is sent in auto mode');
+    return { before: { base64: 'B64', mimeType: 'image/png' }, after: { base64: 'A64', mimeType: 'image/png' }, prompt: 'an identity-free scene' };
+  };
+  await withServer(async (origin) => {
+    const res = await fetch(`${origin}/api/creative/ai-image`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ auto: true, referenceBase64: 'PHOTO', referenceMime: 'image/png' }) });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(body.id, 'returns a cache id');
+    assert.equal(body.prompt, 'an identity-free scene', 'the described prompt is returned for the UI to show');
+    assert.equal(body.before, 'data:image/png;base64,B64');
+  }, { adImageFn: stub });
+});
+
 test('GET /creative/preview renders the ad HTML from the query, escaping the copy', async () => {
   await withServer(async (origin) => {
     const res = await fetch(`${origin}/creative/preview?campaign=obecny&format=story&headline=${encodeURIComponent('<b>Ahoj</b>')}&highlight=teď`);

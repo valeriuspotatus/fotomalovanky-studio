@@ -16,8 +16,8 @@ import { summarizeInbox } from '../proton/mailbox.js';
 import { templateList, unfilledPlaceholders } from '../proton/templates.js';
 import { renderCreativeHtml, creativeFromCampaign, CAMPAIGNS, PALETTES, FORMATS } from '../creatives/creativeTemplate.js';
 import { renderCreativePng, CreativeRenderError } from '../creatives/renderCreative.js';
-import { generateMarketingImage, AiImageError } from '../creatives/aiImage.js';
-import { generateAdImages, AdImageError, toDataUri } from '../creatives/adImages.js';
+import { generateMarketingImage, describeImage, AiImageError } from '../creatives/aiImage.js';
+import { generateAdImages, describeAndGenerate, AdImageError, toDataUri } from '../creatives/adImages.js';
 import { ingestOrders, IngestError } from '../ingest.js';
 import {
   reviewState,
@@ -329,27 +329,36 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   // GET URL. `adImageFn` is injectable so tests never touch the network or the GPU.
   const creativeImages = new Map(); // id -> { before: dataUri, after: dataUri, at: epochMs }
   let creativeImageSeq = 0;
-  const makeAdImages = adImageFn ?? (async ({ referenceBase64, referenceMime, prompt }) => {
+  // In `auto` mode the operator's photo is first read into an identity-free scene prompt (describeImage),
+  // and the "before" is generated from that TEXT ALONE — the customer's pixels never reach the image
+  // model (describeAndGenerate passes referenceBase64:null downstream). In manual mode the typed prompt
+  // is used and the reference (if any) is passed straight to the image model as an inline hint.
+  const makeAdImages = adImageFn ?? (async ({ referenceBase64, referenceMime, prompt, auto = false }) => {
     if (!config?.ai?.enabled) throw new AiImageError('AI image generation is off (set ai.enabled + ai.apiKey in config.json).', 'not-configured');
-    return generateAdImages({
-      referenceBase64,
-      referenceMime,
-      prompt,
-      aiFn: (args) => generateMarketingImage({ config: config.ai, ...args }),
-      lineArtFn: async (before) => {
-        // Line-art via the real RunPod generator, through a throwaway temp file (it reads a path).
-        const dir = mkdtempSync(join(tmpdir(), 'fma-ad-'));
-        try {
-          const inPath = join(dir, before.mimeType?.includes('png') ? 'before.png' : 'before.jpg');
-          writeFileSync(inPath, Buffer.from(before.base64, 'base64'));
-          generator ??= createGeneratorDriver(config);
-          const { coloringPngPath } = await generator.generate(inPath, { workDir: dir });
-          return { base64: readFileSync(coloringPngPath).toString('base64'), mimeType: 'image/png' };
-        } finally {
-          rmSync(dir, { recursive: true, force: true });
-        }
-      },
-    });
+    const aiFn = (args) => generateMarketingImage({ config: config.ai, ...args });
+    const lineArtFn = async (before) => {
+      // Line-art via the real RunPod generator, through a throwaway temp file (it reads a path).
+      const dir = mkdtempSync(join(tmpdir(), 'fma-ad-'));
+      try {
+        const inPath = join(dir, before.mimeType?.includes('png') ? 'before.png' : 'before.jpg');
+        writeFileSync(inPath, Buffer.from(before.base64, 'base64'));
+        generator ??= createGeneratorDriver(config);
+        const { coloringPngPath } = await generator.generate(inPath, { workDir: dir });
+        return { base64: readFileSync(coloringPngPath).toString('base64'), mimeType: 'image/png' };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    if (auto) {
+      return describeAndGenerate({
+        referenceBase64,
+        referenceMime,
+        describeFn: (a) => describeImage({ config: config.ai, ...a }),
+        aiFn,
+        lineArtFn,
+      });
+    }
+    return generateAdImages({ referenceBase64, referenceMime, prompt, aiFn, lineArtFn });
   });
 
   // The spellings used to live in the outbox, which is the one folder that gets emptied. Carry
@@ -655,16 +664,19 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return res.end(buf);
       }
 
-      // POST /api/creative/ai-image { referenceBase64?, referenceMime?, prompt } — generate the ad's
-      // before (Nano Banana Pro reimagines the uploaded reference) + after (RunPod line-art), cache
-      // the pair, and return a short id the preview/render reference via ?images=<id>. This is the
-      // only creative route that spends money (a Gemini image call + a GPU line-art job).
+      // POST /api/creative/ai-image { referenceBase64?, referenceMime?, prompt?, auto? } — generate the
+      // ad's before (Nano Banana Pro) + after (RunPod line-art), cache the pair, and return a short id
+      // the preview/render reference via ?images=<id>. Two modes: manual needs a typed `prompt`; `auto`
+      // needs a reference photo, which Gemini reads into an identity-free prompt (returned so the UI can
+      // show it) before generating from that text alone. The only creative route that spends money.
       if (req.method === 'POST' && url.pathname === '/api/creative/ai-image') {
-        const { referenceBase64, referenceMime, prompt } = await readJson(req, 16 * 1024 * 1024); // photos are big
-        if (!prompt || !String(prompt).trim()) return json(res, 400, { error: 'Zadejte prompt (co má AI vytvořit).' });
+        const { referenceBase64, referenceMime, prompt, auto } = await readJson(req, 16 * 1024 * 1024); // photos are big
+        const wantAuto = auto === true;
+        if (wantAuto && !referenceBase64) return json(res, 400, { error: 'Pro automatický popis nahrajte fotku.' });
+        if (!wantAuto && (!prompt || !String(prompt).trim())) return json(res, 400, { error: 'Zadejte prompt (co má AI vytvořit).' });
         let pair;
         try {
-          pair = await makeAdImages({ referenceBase64: referenceBase64 || null, referenceMime: referenceMime || 'image/jpeg', prompt });
+          pair = await makeAdImages({ referenceBase64: referenceBase64 || null, referenceMime: referenceMime || 'image/jpeg', prompt, auto: wantAuto });
         } catch (err) {
           if (err instanceof AiImageError || err instanceof AdImageError) {
             const status = err.code === 'not-configured' ? 503 : err.code === 'auth' ? 502 : err.code === 'timeout' ? 504 : err.code === 'bad-input' ? 400 : 502;
@@ -676,7 +688,9 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         creativeImages.set(id, { before: toDataUri(pair.before), after: toDataUri(pair.after), at: Date.now() });
         // Bound the cache: drop the oldest once it grows past a couple dozen sets.
         while (creativeImages.size > 24) creativeImages.delete(creativeImages.keys().next().value);
-        return json(res, 200, { id, before: toDataUri(pair.before), after: toDataUri(pair.after) });
+        // `prompt` in the response is the auto-described one when present, else the operator's own text,
+        // so the UI can drop it into the prompt box after an auto run.
+        return json(res, 200, { id, before: toDataUri(pair.before), after: toDataUri(pair.after), prompt: pair.prompt ?? (prompt ?? null) });
       }
 
       // POST /api/_scan { path } — what orders are in that folder? Spends nothing, starts nothing.

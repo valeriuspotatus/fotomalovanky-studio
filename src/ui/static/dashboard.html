@@ -104,6 +104,8 @@
   .cv-ai textarea{width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);color:var(--ink);font:inherit;font-size:13px;resize:vertical;min-height:64px}
   .cv-ai textarea:focus{outline:none;border-color:var(--brand)}
   .cv-ai input[type=file]{font-size:12px;color:var(--ink-2);padding:6px 0}
+  .cv-ai .cv-check{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-2);cursor:pointer}
+  .cv-ai .cv-check input{margin:0;accent-color:var(--brand)}
   .cv-ai #cvGenerate{align-self:flex-start}
   .cv-ai #cvGenerate:disabled{opacity:.6;cursor:progress}
   .cv-ai .cv-hint.ok{color:var(--success)}
@@ -251,6 +253,7 @@
           <div class="cv-group cv-ai">
             <label for="cvRef">AI obrázky do rámečků</label>
             <input id="cvRef" type="file" accept="image/*">
+            <label class="cv-check"><input id="cvAuto" type="checkbox"> Popsat fotku automaticky (bez tváří)</label>
             <textarea id="cvPrompt" rows="3" placeholder="Popište scénu, kterou má AI vytvořit…"></textarea>
             <button class="btn btn-primary" id="cvGenerate" type="button">Vygenerovat obrázek</button>
             <div class="cv-hint" id="cvAiHint">Nahrajte referenční fotku — Nano Banana Pro z ní vytvoří novou reklamní fotku a generátor doplní omalovánku. Zákaznická fotka se do reklamy nikdy nedostane přímo.</div>
@@ -683,19 +686,29 @@
       const aiHint=$("cvAiHint");
       function setAi(msg,cls){aiHint.className="cv-hint"+(cls?" "+cls:"");aiHint.textContent=msg;}
       const fileToParts=file=>new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>{const s=String(r.result);resolve({mime:s.slice(5,s.indexOf(";"))||"image/jpeg",base64:s.slice(s.indexOf(",")+1)});};r.onerror=()=>reject(r.error||new Error("nelze načíst soubor"));r.readAsDataURL(file);});
+      // "Popsat automaticky": AI reads the photo into an identity-free prompt, so the prompt box turns
+      // optional (it gets filled from the response). Reflect that in the hint the moment it's toggled.
+      const autoBox=$("cvAuto");
+      autoBox.onchange=()=>{
+        $("cvPrompt").placeholder=autoBox.checked?"AI popíše fotku sama — prompt vyplní po vygenerování…":"Popište scénu, kterou má AI vytvořit…";
+        setAi(autoBox.checked?"AI popíše nahranou fotku (bez tváří a identity) a z popisu vytvoří novou reklamní fotku.":"Nahrajte referenční fotku — Nano Banana Pro z ní vytvoří novou reklamní fotku a generátor doplní omalovánku. Zákaznická fotka se do reklamy nikdy nedostane přímo.","");
+      };
       $("cvGenerate").onclick=async()=>{
+        const auto=autoBox.checked;
         const prompt=$("cvPrompt").value.trim();
-        if(!prompt){setAi("Zadejte prompt (co má AI vytvořit).","warn");return;}
-        setAi("Generuji obrázek… může to trvat minutu.","");
+        const file=$("cvRef").files[0];
+        if(auto&&!file){setAi("Pro automatický popis nahrajte fotku.","warn");return;}
+        if(!auto&&!prompt){setAi("Zadejte prompt (co má AI vytvořit).","warn");return;}
+        setAi(auto?"Popisuji fotku a generuji obrázek… může to trvat minutu.":"Generuji obrázek… může to trvat minutu.","");
         $("cvGenerate").disabled=true;
         try{
-          const payload={prompt};
-          const file=$("cvRef").files[0];
+          const payload=auto?{auto:true}:{prompt};
           if(file){const p=await fileToParts(file);payload.referenceBase64=p.base64;payload.referenceMime=p.mime;}
           const r=await fetch("/api/creative/ai-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
           const j=await r.json().catch(()=>({}));
           if(!r.ok){setAi(j.error||("Generování selhalo ("+r.status+").") ,"warn");return;}
-          imagesId=j.id; refresh(); setAi("Hotovo — obrázky vloženy do náhledu.","ok");
+          if(auto&&j.prompt)$("cvPrompt").value=j.prompt; // show the identity-free prompt the AI wrote
+          imagesId=j.id; refresh(); setAi(auto?"Hotovo — AI popsala fotku a vložila obrázky.":"Hotovo — obrázky vloženy do náhledu.","ok");
         }catch(e){setAi("Generování selhalo: "+e.message,"warn");}
         finally{$("cvGenerate").disabled=false;}
       };

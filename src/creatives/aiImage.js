@@ -1,12 +1,14 @@
-// The Kreativy AI image step: generate a marketing image with Google's Gemini image model
-// ("Nano Banana Pro") via the Generative Language API. Image-to-image — a reference photo plus a
-// prompt go in, a brand-new synthetic image comes back (base64). The reference only steers the
-// result; the output is AI-generated, never the original photo, which is what keeps a customer's
-// actual face out of the ad.
+// The Kreativy AI image seam: Google's Gemini ("Nano Banana Pro" for images). Two operations, both
+// thin adapters over fetch and injectable for tests:
+//   generateMarketingImage — text (+ optional reference) -> a brand-new synthetic image (base64)
+//   describeImage          — a photo -> a short, IDENTITY-FREE scene prompt (text)
 //
-// This is the one seam that calls Google. It's a thin adapter over fetch, injectable for tests, so
-// the studio/server code above it never has to know the request shape. The API key is billable and
-// lives only in gitignored config.json (config.ai.apiKey) — never in source.
+// The privacy design (David, 2026-07-12): the operator uploads a customer photo, describeImage turns
+// it into a generic marketing scene description with NO faces/identity, and generateMarketingImage
+// then makes a fresh image from that TEXT ALONE — the customer photo is never sent to the image model,
+// so no pixel of it can reach the output. The key is billable and lives only in gitignored config.json.
+
+const ENDPOINT_DEFAULT = 'https://generativelanguage.googleapis.com/v1beta';
 
 export class AiImageError extends Error {
   constructor(message, code = 'unknown') {
@@ -16,36 +18,38 @@ export class AiImageError extends Error {
   }
 }
 
-/**
- * Generate one marketing image.
- * @param {object} o
- * @param {object} o.config          the resolved config.ai block { apiKey, model, endpoint, timeoutMs }
- * @param {string} o.prompt          what to make (campaign-seeded copy describing the scene)
- * @param {?string} [o.referenceBase64] optional reference photo, base64 (no data: prefix)
- * @param {string} [o.referenceMime]  the reference's MIME type
- * @param {function} [o.fetchImpl]    injected for tests; defaults to global fetch
- * @returns {Promise<{ base64: string, mimeType: string }>} the generated image
- */
-export async function generateMarketingImage({ config, prompt, referenceBase64 = null, referenceMime = 'image/jpeg', fetchImpl = fetch } = {}) {
-  const { apiKey, model = 'gemini-3-pro-image-preview', endpoint = 'https://generativelanguage.googleapis.com/v1beta', timeoutMs = 60000 } = config ?? {};
-  if (!apiKey) throw new AiImageError('No AI API key is configured (set ai.apiKey in config.json).', 'not-configured');
-  if (!prompt || !String(prompt).trim()) throw new AiImageError('A prompt is required to generate an image.', 'bad-input');
+/** The default instruction describeImage sends with the photo. Tuned so the returned prompt can never
+ *  reproduce a real person, place, brand, or pet — only the mood/setting/activity. Overridable via
+ *  config.ai.describeInstruction. */
+export const DESCRIBE_INSTRUCTION = [
+  'You are writing a prompt for an AI image generator to create marketing imagery for a company that',
+  'turns family photos into printable coloring pages. Look at the attached photo and write ONE vivid',
+  'image-generation prompt (2–4 sentences, in English) for a brand-new, synthetic marketing photo',
+  'inspired only by the general mood, setting, activity, colours and lighting.',
+  '',
+  'STRICT PRIVACY RULES — the generated image must never resemble a real person:',
+  "- Do NOT describe or reference any individual's face, facial features, hairstyle, skin tone, exact",
+  '  age, body, tattoos, clothing logos, visible text, or anything that could identify a real person,',
+  '  place, brand, or pet.',
+  '- Refer to people only in generic terms ("a parent and a young child", "a small child", "a family")',
+  '  with no distinguishing detail.',
+  '- Focus on the warm scene, emotion, environment, props, season, and photographic style.',
+  '',
+  'Return ONLY the prompt text — no preamble, quotes, or explanation.',
+].join('\n');
 
-  // A reference image is optional at the adapter level (text-to-image also works), but the studio
-  // flow always supplies one — the operator uploads it and Nano Banana reimagines it.
-  const parts = [{ text: String(prompt) }];
-  if (referenceBase64) parts.push({ inlineData: { mimeType: referenceMime, data: referenceBase64 } });
-
+/** The one low-level POST to Gemini generateContent. Injectable fetch; all HTTP/transport error
+ *  classification lives here so both operations share it. Returns the parsed JSON body. */
+async function callGemini({ apiKey, endpoint = ENDPOINT_DEFAULT, model, parts, generationConfig = null, timeoutMs = 60000, fetchImpl = fetch }) {
   const url = `${String(endpoint).replace(/\/+$/, '')}/models/${encodeURIComponent(model)}:generateContent`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-
   let res;
   try {
     res = await fetchImpl(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseModalities: ['IMAGE'] } }),
+      body: JSON.stringify({ contents: [{ parts }], ...(generationConfig ? { generationConfig } : {}) }),
       signal: controller.signal,
     });
   } catch (err) {
@@ -53,25 +57,76 @@ export async function generateMarketingImage({ config, prompt, referenceBase64 =
   } finally {
     clearTimeout(timer);
   }
-
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
     const code = res.status === 401 || res.status === 403 ? 'auth' : 'api';
     throw new AiImageError(`Image API returned ${res.status}. ${detail.slice(0, 300)}`, code);
   }
-
-  let body;
   try {
-    body = await res.json();
+    return await res.json();
   } catch (err) {
     throw new AiImageError(`Image API returned an unreadable response: ${err.message}`, 'api');
   }
-  // The generated image comes back as an inlineData part on the first candidate.
+}
+
+/**
+ * Generate one marketing image.
+ * @param {object} o
+ * @param {object} o.config          the resolved config.ai block { apiKey, model, endpoint, timeoutMs }
+ * @param {string} o.prompt          what to make (campaign-seeded or auto-described copy)
+ * @param {?string} [o.referenceBase64] optional reference photo, base64 (no data: prefix)
+ * @param {string} [o.referenceMime]  the reference's MIME type
+ * @param {function} [o.fetchImpl]    injected for tests; defaults to global fetch
+ * @returns {Promise<{ base64: string, mimeType: string }>} the generated image
+ */
+export async function generateMarketingImage({ config, prompt, referenceBase64 = null, referenceMime = 'image/jpeg', fetchImpl = fetch } = {}) {
+  const { apiKey, model = 'gemini-3-pro-image-preview', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000 } = config ?? {};
+  if (!apiKey) throw new AiImageError('No AI API key is configured (set ai.apiKey in config.json).', 'not-configured');
+  if (!prompt || !String(prompt).trim()) throw new AiImageError('A prompt is required to generate an image.', 'bad-input');
+
+  // A reference image is optional at the adapter level (text-to-image also works); the describe->generate
+  // flow deliberately passes none, so the customer photo never reaches the image model.
+  const parts = [{ text: String(prompt) }];
+  if (referenceBase64) parts.push({ inlineData: { mimeType: referenceMime, data: referenceBase64 } });
+
+  const body = await callGemini({ apiKey, endpoint, model, parts, generationConfig: { responseModalities: ['IMAGE'] }, timeoutMs, fetchImpl });
   const part = body?.candidates?.[0]?.content?.parts?.find((p) => p?.inlineData?.data);
   if (!part) {
-    // A safety block or an all-text response lands here; surface the model's own note when present.
     const note = body?.candidates?.[0]?.content?.parts?.find((p) => p?.text)?.text || body?.promptFeedback?.blockReason || '';
     throw new AiImageError(`The image API returned no image.${note ? ` (${String(note).slice(0, 200)})` : ''}`, 'no-image');
   }
   return { base64: part.inlineData.data, mimeType: part.inlineData.mimeType || 'image/png' };
+}
+
+/**
+ * Describe a photo into a short, identity-free marketing scene prompt (text). The photo IS sent to
+ * Gemini here (the vision step), but only text comes back — the caller then generates from that text.
+ * @param {object} o
+ * @param {object} o.config           the resolved config.ai block { apiKey, describeModel, endpoint, timeoutMs, describeInstruction }
+ * @param {string} o.referenceBase64  the photo to describe, base64 (no data: prefix)
+ * @param {string} [o.referenceMime]  its MIME type
+ * @param {string} [o.instruction]    override the default privacy instruction
+ * @param {function} [o.fetchImpl]    injected for tests
+ * @returns {Promise<string>} the generated identity-free prompt
+ */
+export async function describeImage({ config, referenceBase64, referenceMime = 'image/jpeg', instruction, fetchImpl = fetch } = {}) {
+  const { apiKey, describeModel = 'gemini-2.5-flash', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, describeInstruction } = config ?? {};
+  if (!apiKey) throw new AiImageError('No AI API key is configured (set ai.apiKey in config.json).', 'not-configured');
+  if (!referenceBase64) throw new AiImageError('A reference photo is required to describe.', 'bad-input');
+
+  const parts = [
+    { text: instruction || describeInstruction || DESCRIBE_INSTRUCTION },
+    { inlineData: { mimeType: referenceMime, data: referenceBase64 } },
+  ];
+  const body = await callGemini({ apiKey, endpoint, model: describeModel, parts, generationConfig: null, timeoutMs, fetchImpl });
+  const text = (body?.candidates?.[0]?.content?.parts ?? [])
+    .map((p) => p?.text)
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  if (!text) {
+    const note = body?.promptFeedback?.blockReason || '';
+    throw new AiImageError(`The description step returned no text.${note ? ` (${String(note).slice(0, 200)})` : ''}`, 'no-image');
+  }
+  return text;
 }

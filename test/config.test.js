@@ -35,6 +35,20 @@ test('validateConfig rejects a non-positive retentionDays', () => {
   assert.throws(() => validateConfig({ ...good, retentionDays: 0 }), ConfigError);
 });
 
+test('validateConfig defaults the AI image + describe models when ai is off', () => {
+  const cfg = validateConfig(good);
+  assert.equal(cfg.ai.enabled, false);
+  assert.equal(cfg.ai.model, 'gemini-3-pro-image-preview');
+  assert.equal(cfg.ai.describeModel, 'gemini-2.5-flash');
+  assert.equal(cfg.ai.describeInstruction, null);
+});
+
+test('validateConfig keeps an overridden describeModel and describeInstruction', () => {
+  const cfg = validateConfig({ ...good, ai: { enabled: true, apiKey: 'k', describeModel: 'gemini-2.5-pro', describeInstruction: 'be brief' } });
+  assert.equal(cfg.ai.describeModel, 'gemini-2.5-pro');
+  assert.equal(cfg.ai.describeInstruction, 'be brief');
+});
+
 test('redactForLog masks the token-scoped URL', () => {
   const redacted = redactForLog(validateConfig(good));
   assert.ok(!redacted.generator.baseUrl.includes('abc123'), 'token must not appear in redacted URL');

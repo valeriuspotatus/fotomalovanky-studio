@@ -170,6 +170,12 @@ export function validateConfig(cfg) {
     throw new ConfigError('ai.apiKey is required when ai.enabled is true (your Google Gemini / Nano Banana API key).');
   }
   const aiModel = typeof aiRaw.model === 'string' && aiRaw.model.trim() ? aiRaw.model.trim() : 'gemini-3-pro-image-preview';
+  // The vision model that reads a customer photo into an identity-free scene prompt (the "describe"
+  // half of describe-then-generate). A cheaper text/vision model, separate from the image model above.
+  const aiDescribeModel = typeof aiRaw.describeModel === 'string' && aiRaw.describeModel.trim() ? aiRaw.describeModel.trim() : 'gemini-2.5-flash';
+  // Optional override for the privacy instruction sent with that photo; falls back to the built-in one.
+  const aiDescribeInstruction =
+    typeof aiRaw.describeInstruction === 'string' && aiRaw.describeInstruction.trim() ? aiRaw.describeInstruction.trim() : null;
   const aiEndpoint = typeof aiRaw.endpoint === 'string' && aiRaw.endpoint.trim() ? aiRaw.endpoint.trim() : 'https://generativelanguage.googleapis.com/v1beta';
   const aiTimeout = Number.isInteger(aiRaw.timeoutMs) && aiRaw.timeoutMs > 0 ? aiRaw.timeoutMs : 60000;
 
@@ -287,7 +293,15 @@ export function validateConfig(cfg) {
     mail: { enabled: mailEnabled, host: mailHost, port: mailPort, smtpPort: mailSmtpPort, user: mailUser, pass: mailPass, secure: mailSecure, recentLimit: mailLimit },
     // The Kreativy AI image step (Gemini / Nano Banana Pro). `enabled` false means the studio's
     // "generate image" action is unavailable and never calls out.
-    ai: { enabled: aiEnabled, apiKey: aiKey, model: aiModel, endpoint: aiEndpoint, timeoutMs: aiTimeout },
+    ai: {
+      enabled: aiEnabled,
+      apiKey: aiKey,
+      model: aiModel,
+      describeModel: aiDescribeModel,
+      describeInstruction: aiDescribeInstruction,
+      endpoint: aiEndpoint,
+      timeoutMs: aiTimeout,
+    },
     // The overnight autopilot (Shopify Admin API poll). `enabled` false means no poll ever runs and
     // the runner exits inert. `dataDir` is always an absolute path outside the repo tree; `accessToken`
     // is a full-store credential and never leaves gitignored config / the env var.
