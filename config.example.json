@@ -59,6 +59,7 @@
     "storeDomain": "aqi8it-7n.myshopify.com",
     "accessToken": "REPLACE_WITH_READ_ORDERS_TOKEN_OR_SET_FMA_SHOPIFY_TOKEN",
     "apiVersion": "2026-07",
+    "requirePaid": true,
     "photoHostAllowlist": ["cdn.tigren.com"],
     "estSpendPerOrder": 0.3,
     "dataDir": ""

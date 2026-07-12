@@ -218,6 +218,10 @@ export function validateConfig(cfg) {
     typeof shopRaw.estSpendPerOrder === 'number' && Number.isFinite(shopRaw.estSpendPerOrder) && shopRaw.estSpendPerOrder >= 0
       ? shopRaw.estSpendPerOrder
       : 0.3;
+  // Whether the autopilot waits for PAID before generating. Default true (safe). David runs it false:
+  // RunPod is cheap and customers often pay a little later, so process every photo order on arrival and
+  // let payment catch up. When false, financial status is ignored for the "to process" decision.
+  const requirePaid = shopRaw.requirePaid !== false;
   // The cursor, handled-order set and night report land here — always an absolute path OUTSIDE the
   // repo tree (it holds customer PII), same guard as whatsapp.sessionDir. Only the default is trusted blind.
   let dataDir = defaultAutopilotDir();
@@ -315,6 +319,7 @@ export function validateConfig(cfg) {
       layoutKeyMatch,
       photoHostAllowlist,
       estSpendPerOrder,
+      requirePaid,
       dataDir,
     },
     // Board display. `firstLiveOrder` hides older test orders; null shows everything.

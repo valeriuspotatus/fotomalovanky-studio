@@ -283,6 +283,28 @@ test('a non-paid photo order is counted seen-but-skipped, not vanished (payment-
   }
 });
 
+test('with requirePaid:false an unpaid photo order is processed too (run everything, pay later)', async () => {
+  const { dataDir, inbox, cleanup } = dirs();
+  try {
+    const base = makeConfig(dataDir, inbox);
+    const config = { ...base, shopify: { ...base.shopify, requirePaid: false } };
+    const materialize = spyMaterialize();
+    const r = await runAutopilot({
+      config,
+      now: NOW,
+      createClient: clientWith([node({ name: '#1630', financial: 'PAID', photos: [PHOTO] }), node({ name: '#1631', financial: 'PENDING', photos: [PHOTO] })]),
+      materialize,
+      runPipelineFn: spyPipeline({ 1630: ORDER_STATUS.DONE, 1631: ORDER_STATUS.DONE }),
+    });
+    assert.deepEqual([...materialize.calls].sort(), ['1630', '1631'], 'both the paid and the unpaid order are materialized');
+    assert.equal(r.report.paidPhotoSeen, 2, 'the run-pool includes the unpaid order');
+    assert.equal(r.report.nonPaidPhotoSeen, 1, 'the unpaid order is still surfaced as not-yet-paid');
+    assert.equal(r.report.counts.ready, 2, 'both books built');
+  } finally {
+    cleanup();
+  }
+});
+
 test('the night report is written to the fixed data-dir path and carries count + estimated spend', async () => {
   const { dataDir, inbox, cleanup } = dirs();
   try {

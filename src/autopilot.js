@@ -69,11 +69,15 @@ export async function runAutopilot({
     .filter(Boolean);
 
   const photoOrders = orders.filter((o) => o.photos.length > 0);
-  const paidPhoto = photoOrders.filter(isPaid);
-  const nonPaidPhotoSeen = photoOrders.length - paidPhoto.length;
-  const toProcess = paidPhoto.filter((o) => !isHandled(state, o.orderId));
-  const skippedResolved = paidPhoto.length - toProcess.length;
-  onEvent({ type: 'poll-done', seen: orders.length, paidPhoto: paidPhoto.length, nonPaidPhotoSeen, toProcess: toProcess.length, skippedResolved });
+  // With requirePaid:false (David's setting) an order is generated on arrival regardless of payment —
+  // RunPod is cheap and people often pay slightly later, so waiting only wastes turnaround. The default
+  // (true) keeps the original "paid only" gate. `nonPaidPhotoSeen` is still reported either way.
+  const requirePaid = sh.requirePaid !== false;
+  const eligible = requirePaid ? photoOrders.filter(isPaid) : photoOrders;
+  const nonPaidPhotoSeen = photoOrders.filter((o) => !isPaid(o)).length;
+  const toProcess = eligible.filter((o) => !isHandled(state, o.orderId));
+  const skippedResolved = eligible.length - toProcess.length;
+  onEvent({ type: 'poll-done', seen: orders.length, paidPhoto: eligible.length, nonPaidPhotoSeen, toProcess: toProcess.length, skippedResolved, requirePaid });
 
   // Materialize the new paid photo orders. A photo that cannot be fetched marks its order incomplete
   // (safeFetch refuses SSRF/non-image/off-allowlist URLs) — that order is reported "failed / needs
@@ -126,7 +130,7 @@ export async function runAutopilot({
     counts,
     orders: reportOrders.sort((a, b) => a.orderId.localeCompare(b.orderId, 'en', { numeric: true })),
     seen: orders.length,
-    paidPhotoSeen: paidPhoto.length,
+    paidPhotoSeen: eligible.length,
     nonPaidPhotoSeen,
     skippedResolved,
     processed: newIds.length,
@@ -151,10 +155,10 @@ function cliOnEvent(e) {
     case 'autopilot-inert':
       return console.log(`${stamp()} autopilot inert — ${e.reason}. Nothing polled, nothing touched.`);
     case 'autopilot-start':
-      return console.log(`${stamp()} polling paid photo orders updated since ${e.windowFrom.slice(0, 16).replace('T', ' ')} …`);
+      return console.log(`${stamp()} polling photo orders updated since ${e.windowFrom.slice(0, 16).replace('T', ' ')} …`);
     case 'poll-done':
       return console.log(
-        `${stamp()} ${e.seen} order(s) in window · ${e.paidPhoto} paid photo · ${e.toProcess} new to run · ${e.skippedResolved} already done · ${e.nonPaidPhotoSeen} photo order(s) not yet paid`,
+        `${stamp()} ${e.seen} order(s) in window · ${e.paidPhoto} ${e.requirePaid ? 'paid ' : ''}photo to run-pool · ${e.toProcess} new to run · ${e.skippedResolved} already done · ${e.nonPaidPhotoSeen} not yet paid`,
       );
     case 'materialize':
       return console.log(
