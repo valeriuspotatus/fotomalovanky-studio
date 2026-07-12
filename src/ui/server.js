@@ -15,7 +15,6 @@ import { createSmtpClient, SmtpError } from '../proton/smtpClient.js';
 import { summarizeInbox } from '../proton/mailbox.js';
 import { templateList, unfilledPlaceholders } from '../proton/templates.js';
 import { createWhatsAppClient, WhatsAppError, deliveryCaption } from '../whatsapp/whatsappClient.js';
-import { renderCreativeHtml, creativeFromCampaign, CAMPAIGNS, PALETTES, FORMATS } from '../creatives/creativeTemplate.js';
 import { renderCreativePng, CreativeRenderError } from '../creatives/renderCreative.js';
 import { generateMarketingImage, describeImage, AiImageError } from '../creatives/aiImage.js';
 import { generateAdImages, describeAndGenerate, AdImageError, toDataUri } from '../creatives/adImages.js';
@@ -405,27 +404,6 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     return { order, photo };
   };
 
-  // Turn the Kreativy studio's query params into template fields: a campaign preset, then any of the
-  // operator's overrides (format, palette, copy, badge), plus the real brand logo. The before/after
-  // frames are deliberately NOT sourced from customer orders — those images will come from the AI
-  // marketing step (Weavy describe -> Nano Banana Pro generate), which is wired separately.
-  function creativeFieldsFrom(q) {
-    const overrides = { format: FORMATS[q.get('format')] ? q.get('format') : 'square' };
-    if (q.get('palette') && PALETTES[q.get('palette')]) overrides.palette = q.get('palette');
-    const fields = creativeFromCampaign(q.get('campaign') || 'obecny', overrides);
-    if (q.get('headline')) fields.headline = q.get('headline');
-    if (q.get('highlight')) fields.highlight = q.get('highlight');
-    if (q.has('badge')) fields.badge = q.get('badge') || null; // an explicit empty badge removes it
-    if (CREATIVE_LOGO_URI) fields.logoSrc = CREATIVE_LOGO_URI;
-    // A previously generated AI image pair, referenced by its short id (see POST /api/creative/ai-image).
-    const set = creativeImages.get(q.get('images'));
-    if (set) {
-      fields.beforeSrc = set.before;
-      fields.afterSrc = set.after;
-    }
-    return fields;
-  }
-
   /** Resolve a Creative Studio concept (template + format + copy + assets) from query params, for the
    *  layered renderer. Copy comes from ?<field>= (falling back to the template's seed copy); the image
    *  slots are filled from a generated AI pair (?images=<id>): the "before" marketing photo feeds the
@@ -716,43 +694,6 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         } catch (err) {
           return json(res, 200, { available: false, state: 'offline', detail: err.message });
         }
-      }
-
-      // GET /api/creatives — the Kreativy studio's pickers: the campaign presets, the palettes, and
-      // the three ad formats. No order photos: marketing imagery never comes from customer orders.
-      if (req.method === 'GET' && url.pathname === '/api/creatives') {
-        return json(res, 200, {
-          campaigns: Object.entries(CAMPAIGNS).map(([key, c]) => ({ key, title: c.title, headline: c.headline, highlight: c.highlight, badge: c.badge, palette: c.palette, imagePrompt: c.imagePrompt })),
-          palettes: Object.keys(PALETTES),
-          formats: Object.entries(FORMATS).map(([key, f]) => ({ key, label: f.label, w: f.w, h: f.h })),
-          aiEnabled: Boolean(config?.ai?.enabled),
-        });
-      }
-
-      // GET /creative/preview?... — the live ad as HTML for the studio's <iframe>. Same-origin, so the
-      // escaped copy and (order,base)-addressed photos render with no path or token reaching the page.
-      if (req.method === 'GET' && url.pathname === '/creative/preview') {
-        const html = renderCreativeHtml(await creativeFieldsFrom(url.searchParams));
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        return res.end(html);
-      }
-
-      // GET /creative/render?... — the same ad rasterised to a PNG for download. The one place that
-      // spins up headless Chromium; photos are embedded as data URIs so the shot is self-contained.
-      if (req.method === 'GET' && url.pathname === '/creative/render') {
-        const format = FORMATS[url.searchParams.get('format')] ? url.searchParams.get('format') : 'square';
-        const F = FORMATS[format];
-        const html = renderCreativeHtml({ ...(await creativeFieldsFrom(url.searchParams)), format });
-        let buf;
-        try {
-          buf = await renderCreativePng({ html, width: F.w, height: F.h });
-        } catch (err) {
-          if (err instanceof CreativeRenderError) return json(res, 503, { error: err.message });
-          throw err;
-        }
-        const name = `fotomalovanky_${(url.searchParams.get('campaign') || 'kreativa').replace(/[^a-z0-9]/gi, '')}_${format}.png`;
-        res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' });
-        return res.end(buf);
       }
 
       // GET /api/studio/templates — the Creative Studio pickers: the 5 template families (each with the

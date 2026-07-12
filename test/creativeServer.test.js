@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createReviewServer } from '../src/ui/server.js';
 
-// The Kreativy studio's read endpoints — /api/creatives (the pickers) and /creative/preview (the
-// live-preview HTML) — are pure and browser-free, so they belong in the offline suite. The one
-// Playwright-backed route (/creative/render) is covered by tools/creativeSample.mjs, not here.
+// The Kreativy studio's AI-image seam — POST /api/creative/ai-image — generates the ad's "before"
+// (Nano Banana Pro) + "after" (RunPod line-art), caches the pair, and hands back a short id the
+// layered preview references via ?images=<id>. These tests drive it with an injected fake so nothing
+// touches the network or the GPU. The template engine itself is covered in creativeStudio.test.js.
 
 const CONFIG = { generator: { baseUrl: 'https://example.test/tok/', mode: 'api' }, builder: { baseUrl: 'https://example.test' }, paths: { inbox: './inbox', outbox: './outbox' } };
 
@@ -28,28 +29,6 @@ async function withServer(run, extra = {}) {
   }
 }
 
-test('GET /api/creatives exposes the campaign/palette/format pickers', async () => {
-  await withServer(async (origin) => {
-    const res = await fetch(`${origin}/api/creatives`);
-    assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.ok(body.campaigns.length >= 3, 'campaigns are listed');
-    assert.ok(body.campaigns.every((c) => c.key && c.title && c.headline), 'each campaign carries its copy');
-    assert.deepEqual(body.formats.map((f) => f.key).sort(), ['square', 'story', 'wide']);
-    assert.ok(body.palettes.includes('rainbow'));
-    assert.equal(body.orders, undefined, 'customer-order photos are never exposed to the studio');
-  });
-});
-
-test('GET /creative/preview embeds the real brand logo, not the drawn fallback', async () => {
-  await withServer(async (origin) => {
-    const res = await fetch(`${origin}/creative/preview?campaign=obecny`);
-    const html = await res.text();
-    assert.ok(html.includes('class="logo-img"'), 'the served logo image is used');
-    assert.ok(html.includes('data:image/png;base64,'), 'the logo is embedded as a data URI');
-  });
-});
-
 test('POST /api/creative/ai-image reports not-configured when AI is off', async () => {
   await withServer(async (origin) => {
     const res = await fetch(`${origin}/api/creative/ai-image`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: 'a scene' }) });
@@ -66,7 +45,7 @@ test('POST /api/creative/ai-image requires a prompt', async () => {
   }, { adImageFn: stub });
 });
 
-test('POST /api/creative/ai-image caches the pair; the preview references it by id', async () => {
+test('POST /api/creative/ai-image caches the pair; the studio preview references it by id', async () => {
   const stub = async ({ prompt, referenceBase64 }) => {
     assert.equal(prompt, 'a scene');
     assert.equal(referenceBase64, 'REF64');
@@ -80,10 +59,11 @@ test('POST /api/creative/ai-image caches the pair; the preview references it by 
     assert.equal(before, 'data:image/png;base64,B64');
     assert.equal(after, 'data:image/png;base64,A64');
 
-    const html = await (await fetch(`${origin}/creative/preview?campaign=obecny&images=${id}`)).text();
-    assert.ok(html.includes('src="data:image/png;base64,B64"'), 'the before image is injected into the ad');
-    assert.ok(html.includes('src="data:image/png;base64,A64"'), 'the after image is injected into the ad');
-    assert.ok(!html.includes('class="ph ph-before"'), 'the placeholders are gone once real images are set');
+    // The layered preview pulls the pair into the template's original + coloring slots.
+    const html = await (await fetch(`${origin}/studio/preview?template=promena&format=feed&images=${id}`)).text();
+    assert.ok(html.includes('src="data:image/png;base64,B64"'), 'the before image fills the original slot');
+    assert.ok(html.includes('src="data:image/png;base64,A64"'), 'the after image fills the coloring slot');
+    assert.ok(!html.includes('původní fotka'), 'the slot placeholders are gone once real images are set');
   }, { adImageFn: stub });
 });
 
@@ -113,28 +93,11 @@ test('POST /api/creative/ai-image auto mode describes then returns the AI prompt
   }, { adImageFn: stub });
 });
 
-test('GET /creative/preview renders the ad HTML from the query, escaping the copy', async () => {
+test('the studio preview never sources images from customer orders', async () => {
   await withServer(async (origin) => {
-    const res = await fetch(`${origin}/creative/preview?campaign=obecny&format=story&headline=${encodeURIComponent('<b>Ahoj</b>')}&highlight=teď`);
-    assert.equal(res.status, 200);
-    assert.match(res.headers.get('content-type'), /text\/html/);
-    const html = await res.text();
-    assert.match(html, /^<!doctype html>/i);
-    assert.ok(html.includes('height:1920px'), 'the story format sizes the canvas');
-    assert.ok(html.includes('&lt;b&gt;Ahoj&lt;/b&gt;'), 'operator copy is escaped, not injected');
-    assert.ok(!html.includes('<b>Ahoj</b>'), 'no raw markup slips through');
-  });
-});
-
-test('GET /creative/preview never sources photos from orders — the frames stay placeholders', async () => {
-  await withServer(async (origin) => {
-    // order/before params are no longer honoured: marketing imagery never comes from customer orders.
-    const res = await fetch(`${origin}/creative/preview?campaign=obecny&order=9999&before=nope`);
-    assert.equal(res.status, 200);
-    const html = await res.text();
-    assert.ok(html.includes('class="ph ph-before"'), 'the before frame is a placeholder');
-    assert.ok(html.includes('class="ph ph-after"'), 'the after frame is a placeholder');
-    // The only embedded image is the brand logo (PNG); no order photo (jpeg) is pulled in.
+    // order/before params are not honoured: marketing imagery only ever comes from the AI seam.
+    const html = await (await fetch(`${origin}/studio/preview?template=promena&format=feed&order=9999&before=nope`)).text();
+    assert.ok(html.includes('původní fotka'), 'the original slot stays a placeholder');
     assert.ok(!html.includes('data:image/jpeg'), 'no order photo is embedded');
   });
 });

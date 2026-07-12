@@ -1,10 +1,10 @@
-// Render Kreativy templates to PNG with the same headless Chromium the PDF builder uses
-// (src/builder/builderDriver.js). The template (creativeTemplate.js) is pure HTML/CSS; this is the
-// one seam that touches Playwright and the filesystem, so it stays thin and injectable for tests.
+// Render a creative's HTML to PNG with the same headless Chromium the PDF builder uses
+// (src/builder/builderDriver.js). The HTML is produced by the Creative Studio's layered renderer
+// (src/creatives/studio/renderStudioHtml.js); this is the one seam that touches Playwright and the
+// filesystem, so it stays thin and injectable for tests.
 
 import { mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { FORMATS, renderCreativeHtml } from './creativeTemplate.js';
+import { dirname } from 'node:path';
 
 export class CreativeRenderError extends Error {}
 
@@ -33,19 +33,4 @@ export async function renderCreativePng({ html, width, height, outPath, launcher
   } finally {
     await browser.close();
   }
-}
-
-/** Render one creative across one or more formats. `fields` are the template fields
- *  (headline/highlight/badge/palette/beforeSrc/afterSrc). Returns [{ format, path }]. */
-export async function generateCreative({ fields, formats = ['square', 'story', 'wide'], outDir, slug = 'creative', launcher }) {
-  const written = [];
-  for (const format of formats) {
-    const F = FORMATS[format];
-    if (!F) throw new CreativeRenderError(`Unknown format "${format}".`);
-    const html = renderCreativeHtml({ ...fields, format });
-    const outPath = join(outDir, `${slug}_${format}.png`);
-    await renderCreativePng({ html, width: F.w, height: F.h, outPath, launcher });
-    written.push({ format, path: outPath });
-  }
-  return written;
 }
