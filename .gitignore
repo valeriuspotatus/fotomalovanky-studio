@@ -45,6 +45,16 @@ Fotomalovanky Automation/
 # and is not part of this tool. The one Brave loads lives on the Desktop.
 Shopify chrome extention/
 
+# Reference material from the ad designer + design explorations — inspiration only, not app code
+# (may embed licensed stock imagery). The bundled brand asset in src/ui/static/creatives/ is tracked.
+Our ads/
+New design/
+Marketing Automatization/
+
+# Operator scratch notes and throwaway dev drivers dropped at the repo root (order pulls, run probes).
+workflow.txt
+/_*
+
 # Node
 node_modules/
 npm-debug.log*
