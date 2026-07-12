@@ -167,6 +167,18 @@ td .upd{color:var(--ink-3);font-size:12.5px}
 .cal-grid .d .ev{display:flex;gap:2px;position:absolute;bottom:5px}
 .cal-grid .d .ev i{width:4px;height:4px;border-radius:50%}
 .cal-grid .d.today .ev i{background:rgba(255,255,255,.85)}
+/* Big Kalendář grid: name each marked day (the primary event) so the dots aren't a mystery. The small
+   Přehled rail keeps the compact dots; the label is hidden there and shown only in #calGridBig. */
+.cal-grid .d .ev-label{display:none}
+#calGridBig .d{justify-content:flex-start;padding:6px 3px 5px;gap:2px}
+#calGridBig .d .ev{display:none}
+#calGridBig .d .ev-label{display:block;align-self:stretch;font-size:9.5px;line-height:1.2;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;color:var(--ink-2)}
+#calGridBig .d .ev-label.tone-brand{color:var(--brand)}
+#calGridBig .d .ev-label.tone-info{color:var(--info)}
+#calGridBig .d .ev-label.tone-warm{color:var(--warning)}
+#calGridBig .d.today .ev-label{color:rgba(255,255,255,.92)}
+#calGridBig .d .ev-more{font-weight:700;opacity:.65;margin-left:2px}
 
 .up-list{display:flex;flex-direction:column;gap:2px}
 .up-item{display:flex;gap:12px;padding:11px 8px;border-radius:var(--r-md);align-items:center}

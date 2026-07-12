@@ -910,7 +910,17 @@
       const d=el("div","d"+(c.mut?" mut":"")+(isToday?" today":"")+(isSel?" sel":""));
       d.innerHTML="<span>"+c.n+"</span>";
       const evs=!c.mut&&CAL_EVENTS[curM+"-"+c.n];
-      if(evs){let ev='<span class="ev">';evs.forEach(e=>ev+=`<i class="tone-${e.tone}"></i>`);ev+="</span>";d.innerHTML+=ev;}
+      if(evs){
+        // Compact dots — the small Přehled rail uses these. The big Kalendář grid hides them (CSS) and
+        // shows the ev-label below instead, so a marked day names itself rather than showing anonymous dots.
+        let ev='<span class="ev">';evs.forEach(e=>ev+=`<i class="tone-${e.tone}"></i>`);ev+="</span>";
+        // Headline the day with a short name for its primary event, preferring a real occasion or creative
+        // launch over the generic 1st/15th reminder. Occasions keep their name; the noisier types shorten.
+        const primary=[...evs].sort((a,b)=>(a.type==="Připomínka")-(b.type==="Připomínka"))[0];
+        const short=primary.type==="Připomínka"?"Připomínka":primary.type==="Spuštění kreativy"?"Kreativa":primary.title;
+        const more=evs.length>1?`<b class="ev-more">+${evs.length-1}</b>`:"";
+        d.innerHTML+=ev+`<span class="ev-label tone-${primary.tone}">${esc(short)}${more}</span>`;
+      }
       if(!c.mut){d.classList.add("clickable");d.dataset.day=c.n;}
       grid.append(d);
     });

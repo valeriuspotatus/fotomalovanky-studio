@@ -135,6 +135,8 @@ try {
   const now = new Date();
   const expectLabel = `${MON_NOM[now.getMonth()]} ${now.getFullYear()}`;
   check('the calendar opens on the real current month', (await page.locator('#calLabelBig').textContent()).trim() === expectLabel);
+  // Marked days name their primary event in the square (not just anonymous dots).
+  check('big calendar days carry an event label', (await page.locator('#calGridBig .d .ev-label').count()) > 0);
   // Navigate forward until a target month's label shows (year-agnostic: every month carries the plan).
   const nextBtn = page.locator('#v-calendar.on .cal .top .nav-btns button[aria-label="Další"]');
   const gotoMonthName = async (name) => {
