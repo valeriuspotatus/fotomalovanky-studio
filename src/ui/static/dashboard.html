@@ -108,6 +108,32 @@
   .mo-s{font-size:12px;color:var(--ink-3);margin-top:2px;line-height:1.4}
   .preview-note{display:flex;align-items:center;gap:9px;color:var(--ink-3);font-size:12px;padding:2px}
   .preview-note svg{width:14px;height:14px;stroke:currentColor;flex-shrink:0}
+  /* Pošta tab: a two-pane inbox (list | reading pane), like a mail client */
+  #v-mail{max-width:1120px}
+  .mail-app{display:grid;grid-template-columns:340px minmax(0,1fr);border:1px solid var(--border);border-radius:14px;overflow:hidden;height:calc(100vh - 150px);min-height:440px;background:var(--surface)}
+  .mail-pane-list{border-right:1px solid var(--border);display:flex;flex-direction:column;min-width:0}
+  .mail-pane-head{display:flex;gap:8px;align-items:center;padding:12px;border-bottom:1px solid var(--border)}
+  .mail-pane-head .btn{flex:1}
+  .mail-icon-btn{width:34px;height:34px;flex:none;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);color:var(--ink-2);cursor:pointer;display:grid;place-items:center}
+  .mail-icon-btn svg{width:16px;height:16px;stroke:currentColor}
+  .mail-icon-btn:hover{color:var(--ink)}
+  .mail-scroll{overflow-y:auto;flex:1}
+  .mail-row{padding:11px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+  .mail-row:hover{background:var(--surface-2)}
+  .mail-row.active{background:var(--surface-2);box-shadow:inset 3px 0 0 var(--brand)}
+  .mail-row .mail-line{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+  .mail-row .mail-from{font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mail-row.unread .mail-from{color:var(--brand)}
+  .mail-row .mail-date{font-size:11px;color:var(--ink-3);flex:none;font-variant-numeric:tabular-nums}
+  .mail-row .mail-sub{font-size:12.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+  .mail-row.unread .mail-sub{color:var(--ink)}
+  .mail-pane-read{overflow-y:auto;padding:22px 26px}
+  .mail-read-blank{color:var(--ink-3);font-size:13px;display:grid;place-items:center;height:100%;text-align:center}
+  .mr-subject{font-size:19px;font-weight:600;color:var(--ink);margin-bottom:6px}
+  .mr-meta{font-size:12.5px;color:var(--ink-3);margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+  .mr-body{font-size:13.5px;line-height:1.6;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+  .mr-actions{margin-top:20px;display:flex;gap:9px}
+  @media (max-width:820px){.mail-app{grid-template-columns:1fr;height:auto;min-height:0}.mail-scroll{max-height:50vh}}
   /* bell: jumps to Potřebuje vás; a coral dot when something is waiting */
   .icon-btn{position:relative}
   .icon-btn.has::after{content:"";position:absolute;top:7px;right:7px;width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 2px var(--surface)}
@@ -153,6 +179,7 @@
       <a data-view="creatives" href="#creatives"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg>Kreativy</a>
       <a data-view="sdeleni" href="#sdeleni"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 15-7v16l-15-7z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/><path d="M18 8a5 5 0 0 1 0 8"/></svg>Sdělení</a>
       <a data-view="calendar" href="#calendar"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Kalendář</a>
+      <a data-view="mail" href="#mail"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>Pošta<span class="count" id="nav-mail">–</span></a>
       <a data-view="todo" href="#todo"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2a8 8 0 0 1-6.5-3.3L3 15"/></svg>Potřebuje vás<span class="count" id="nav-todo">–</span></a>
     </nav>
     <div class="sb-art">
@@ -319,6 +346,20 @@
       </div>
     </section>
 
+    <!-- ===== POŠTA (full inbox) ===== -->
+    <section class="view" id="v-mail">
+      <div class="mail-app">
+        <div class="mail-pane-list">
+          <div class="mail-pane-head">
+            <button class="btn btn-primary" id="mailTabCompose">Napsat</button>
+            <button class="mail-icon-btn" id="mailTabRefresh" title="Obnovit" aria-label="Obnovit"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></button>
+          </div>
+          <div class="mail-scroll" id="mailTabList"><div class="empty">Načítám…</div></div>
+        </div>
+        <div class="mail-pane-read" id="mailTabRead"><div class="mail-read-blank">Vyberte zprávu ze seznamu.</div></div>
+      </div>
+    </section>
+
     <!-- ===== NEEDS YOU ===== -->
     <section class="view" id="v-todo"><div class="todo" id="todo"></div></section>
   </main>
@@ -371,6 +412,7 @@
     creatives:{t:"Kreativy",s:"Reklamní vizuály z fotek — feed, story i wide."},
     sdeleni:{t:"Sdělení",s:"8 sdělení pro kampaně."},
     calendar:{t:"Kalendář",s:"Sezóna a plán kreativ."},
+    mail:{t:"Pošta",s:"Schránka info@fotomalovanky.cz přes Proton Bridge."},
     todo:{t:"Potřebuje vás",s:"Vše, co čeká na vaše rozhodnutí."}
   };
 
@@ -544,6 +586,7 @@
   };
   function renderMail(m){
     const badge=document.getElementById("mailUnread"), body=document.getElementById("mailBody");
+    setNavMailBadge(m);
     if(!badge||!body) return;
     if(!m||!m.available){
       badge.textContent="–"; badge.className="chip c-neutral";
@@ -628,7 +671,7 @@
       try{
         const r=await fetch("/api/mail/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
         const j=await r.json();
-        if(r.ok&&j.sent){closeMail();toast("E-mail odeslán ✓");fetchMail();}
+        if(r.ok&&j.sent){closeMail();toast("E-mail odeslán ✓");fetchMail();fetchMailTab();}
         else{err.textContent=j.error||"Odeslání se nezdařilo.";btn.disabled=false;btn.textContent="Odeslat";}
       }catch{err.textContent="Odeslání se nezdařilo (server neodpovídá).";btn.disabled=false;btn.textContent="Odeslat";}
     };
@@ -640,6 +683,60 @@
   document.getElementById("mmClose").onclick=closeMail;
   mmOverlay().addEventListener("click",e=>{if(e.target===mmOverlay())closeMail();});
   document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!mmOverlay().hidden)closeMail();});
+
+  /* ---- Pošta tab: a full two-pane inbox (list | reading pane) reusing the same endpoints ---- */
+  let mailTabSelUid=null;
+  function setNavMailBadge(m){
+    const b=document.getElementById("nav-mail"); if(!b) return;
+    const n=m&&m.available?m.unread:0;
+    b.textContent=n>0?n:""; b.style.display=n>0?"":"none";
+  }
+  function renderMailList(m){
+    const list=document.getElementById("mailTabList"); if(!list) return;
+    if(!m||!m.available){
+      const [t,s]=MAIL_OFF[m&&m.reason]||["Schránku nelze načíst","Zkuste to prosím později."];
+      list.innerHTML=`<div class="mail-off" style="padding:16px"><div><div class="mo-t">${esc(t)}</div><div class="mo-s">${esc(s)}</div></div></div>`;
+      return;
+    }
+    if(!m.recent||!m.recent.length){list.innerHTML='<div class="empty" style="padding:16px">Žádné zprávy.</div>';return;}
+    const rows=[...m.recent].reverse(); // newest first, like a mail client
+    list.innerHTML=rows.map(x=>`<div class="mail-row${x.seen?"":" unread"}${String(x.uid)===String(mailTabSelUid)?" active":""}" data-uid="${x.uid==null?"":x.uid}">
+      <div class="mail-line"><span class="mail-from">${esc(x.from)}</span><span class="mail-date">${esc(fmtMailDate(x.date))}</span></div>
+      <div class="mail-sub">${esc(x.subject||"(bez předmětu)")}</div></div>`).join("");
+  }
+  async function fetchMailTab(){
+    const list=document.getElementById("mailTabList");
+    try{
+      const r=await fetch("/api/mail?limit=40");
+      if(!r.ok){if(list)list.innerHTML='<div class="empty" style="padding:16px">Schránku nelze načíst.</div>';return;}
+      const m=await r.json(); renderMailList(m); setNavMailBadge(m);
+    }catch{if(list)list.innerHTML='<div class="empty" style="padding:16px">Server neodpovídá.</div>';}
+  }
+  async function openMessageInPane(uid){
+    mailTabSelUid=uid;
+    document.querySelectorAll("#mailTabList .mail-row").forEach(r=>r.classList.toggle("active",r.dataset.uid===String(uid)));
+    const pane=document.getElementById("mailTabRead");
+    pane.innerHTML='<div class="mail-read-blank">Načítám zprávu…</div>';
+    let msg;
+    try{const r=await fetch("/api/mail/message?uid="+encodeURIComponent(uid));if(!r.ok)throw 0;msg=await r.json();}
+    catch{pane.innerHTML='<div class="mail-read-blank">Zprávu se nepodařilo načíst.</div>';return;}
+    const dt=msg.date?new Date(msg.date).toLocaleString("cs-CZ"):"";
+    const text=msg.text||(msg.html?msg.html.replace(/<[^>]+>/g," "):"")||"(prázdná zpráva)";
+    pane.innerHTML=`<div class="mr-subject">${esc(msg.subject||"(bez předmětu)")}</div>
+      <div class="mr-meta">${esc(msg.from||"")}${msg.fromAddress?" &lt;"+esc(msg.fromAddress)+"&gt;":""}${dt?" · "+esc(dt):""}</div>
+      <div class="mr-body">${esc(text)}</div>
+      <div class="mr-actions"><button class="btn btn-primary" id="mrReply">Odpovědět</button></div>`;
+    document.getElementById("mrReply").onclick=()=>openComposer({
+      to:msg.fromAddress||"",
+      subject:/^re:/i.test(msg.subject||"")?msg.subject:"Re: "+(msg.subject||""),
+      inReplyTo:msg.messageId||"",
+      references:(msg.references||[]).concat(msg.messageId?[msg.messageId]:[]),
+    });
+    const row=document.querySelector('#mailTabList .mail-row[data-uid="'+uid+'"]'); if(row) row.classList.remove("unread");
+  }
+  document.getElementById("mailTabList").addEventListener("click",e=>{const it=e.target.closest(".mail-row[data-uid]");if(it&&it.dataset.uid)openMessageInPane(it.dataset.uid);});
+  document.getElementById("mailTabCompose").onclick=()=>openComposer({});
+  document.getElementById("mailTabRefresh").onclick=()=>fetchMailTab();
 
   /* ---- Kreativy studio: pick a campaign + format + palette + copy, preview live, download the PNG.
          The preview is an <iframe> onto /creative/preview (the same HTML the PNG is shot from),
@@ -946,7 +1043,7 @@
   paintEvergreen();
 
   /* ---- router ---- */
-  const views=["home","orders","creatives","sdeleni","calendar","todo"];
+  const views=["home","orders","creatives","sdeleni","calendar","mail","todo"];
   function setActiveNav(v){document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.view===v));}
   function go(v){
     if(!views.includes(v))v="home";
@@ -955,6 +1052,7 @@
     const m=VIEW_META[v];document.getElementById("pageTitle").innerHTML=m.t;document.getElementById("pageSub").textContent=m.s;
     if(location.hash!=="#"+v)history.pushState(null,"","#"+v);
     if(["home","orders","todo"].includes(v))fetchStudio();
+    if(v==="mail")fetchMailTab();
     if(v==="creatives"&&window.__cvFit)window.__cvFit();
     window.scrollTo({top:0,behavior:"instant"});
   }

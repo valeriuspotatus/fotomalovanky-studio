@@ -168,6 +168,14 @@ try {
   await page.waitForSelector('#v-creatives.on');
   check('clicking an evergreen idea opens Kreativy', true);
 
+  // --- Pošta tab: a dedicated sidebar tab that opens the full two-pane inbox ---
+  check('the Pošta tab is in the sidebar', (await page.locator('#nav a[data-view="mail"]').count()) === 1);
+  await page.evaluate(() => go('mail'));
+  await page.waitForSelector('#v-mail.on .mail-app #mailTabCompose');
+  await page.waitForFunction(() => (document.querySelector('#mailTabList')?.textContent || '').trim().length > 0);
+  check('the Pošta tab opens the inbox pane with a compose button', (await page.locator('#v-mail.on #mailTabCompose').count()) === 1 && (await page.locator('#v-mail.on #mailTabRead').count()) === 1);
+  check('the Pošta tab renders the mailbox state (offline here)', /Proton|nastaven|Žádné/.test(await page.locator('#mailTabList').textContent()));
+
   // --- Objednávky: the live order table from /api/studio, oldest-first, with sent orders hidden ---
   await page.evaluate(() => go('orders'));
   await page.waitForSelector('#v-orders.on #ordersBody .oid');

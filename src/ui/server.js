@@ -575,11 +575,15 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       // is cached briefly; failures are not, so the tile recovers as soon as Bridge is back.
       if (req.method === 'GET' && url.pathname === '/api/mail') {
         if (!mail) return json(res, 200, { available: false, reason: 'not-configured' });
-        if (mailCache && Date.now() - mailCache.at < MAIL_TTL) return json(res, 200, mailCache.payload);
+        // The home tile takes the default few; the Pošta tab asks for a fuller inbox via ?limit (capped
+        // at 50 so one IMAP fetch stays cheap). Cache is keyed by limit so the two callers don't thrash.
+        const q = Number(url.searchParams.get('limit'));
+        const limit = Number.isInteger(q) && q > 0 ? Math.min(q, 50) : mailLimit;
+        if (mailCache && mailCache.limit === limit && Date.now() - mailCache.at < MAIL_TTL) return json(res, 200, mailCache.payload);
         try {
-          const raw = await mail.fetchInbox({ limit: mailLimit });
-          const payload = { ...summarizeInbox(raw, { limit: mailLimit }), fetchedAt: new Date().toISOString() };
-          mailCache = { at: Date.now(), payload };
+          const raw = await mail.fetchInbox({ limit });
+          const payload = { ...summarizeInbox(raw, { limit }), fetchedAt: new Date().toISOString() };
+          mailCache = { at: Date.now(), limit, payload };
           return json(res, 200, payload);
         } catch (err) {
           const reason = err instanceof BridgeError ? err.code : 'unknown';
