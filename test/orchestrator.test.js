@@ -107,6 +107,7 @@ const run = (f, opts = {}) =>
     qc: opts.qc ?? OK_QC,
     intake: opts.intake ?? OK_INTAKE,
     force: opts.force ?? false,
+    buildPdfs: opts.buildPdfs,
     only: opts.only,
     signal: opts.signal,
     onEvent: opts.onEvent,
@@ -154,6 +155,32 @@ test('one order runs ingest -> generate -> QC -> builder -> a real PDF path', as
   }
 });
 
+test('Go (buildPdfs:false) generates but does not build; PDF builds without regenerating', async () => {
+  const f = fixture({ 1510: ['a', 'b'] });
+  try {
+    const generator = new StubGenerator();
+    const builder = new StubBuilder();
+
+    // "Go" — generate the pages only. No PDF, the builder is never touched, the order reads ready.
+    const first = await run(f, { generator, builder, buildPdfs: false });
+    assert.equal(first.orders[0].status, ORDER_STATUS.READY);
+    assert.equal(first.orders[0].pdfPath, null);
+    assert.equal(first.counts.ready, 1);
+    assert.equal(first.counts.done, 0);
+    assert.equal(builder.calls.length, 0, 'a generate-only run never builds');
+    assert.equal(generator.calls.length, 2, 'both photos were generated');
+
+    // "PDF" — build the book. Generation is idempotent, so the GPU is not touched again.
+    const second = await run(f, { generator, builder, buildPdfs: true });
+    assert.equal(second.orders[0].status, ORDER_STATUS.DONE);
+    assert.ok(second.orders[0].pdfPath && existsSync(second.orders[0].pdfPath));
+    assert.equal(builder.calls.length, 1, 'the build ran once, on the PDF step');
+    assert.equal(generator.calls.length, 2, 'the PDF step regenerated nothing');
+  } finally {
+    f.cleanup();
+  }
+});
+
 test('a flagged photo blocks only its own order; the others still print', async () => {
   const f = fixture({ 1510: ['bad'], 1523: ['good'] });
   try {
@@ -172,7 +199,7 @@ test('a flagged photo blocks only its own order; the others still print', async 
     assert.ok(existsSync(o1523.pdfPath));
 
     assert.deepEqual(builder.calls.map((c) => c.orderDir.endsWith('1523')), [true], 'builder saw only the ready order');
-    assert.deepEqual(counts, { done: 1, held: 1, failed: 0 });
+    assert.deepEqual(counts, { done: 1, ready: 0, held: 1, failed: 0 });
   } finally {
     f.cleanup();
   }
@@ -219,7 +246,7 @@ test('a generator break names its seam, fails only that order, and never reaches
 
     assert.equal(orders.find((o) => o.orderId === '1523').status, ORDER_STATUS.DONE);
     assert.deepEqual(builder.calls.map((c) => c.orderDir.endsWith('1523')), [true]);
-    assert.deepEqual(counts, { done: 1, held: 0, failed: 1 });
+    assert.deepEqual(counts, { done: 1, ready: 0, held: 0, failed: 1 });
     assert.ok(events.some((e) => e.type === 'photo-failed' && e.base === 'boom'));
   } finally {
     f.cleanup();
@@ -239,7 +266,7 @@ test('a builder break names its seam, fails only that order, and the batch conti
     assert.equal(broken.pdfPath, null);
 
     assert.equal(orders.find((o) => o.orderId === '1523').status, ORDER_STATUS.DONE);
-    assert.deepEqual(counts, { done: 1, held: 0, failed: 1 });
+    assert.deepEqual(counts, { done: 1, ready: 0, held: 0, failed: 1 });
     // The generated photos survive: a rerun rebuilds the PDF without regenerating.
     assert.equal(getStatus(readManifest(broken.orderDir), 'a'), STATES.OK);
   } finally {
@@ -359,7 +386,7 @@ test('a customer who wrote no dedication still gets their book, with an untexted
     assert.equal(builder.calls.length, 1, 'the builder is reached');
     assert.equal(builder.calls[0].options.dedication, undefined, 'no title text is sent');
     assert.ok(orders[0].pdfPath);
-    assert.deepEqual(counts, { done: 1, held: 0, failed: 0 });
+    assert.deepEqual(counts, { done: 1, ready: 0, held: 0, failed: 0 });
   } finally {
     f.cleanup();
   }
@@ -483,7 +510,7 @@ test('an empty inbox produces an empty report, not a crash', async () => {
   try {
     const { orders, counts } = await run(f);
     assert.deepEqual(orders, []);
-    assert.deepEqual(counts, { done: 0, held: 0, failed: 0 });
+    assert.deepEqual(counts, { done: 0, ready: 0, held: 0, failed: 0 });
   } finally {
     f.cleanup();
   }
@@ -578,7 +605,7 @@ test('a run works through only the ticked orders, one after another', async () =
 
     // The folder's own order, not the order they were ticked in — the run walks the inbox.
     assert.deepEqual(orders.map((o) => o.orderId).sort(), ['1479', '1510']);
-    assert.deepEqual(counts, { done: 2, held: 0, failed: 0 });
+    assert.deepEqual(counts, { done: 2, ready: 0, held: 0, failed: 0 });
     assert.deepEqual(generator.calls.sort(), ['a', 'c'], "1523's photo never reached the GPU");
     assert.equal(builder.calls.length, 2);
   } finally {
@@ -615,7 +642,7 @@ test('ticking nothing is not the same as ticking everything', async () => {
       config: CONFIG, inboxRoot: f.inbox, outboxRoot: f.outbox,
       generator: new StubGenerator(), builder, qc: OK_QC, intake: OK_INTAKE, only: [],
     });
-    assert.deepEqual(counts, { done: 0, held: 0, failed: 0 });
+    assert.deepEqual(counts, { done: 0, ready: 0, held: 0, failed: 0 });
     assert.equal(builder.calls.length, 0);
   } finally {
     f.cleanup();
@@ -717,7 +744,7 @@ test('an order held at intake is not generated, and a draft email is written', a
     assert.equal(orders[0].pdfPath, null);
     assert.deepEqual(generator.calls, [], 'nothing reached the GPU');
     assert.equal(builder.calls.length, 0);
-    assert.deepEqual(counts, { done: 0, held: 1, failed: 0 });
+    assert.deepEqual(counts, { done: 0, ready: 0, held: 1, failed: 0 });
 
     const draft = join(orders[0].orderDir, 'draft-email.txt');
     assert.ok(existsSync(draft), 'a copy-paste email is left beside the order');

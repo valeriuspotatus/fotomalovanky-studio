@@ -206,7 +206,8 @@
       <label for="inbox">Order photos</label>
       <input type="text" id="inbox" spellcheck="false" placeholder="the folder your Chrome extension downloads into">
       <button id="browse">Browse…</button>
-      <button class="primary" id="run">Go</button>
+      <button class="primary" id="run" title="Vygenerovat omalovánky (bez PDF)">Go</button>
+      <button id="pdf" title="Až zkontrolujete stránky, vytvořte z nich PDF">PDF</button>
       <button class="danger" id="stop" hidden>Stop</button>
       <label class="chk"><input type="checkbox" id="force"> reprint finished PDFs</label>
     </div>
@@ -412,19 +413,22 @@ async function select(orders) {
 
 const tickedOrders = () => [...document.querySelectorAll('#queue input[type=checkbox]')].filter((c) => c.checked).map((c) => c.dataset.order);
 
-async function startRun() {
+// Two steps: "Go" (buildPdfs:false) generates the coloring pages and stops so you can check them;
+// "PDF" (buildPdfs:true) builds the books from the pages you approved. Generation is idempotent, so
+// pressing PDF only builds — it never re-runs the GPU on pages already made.
+async function startRun(buildPdfs = false) {
   await pendingSave.catch(() => {});
   const inbox = $('#inbox').value.trim();
   try {
     const res = await fetch('/api/_run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ inbox, force: $('#force').checked }),
+      body: JSON.stringify({ inbox, force: $('#force').checked, buildPdfs }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `could not start (HTTP ${res.status})`);
     if (inbox) localStorage.setItem(INBOX_KEY, inbox);
-    toast('Running. Generating a photo takes a couple of minutes.');
+    toast(buildPdfs ? 'Building the books from the checked pages…' : 'Generating — a couple of minutes per photo. Check the pages, then press PDF.');
   } catch (err) {
     toast(err.message, true);
   }
@@ -509,6 +513,12 @@ function paintGoBar(data) {
   const stopping = data.run.stopping;
   $('#run').disabled = running;
   $('#run').textContent = running ? 'Running…' : 'Go';
+  // PDF (build) shares the same GPU/browser queue, so it's disabled during any run. It lights up as
+  // the primary action when there are pages generated and waiting to be built.
+  const readyToBuild = data.orders.some((o) => o.inInbox && !o.built && o.summary?.ready);
+  const pdf = $('#pdf');
+  pdf.disabled = running;
+  pdf.classList.toggle('primary', !running && readyToBuild);
   // Stop only exists while there is a run to stop. Once pressed, it stays disabled and says so —
   // the run winds down on its own, and a second press would do nothing.
   const stop = $('#stop');
@@ -998,8 +1008,11 @@ function render(data, force) {
   // The main page is the folder the operator opened, and nothing else. Every book finished before
   // today is history: real, reachable, and out of the way. Piling last week's orders under the one
   // generating is how this page became unreadable.
-  const primary = orders.filter((o) => o.inInbox);
-  const earlier = orders.filter((o) => !o.inInbox);
+  // A built book leaves the working view on its own (into history), so done orders don't pile up and
+  // the operator never refreshes to clear them. The working view is only what still needs a hand:
+  // generating, held for review, or generated-and-waiting-for-PDF.
+  const primary = orders.filter((o) => o.inInbox && !o.built);
+  const earlier = orders.filter((o) => !o.inInbox || o.built);
 
   paintHistoryButton(earlier.length);
 
@@ -1316,7 +1329,8 @@ addEventListener('resize', () => {
   if ($('#editor').open) redrawEditor();
 });
 
-$('#run').addEventListener('click', startRun);
+$('#run').addEventListener('click', () => startRun(false));
+$('#pdf').addEventListener('click', () => startRun(true));
 $('#stop').addEventListener('click', stopRun);
 $('#browse').addEventListener('click', browse);
 $('#inbox').addEventListener('change', () => localStorage.setItem(INBOX_KEY, $('#inbox').value.trim()));

@@ -39,8 +39,10 @@ import { recallDedication, migrateDedications, MEMORY_DIR } from './dedications.
 
 const noop = () => {};
 
-/** Per-order outcome. `held` means the operator has photos to review — not a failure. */
-export const ORDER_STATUS = Object.freeze({ DONE: 'done', HELD: 'held', FAILED: 'failed' });
+/** Per-order outcome. `held` means the operator has photos to review — not a failure. `ready` means
+ *  all pages generated cleanly but the PDF was deliberately not built yet (a generate-only "Go" run) —
+ *  the operator checks the pages, then presses "PDF" to build. */
+export const ORDER_STATUS = Object.freeze({ DONE: 'done', HELD: 'held', FAILED: 'failed', READY: 'ready' });
 
 /** Where an order's finished book lands — the tool's existing output name. Exported so the status
  *  board (src/studio.js) tells a built order from an unbuilt one by the same path the build wrote. */
@@ -166,7 +168,7 @@ function formatDraft(mail) {
  *  at an order or photo boundary: whatever is on the GPU finishes, then nothing new begins. Books
  *  already built stay built; an order left half-generated simply has pending photos, and the next
  *  Go continues it. */
-export async function runPipeline({ config, inboxRoot, outboxRoot, generator, builder, qc, intake = assessIntake, onEvent = noop, force = false, only = null, memoryRoot = MEMORY_DIR, signal }) {
+export async function runPipeline({ config, inboxRoot, outboxRoot, generator, builder, qc, intake = assessIntake, onEvent = noop, force = false, only = null, buildPdfs = true, memoryRoot = MEMORY_DIR, signal }) {
   const inbox = inboxRoot ?? config.paths.inbox;
   const outbox = outboxRoot ?? config.paths.outbox;
   // `only` is the operator ticking a few orders out of a folder that holds many. Orders still run
@@ -280,6 +282,14 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
       if (held.length) {
         entry.status = ORDER_STATUS.HELD;
         entry.reason = `${held.length} photo(s) waiting for you in the review grid`;
+      } else if (!buildPdfs) {
+        // Generate-only run (the operator's "Go"): every page generated cleanly, but hold off on the
+        // PDF so the operator can eyeball the pages first, then press "PDF" to build. No Chromium is
+        // touched on this path. A later build run finds the pages already generated (idempotent) and
+        // only builds.
+        entry.status = ORDER_STATUS.READY;
+        entry.reason = 'vygenerováno — zkontrolujte stránky a stiskněte PDF';
+        entry.titled = Boolean(titleText);
       } else {
         // Plenty of customers write nothing. Their book is the same book with an empty title
         // line, so it prints rather than waiting for an operator to invent words for them.
@@ -305,6 +315,7 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
 
   const counts = {
     done: report.filter((o) => o.status === ORDER_STATUS.DONE).length,
+    ready: report.filter((o) => o.status === ORDER_STATUS.READY).length,
     held: report.filter((o) => o.status === ORDER_STATUS.HELD).length,
     failed: report.filter((o) => o.status === ORDER_STATUS.FAILED).length,
   };
@@ -409,10 +420,11 @@ function printReport({ orders, counts }) {
   for (const o of orders) {
     const id = o.orderId.padEnd(width);
     if (o.status === ORDER_STATUS.DONE) console.log(`  ${id}  done    ${o.pdfPath}${o.titled ? '' : '  (no dedication)'}`);
+    else if (o.status === ORDER_STATUS.READY) console.log(`  ${id}  ready   ${o.reason}`);
     else if (o.status === ORDER_STATUS.HELD) console.log(`  ${id}  held    ${o.reason}`);
     else console.log(`  ${id}  FAILED  ${o.reason}`);
   }
-  console.log(`\n${counts.done} done, ${counts.held} waiting for you, ${counts.failed} failed.`);
+  console.log(`\n${counts.done} done, ${counts.ready} ready to build, ${counts.held} waiting for you, ${counts.failed} failed.`);
   if (counts.held) console.log('Review them:  npm run review -- <inbox>     then run this again.');
 }
 

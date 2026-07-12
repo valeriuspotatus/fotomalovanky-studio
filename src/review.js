@@ -129,6 +129,9 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
       clearedDedication: manifest.dedicationWas ?? '',
       photos,
       summary: summarizeOrder(manifest, bases),
+      // The finished book exists on disk. The generator uses this to move a done order out of the
+      // working view on its own, so the operator never has to refresh to clear it.
+      built: existsSync(join(orderDir, `${orderId} Final.pdf`)),
     });
   }
   return orders.sort((a, b) => a.orderId.localeCompare(b.orderId, 'en', { numeric: true }));

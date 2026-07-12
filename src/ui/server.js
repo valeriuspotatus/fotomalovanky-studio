@@ -421,7 +421,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     if (run.active) throw new ReviewError('A run is in progress — wait for it to finish before changing anything.');
   };
 
-  function startRun({ inbox: requested, force }) {
+  function startRun({ inbox: requested, force, buildPdfs = true }) {
     if (run.active) throw new ReviewError('A run is already going.');
     if (inFlight.size) throw new ReviewError('A photo is still being regenerated — wait for it to finish.');
 
@@ -457,6 +457,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       qc,
       intake,
       force: Boolean(force),
+      buildPdfs: buildPdfs !== false,
       only: selected,
       memoryRoot,
       signal: runController.signal,
@@ -726,7 +727,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, { selected });
       }
 
-      // POST /api/_run  { inbox?, force? } — the Go button.
+      // POST /api/_run  { inbox?, force?, buildPdfs? } — Go (buildPdfs:false, generate only) / PDF (build).
       if (req.method === 'POST' && url.pathname === '/api/_run') {
         startRun(await readJson(req));
         return json(res, 202, { started: true, inbox });

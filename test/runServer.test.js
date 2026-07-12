@@ -140,7 +140,7 @@ test('the run finishes, reports per-order status, and reopens the review gate', 
   const { run, orders } = await getState();
   assert.equal(run.active, false);
   assert.equal(run.error, null);
-  assert.deepEqual(run.report.counts, { done: 1, held: 0, failed: 0 });
+  assert.deepEqual(run.report.counts, { done: 1, ready: 0, held: 0, failed: 0 });
   assert.equal(run.report.orders[0].orderId, '1510');
   assert.equal(run.report.orders[0].status, 'done');
   assert.equal(run.report.orders[0].pdf, true);
