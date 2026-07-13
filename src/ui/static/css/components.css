@@ -157,9 +157,13 @@ td .upd{color:var(--ink-3);font-size:12.5px}
   color:var(--ink-2);display:grid;place-items:center}
 .cal .nav-btns button:hover{background:var(--surface-2);color:var(--ink)}
 .cal .nav-btns button svg{width:15px;height:15px;stroke:currentColor}
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+/* minmax(0,1fr), not 1fr: a 1fr track sizes to its min-content, and the nowrap ev-label below would
+   force every column as wide as the longest event name — blowing all 7 columns past the card so the
+   weekend (SO/NE) columns clipped off the right edge. minmax(0,…) + min-width:0 lets tracks shrink
+   and the label ellipsis-clip instead. */
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
 .cal-grid .wd{font-size:10.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-3);text-align:center;padding:2px 0 6px}
-.cal-grid .d{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+.cal-grid .d{aspect-ratio:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
   font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--ink);border-radius:8px;position:relative;gap:3px}
 .cal-grid .d:hover{background:var(--surface-2)}
 .cal-grid .d.mut{color:var(--ink-3);opacity:.5}
