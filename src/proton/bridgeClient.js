@@ -28,6 +28,40 @@ function seenOf(flags) {
   return false;
 }
 
+const MAX_IMG_BYTES = 4 * 1024 * 1024; // skip any single image larger than this
+const MAX_EMBED_TOTAL = 12 * 1024 * 1024; // stop embedding once the raw bytes pass this — keeps the JSON sane
+
+/** Inline a message's images so the browser can render them with no attachment endpoint: rewrite
+ *  every `cid:<id>` reference in the HTML body to a `data:` URI, and collect image attachments as
+ *  thumbnails. Pure — takes the mailparser result `{ html, attachments }`, returns `{ html, images }`
+ *  where each image is `{ filename, contentType, dataUri, inline }` (`inline` = referenced by the
+ *  body). Non-image and oversized attachments are dropped: the body still renders, big files just
+ *  aren't embedded.
+ *  ponytail: hard byte cap; add a /api/mail/attachment byte-serving route if operators hit big mail. */
+export function embedImages({ html = '', attachments = [] } = {}) {
+  let body = typeof html === 'string' ? html : '';
+  const images = [];
+  let total = 0;
+  for (const att of attachments || []) {
+    const type = att?.contentType || '';
+    const buf = att?.content;
+    if (!type.startsWith('image/') || !Buffer.isBuffer(buf)) continue;
+    if (buf.length > MAX_IMG_BYTES || total + buf.length > MAX_EMBED_TOTAL) continue;
+    total += buf.length;
+    const dataUri = `data:${type};base64,${buf.toString('base64')}`;
+    const cid = att.cid || att.contentId;
+    let referenced = att.related === true;
+    if (cid) {
+      const safe = String(cid).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // literal cid inside a regex
+      const before = body;
+      body = body.replace(new RegExp(`cid:${safe}`, 'gi'), dataUri); // leaves the surrounding src="…" quotes intact
+      if (body !== before) referenced = true;
+    }
+    images.push({ filename: att.filename || '', contentType: type, dataUri, inline: referenced });
+  }
+  return { html: body, images };
+}
+
 /** Build a reader bound to one Bridge account. `imapFactory` returns `{ ImapFlow }` — it defaults
  *  to the real dependency, imported on first use, and is overridden in tests with a fake. */
 export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass, secure = false, mailbox = 'INBOX', imapFactory, parseFactory } = {}) {
@@ -114,6 +148,9 @@ export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass
       const wasSeen = seenOf(msg.flags); // the state as opened — reported below, before we flip it
       const parsed = await simpleParser(msg.source);
       const fromAddr = parsed.from?.value?.[0] ?? null;
+      // Inline CID images into the body + collect image attachments as thumbnails (both dropped by
+      // simpleParser's default return otherwise). See embedImages above.
+      const { html: htmlBody, images } = embedImages(parsed);
 
       // Opening a message marks it read on the server, so the unread badge clears and stays cleared
       // across polls (the tile's unread count is the IMAP unseen count, not a client-side guess).
@@ -135,7 +172,8 @@ export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass
         date: parsed.date ? parsed.date.toISOString() : null,
         seen: wasSeen,
         text: parsed.text ?? '',
-        html: typeof parsed.html === 'string' ? parsed.html : '',
+        html: htmlBody,
+        images,
         messageId: parsed.messageId ?? '',
         references: Array.isArray(parsed.references) ? parsed.references : parsed.references ? [parsed.references] : [],
       };

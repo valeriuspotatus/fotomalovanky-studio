@@ -141,6 +141,9 @@
   .mr-orders{display:flex;flex-wrap:wrap;gap:6px;margin:-6px 0 16px}
   .mr-orders .order-chip{cursor:pointer;border:none;font:inherit}
   .mr-body{font-size:13.5px;line-height:1.6;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+  .mr-body-frame{width:100%;min-height:180px;border:0;background:#fff;border-radius:8px}
+  .mr-attach{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+  .mr-attach img{max-width:160px;max-height:160px;border:1px solid var(--border);border-radius:8px;object-fit:cover;display:block}
   .mr-actions{margin-top:20px;display:flex;flex-wrap:wrap;gap:9px}
   .mr-del{margin-left:auto;color:var(--danger);border-color:var(--border)}
   .mr-del:hover{background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
@@ -1010,11 +1013,23 @@
     try{const r=await fetch("/api/mail/message?uid="+encodeURIComponent(uid));if(!r.ok)throw 0;msg=await r.json();}
     catch{pane.innerHTML='<div class="mail-read-blank">Zprávu se nepodařilo načíst.</div>';return;}
     const dt=msg.date?new Date(msg.date).toLocaleString("cs-CZ"):"";
+    // text = plain-text form, kept for the order-chip scan + the reply/forward quote below.
     const text=msg.text||(msg.html?msg.html.replace(/<[^>]+>/g," "):"")||"(prázdná zpráva)";
+    // Render the real HTML body (with its now-inlined data: images) in a sandboxed iframe — no
+    // allow-scripts so page JS can't run; allow-same-origin only so we can size it to its content.
+    // Falls back to escaped plain text when there's no HTML part.
+    const bodyHtml=msg.html
+      ? `<iframe class="mr-body-frame" sandbox="allow-same-origin" referrerpolicy="no-referrer" srcdoc="${esc(msg.html)}"></iframe>`
+      : `<div class="mr-body">${esc(text)}</div>`;
+    // Image attachments not already shown inline in the body → a thumbnail strip (each opens full-size).
+    const attachImgs=(msg.images||[]).filter(i=>!i.inline);
+    const thumbs=attachImgs.length
+      ? `<div class="mr-attach">${attachImgs.map(i=>`<a href="${i.dataUri}" target="_blank" rel="noopener" title="${esc(i.filename||"obrázek")}"><img src="${i.dataUri}" alt="${esc(i.filename||"")}"></a>`).join("")}</div>`
+      : "";
     pane.innerHTML=`<div class="mr-subject">${esc(msg.subject||"(bez předmětu)")}</div>
       <div class="mr-meta">${esc(msg.from||"")}${msg.fromAddress?" &lt;"+esc(msg.fromAddress)+"&gt;":""}${dt?" · "+esc(dt):""}</div>
       ${orderChipsFor((msg.subject||"")+" "+text)}
-      <div class="mr-body">${esc(text)}</div>
+      ${bodyHtml}${thumbs}
       <div class="mr-actions">
         <button class="btn btn-primary" id="mrReply">Odpovědět</button>
         <button class="btn btn-secondary" id="mrForward">Přeposlat</button>
@@ -1035,6 +1050,9 @@
     });
     document.getElementById("mrUnread").onclick=()=>markMailUnread(uid);
     document.getElementById("mrDelete").onclick=()=>deleteMailMessage(uid,msg.subject);
+    // Size the body iframe to its content (sandbox allows same-origin read; capped so a runaway mail can't grow unbounded).
+    const frame=pane.querySelector(".mr-body-frame");
+    if(frame)frame.addEventListener("load",()=>{try{frame.style.height=Math.min((frame.contentWindow.document.body.scrollHeight||300)+24,2400)+"px";}catch{}});
     afterMailRead(uid);
   }
 

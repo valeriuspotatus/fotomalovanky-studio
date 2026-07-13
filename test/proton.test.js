@@ -4,10 +4,38 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { summarizeInbox, formatSender, toIso, addressOf } from '../src/proton/mailbox.js';
-import { createBridgeClient, BridgeError } from '../src/proton/bridgeClient.js';
+import { createBridgeClient, BridgeError, embedImages } from '../src/proton/bridgeClient.js';
 import { createSmtpClient, SmtpError } from '../src/proton/smtpClient.js';
 import { MAIL_TEMPLATES, templateList, templateById, unfilledPlaceholders } from '../src/proton/templates.js';
 import { createReviewServer } from '../src/ui/server.js';
+
+// ---- embedImages (pure) ----------------------------------------------------
+
+test('embedImages inlines cid images, collects thumbnails, and drops non-image/oversize', () => {
+  const png = Buffer.from('fakepngbytes');
+  const parsed = {
+    html: '<p>Hi</p><img src="cid:logo123"><img src="cid:missing">',
+    attachments: [
+      { contentType: 'image/png', content: png, cid: 'logo123', related: true, filename: 'logo.png' },
+      { contentType: 'image/jpeg', content: Buffer.from('photo'), filename: 'photo.jpg' }, // standalone attachment
+      { contentType: 'application/pdf', content: Buffer.from('%PDF'), filename: 'faktura.pdf' }, // not an image → dropped
+      { contentType: 'image/png', content: Buffer.alloc(5 * 1024 * 1024), filename: 'huge.png' }, // > 4MB cap → dropped
+    ],
+  };
+  const { html, images } = embedImages(parsed);
+  const dataUri = `data:image/png;base64,${png.toString('base64')}`;
+  assert.ok(html.includes(`src="${dataUri}"`), 'cid ref rewritten to data URI');
+  assert.ok(html.includes('src="cid:missing"'), 'unmatched cid left untouched');
+  assert.equal(images.length, 2, 'only the two in-cap images kept');
+  assert.equal(images[0].inline, true, 'cid-referenced image marked inline');
+  assert.equal(images[1].inline, false, 'standalone image not inline');
+  assert.equal(images[1].filename, 'photo.jpg');
+});
+
+test('embedImages tolerates a message with no html and no attachments', () => {
+  assert.deepEqual(embedImages({}), { html: '', images: [] });
+  assert.deepEqual(embedImages({ html: null, attachments: null }), { html: '', images: [] });
+});
 
 // ---- summarizeInbox / formatSender (pure) ----------------------------------
 
