@@ -284,6 +284,10 @@ export function validateConfig(cfg) {
       // addAllCovers, rotationMin, rotationMax }. Defaults to none — an order number printed
       // on a customer's title page would be worse than no title page.
       pdf: cfg.builder.pdf ?? {},
+      // Trim each coloring page to its ink before printing, so a subject stranded in white margin
+      // (the model dropping the background) fills the page instead of printing white borders. On by
+      // default; set builder.autoCrop:false in config.json to keep the raw generator framing.
+      autoCrop: cfg.builder.autoCrop !== false,
     },
     paths: {
       inbox: cfg.paths?.inbox ?? './inbox',

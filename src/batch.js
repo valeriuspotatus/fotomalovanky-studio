@@ -5,6 +5,7 @@ import { loadConfig } from './config.js';
 import { ingestOrders } from './ingest.js';
 import { createGeneratorDriver } from './generator/factory.js';
 import { photoBase, writeOutputs } from './organize.js';
+import { autoCropColoring } from './autoCrop.js';
 import { assessOutputFiles } from './qcFiles.js';
 import {
   STATES,
@@ -80,6 +81,17 @@ export async function generatePhoto({ config, photoPath, orderDir, manifest, ord
       onProgress: ({ step, message }) => onEvent({ type: 'progress', orderId, base, step, message }),
     });
     const out = await writeOutputs(photoPath, orderDir, result);
+    // Trim the coloring page down to its ink so a subject the model marooned in white doesn't print
+    // with wide white borders (config.builder.autoCrop, default on). Never fail a page the GPU already
+    // paid for over a crop hiccup — the uncropped page is still perfectly usable.
+    if (config.builder?.autoCrop !== false) {
+      try {
+        const c = await autoCropColoring({ pngPath: out.coloringPng, svgPath: out.coloringSvg });
+        if (c.cropped) onEvent({ type: 'auto-cropped', orderId, base, kept: Number(c.kept.toFixed(2)) });
+      } catch (err) {
+        onEvent({ type: 'auto-crop-skipped', orderId, base, reason: err.message });
+      }
+    }
     const verdict = await qc(out);
     const next = verdict.verdict === 'ok' ? STATES.OK : STATES.FLAGGED;
     setStatus(manifest, base, next, verdict.reason);
