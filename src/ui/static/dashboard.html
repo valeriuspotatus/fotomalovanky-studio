@@ -41,6 +41,10 @@
   .mm-err{color:var(--danger);font-size:12.5px;margin-top:8px;min-height:15px}
   .mm-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--ink-inv);padding:11px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:200;box-shadow:0 10px 30px rgba(0,0,0,.3)}
   .mm-toast[hidden]{display:none}
+  /* styled file picker: hide the native input (its "Choose File" button is UA-controlled) behind a Czech label */
+  .file-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  .file-pick{display:flex;align-items:center;gap:10px;margin:2px 0 4px}
+  .file-pick .file-name{font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   /* page-local: the home two-column layout (work rail + calendar rail) */
   .home-grid{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:26px;align-items:start}
   .col-work{min-width:0;display:flex;flex-direction:column;gap:22px}
@@ -338,7 +342,8 @@
           </div>
           <div class="cv-group cv-ai">
             <label for="cvRef">AI obrázky (bez tváří zákazníka)</label>
-            <input id="cvRef" type="file" accept="image/*">
+            <input id="cvRef" type="file" accept="image/*" class="file-hidden">
+            <div class="file-pick"><label for="cvRef" class="btn btn-secondary sm">Vybrat soubor</label><span id="cvRefName" class="file-name">Žádný soubor nevybrán</span></div>
             <label class="cv-check"><input id="cvAuto" type="checkbox"> Popsat fotku automaticky (bez tváří)</label>
             <textarea id="cvPrompt" rows="3" placeholder="Popište scénu, kterou má AI vytvořit…"></textarea>
             <button class="btn btn-primary" id="cvGenerate" type="button">Vygenerovat obrázky</button>
@@ -1002,6 +1007,9 @@
       const fileToParts=file=>new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>{const s=String(r.result);resolve({mime:s.slice(5,s.indexOf(";"))||"image/jpeg",base64:s.slice(s.indexOf(",")+1)});};r.onerror=()=>reject(r.error||new Error("nelze načíst soubor"));r.readAsDataURL(file);});
       const autoBox=$("cvAuto");
       autoBox.onchange=()=>{ $("cvPrompt").placeholder=autoBox.checked?"AI popíše fotku sama — prompt vyplní po vygenerování…":"Popište scénu, kterou má AI vytvořit…"; };
+      // Native file inputs render a UA "Choose File" button we can't relabel; hide it behind a styled
+      // Czech label + filename (N13).
+      $("cvRef").onchange=()=>{ const f=$("cvRef").files[0]; $("cvRefName").textContent=f?f.name:"Žádný soubor nevybrán"; };
       $("cvGenerate").onclick=async()=>{
         const auto=autoBox.checked, prompt=$("cvPrompt").value.trim(), file=$("cvRef").files[0];
         if(auto&&!file){setAi("Pro automatický popis nahrajte fotku.","warn");return;}

@@ -89,20 +89,21 @@ export async function assessIntake({ order, config = {}, expected = null, assess
   return { expected, uploaded, unique, verdict, emailCase: pickEmailCase(findings), findings };
 }
 
-/** Human text for one finding — for the run log, the grid and the held-order summary. */
+/** Human text for one finding — for the run log, the grid and the held-order summary. Czech, to match
+ *  the client-side FINDING map in index.html (the whole operator UI is Czech). */
 export function describeFinding(f) {
   switch (f.reason) {
-    case 'missing-photos': return `only ${f.unique} of ${f.expected} photos — ${f.missing} missing`;
-    case 'extra-photos': return `${f.uploaded} photos, more than the ${f.expected} the product includes`;
-    case 'duplicate-identical': return `the same photo appears more than once (${(f.bases ?? []).join(', ')})`;
-    case 'possible-duplicate': return `two photos look like the same shot (${(f.bases ?? []).join(', ')})`;
-    case 'unreadable': return `${f.base} will not open`;
-    case 'low-resolution': return `${f.base} is too small to print (${f.mp} MP)`;
-    case 'smallish': return `${f.base} is on the small side (${f.mp} MP)`;
-    case 'blurry': return `${f.base} looks blurry`;
-    case 'dark': return `${f.base} is very dark`;
-    case 'overexposed': return `${f.base} is very bright`;
-    case 'clipped': return `${f.base} has crushed or blown-out detail`;
+    case 'missing-photos': return `jen ${f.unique} z ${f.expected} fotek — ${f.missing} chybí`;
+    case 'extra-photos': return `${f.uploaded} fotek, víc než ${f.expected} v produktu`;
+    case 'duplicate-identical': return `stejná fotka je nahraná víckrát (${(f.bases ?? []).join(', ')})`;
+    case 'possible-duplicate': return `dvě fotky vypadají jako stejný záběr (${(f.bases ?? []).join(', ')})`;
+    case 'unreadable': return `${f.base} nejde otevřít`;
+    case 'low-resolution': return `${f.base} je moc malá na tisk (${f.mp} MP)`;
+    case 'smallish': return `${f.base} je spíš menší (${f.mp} MP)`;
+    case 'blurry': return `${f.base} vypadá rozmazaně`;
+    case 'dark': return `${f.base} je hodně tmavá`;
+    case 'overexposed': return `${f.base} je hodně světlá`;
+    case 'clipped': return `${f.base} má ztracené detaily ve světlech nebo stínech`;
     default: return `${f.base ?? ''} ${f.reason}`.trim();
   }
 }
@@ -110,7 +111,7 @@ export function describeFinding(f) {
 /** One operator-facing line for a held order. */
 export function intakeSummary(result) {
   const count = result.findings.find((f) => f.check === 'count' && f.verdict === 'hold');
-  if (count) return `${result.unique} of ${result.expected} photos — waiting for you`;
+  if (count) return `jen ${result.unique} z ${result.expected} fotek — čeká na vás`;
   const holds = result.findings.filter((f) => f.verdict === 'hold');
-  return `${[...new Set(holds.map(describeFinding))].join('; ')} — waiting for you`;
+  return `${[...new Set(holds.map(describeFinding))].join('; ')} — čeká na vás`;
 }

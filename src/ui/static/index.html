@@ -205,8 +205,8 @@
       <label for="inbox">Fotky objednávky</label>
       <input type="text" id="inbox" spellcheck="false" placeholder="složka, do které stahuje vaše rozšíření pro Chrome">
       <button id="browse">Procházet…</button>
-      <button class="primary" id="run" title="Vygenerovat omalovánky (bez PDF)">Go</button>
-      <button id="pdf" title="Až zkontrolujete stránky, vytvořte z nich PDF">PDF</button>
+      <button class="primary" id="run" title="Vygenerovat omalovánky (bez PDF)">Spustit</button>
+      <button id="pdf" title="Až zkontrolujete stránky, vytvořte z nich PDF">Vytvořit PDF</button>
       <button class="danger" id="stop" hidden>Zastavit</button>
       <label class="chk"><input type="checkbox" id="force"> znovu vytisknout hotová PDF</label>
     </div>
@@ -515,7 +515,7 @@ function paintGoBar(data) {
   const running = data.run.active;
   const stopping = data.run.stopping;
   $('#run').disabled = running;
-  $('#run').textContent = running ? 'Generuji…' : 'Go';
+  $('#run').textContent = running ? 'Generuji…' : 'Spustit';
   // PDF (build) shares the same GPU/browser queue, so it's disabled during any run. It lights up as
   // the primary action when there are pages generated and waiting to be built.
   const readyToBuild = data.orders.some((o) => o.inInbox && !o.built && o.summary?.ready);
@@ -1052,7 +1052,7 @@ function render(data, force) {
   if (!primary.length) {
     root.innerHTML = `<div class="empty">
       <p><b>${data.run.active ? 'Pracuji…' : 'Nic otevřeno.'}</b></p>
-      <p>${data.run.active ? 'Fotky se objeví, jakmile budou hotové.' : 'Vyberte složku s fotkami objednávek, zaškrtněte objednávky a stiskněte <b>Go</b>.'}</p>
+      <p>${data.run.active ? 'Fotky se objeví, jakmile budou hotové.' : 'Vyberte složku s fotkami objednávek, zaškrtněte objednávky a stiskněte <b>Spustit</b>.'}</p>
       <p style="font-size:13px;color:#888">Hotové knihy jdou do <code>${esc(data.outbox)}</code></p></div>`;
     paintEarlier(earlier, data.run.active);
     $('#c-orders').textContent = 'žádné otevřené objednávky';

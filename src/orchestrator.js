@@ -63,7 +63,7 @@ export function buildabilityProblem(orderDir, bases) {
   const have = new Set(collectPairs(orderDir).map((p) => p.base));
   const missing = bases.filter((b) => !have.has(b));
   if (missing.length) {
-    return `${missing.length} photo(s) have no coloring page to pair with: ${missing.join(', ')}`;
+    return `${missing.length} fotek nemá spárovanou omalovánku: ${missing.join(', ')}`;
   }
   const extra = [...have].filter((b) => !bases.includes(b));
   if (extra.length) {
@@ -215,7 +215,7 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
       writeManifest(intakeDir, m);
       const mail = draftEmailFor(intakeResult, order);
       if (mail) writeFileSync(join(intakeDir, 'draft-email.txt'), formatDraft(mail), 'utf8');
-      const reason = `${intakeSummary(intakeResult)}${mail ? ' (email drafted)' : ''}`;
+      const reason = `${intakeSummary(intakeResult)}${mail ? ' (e-mail připraven)' : ''}`;
       report.push({ orderId, orderDir: intakeDir, summary: null, held: [], failed: [], pdfPath: null, reason, status: ORDER_STATUS.HELD, titled: false });
       onEvent({ type: 'order-done', orderId, status: ORDER_STATUS.HELD, pdfPath: null, reason });
       continue;
@@ -277,11 +277,11 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
 
     if (failed.length) {
       entry.status = ORDER_STATUS.FAILED;
-      entry.reason = `${failed.length} photo(s) failed to generate: ${failed.map((b) => `${b} — ${manifest.photos[b].reason}`).join('; ')}`;
+      entry.reason = `${failed.length} fotek se nepodařilo vygenerovat: ${failed.map((b) => `${b} — ${manifest.photos[b].reason}`).join('; ')}`;
     } else {
       if (held.length) {
         entry.status = ORDER_STATUS.HELD;
-        entry.reason = `${held.length} photo(s) waiting for you in the review grid`;
+        entry.reason = `${held.length} fotek čeká na vaši kontrolu`;
       } else if (!buildPdfs) {
         // Generate-only run (the operator's "Go"): every page generated cleanly, but hold off on the
         // PDF so the operator can eyeball the pages first, then press "PDF" to build. No Chromium is
@@ -331,39 +331,39 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
 export function formatEvent(e) {
   switch (e.type) {
     case 'run-start':
-      return `${e.orders} order(s) in ${e.inbox}${e.skipped ? ` (${e.skipped} more you did not tick)` : ''}`;
+      return `${e.orders} objednávek ve složce ${e.inbox}${e.skipped ? ` (${e.skipped} dalších jste nezaškrtli)` : ''}`;
     case 'order-start': {
-      const from = e.dirName && e.dirName !== e.orderId ? ` (from the photo names; folder is "${e.dirName}")` : '';
-      return `\norder ${e.orderId} — ${e.photos} photo(s)${from}`;
+      const from = e.dirName && e.dirName !== e.orderId ? ` (z názvů fotek; složka je „${e.dirName}“)` : '';
+      return `\nobjednávka ${e.orderId} — ${e.photos} fotek${from}`;
     }
     case 'intake': {
       if (e.verdict === 'ok') return null; // a clean order says nothing; the photos speak next
-      const where = e.expected != null ? ` — ${e.uploaded} of ${e.expected} photos` : '';
+      const where = e.expected != null ? ` — ${e.uploaded} z ${e.expected} fotek` : '';
       const n = e.findings?.length ?? 0;
-      return `  intake ${e.verdict}${where} (${n} note${n === 1 ? '' : 's'})`;
+      return `  vstupní kontrola: ${e.verdict}${where} (${n} ${n === 1 ? 'poznámka' : 'poznámek'})`;
     }
-    case 'photo-start': return `  ${e.base}${e.redo ? ' (redo)' : ''}…`;
+    case 'photo-start': return `  ${e.base}${e.redo ? ' (znovu)' : ''}…`;
     case 'progress': return `    [${e.step}] ${e.message}`;
     case 'photo-ok': return `  ${e.base}: ok`;
-    case 'photo-flagged': return `  ${e.base}: FLAGGED (${e.reason}) — needs review`;
-    case 'photo-failed': return `  ${e.base}: FAILED — ${e.reason}`;
-    case 'photo-skipped': return `  ${e.base}: skipped (${e.status})`;
-    case 'memory-moved': return `Moved ${e.count} saved spelling${e.count > 1 ? 's' : ''} out of the outbox, into the tool's own folder.`;
+    case 'photo-flagged': return `  ${e.base}: OZNAČENO (${e.reason}) — ke kontrole`;
+    case 'photo-failed': return `  ${e.base}: SELHALO — ${e.reason}`;
+    case 'photo-skipped': return `  ${e.base}: přeskočeno (${e.status})`;
+    case 'memory-moved': return `Přesunuto ${e.count} uložených jmen ze složky outbox do složky nástroje.`;
     case 'title-derived': {
-      const from = { shop: 'as the customer typed it', memory: 'spelling you taught it', filename: 'from the photo names' }[e.source] ?? 'from the photo names';
-      return `  title page (${from}): ${e.dedication}`;
+      const from = { shop: 'jak to napsal zákazník', memory: 'pravopis, který jste uložili', filename: 'z názvů fotek' }[e.source] ?? 'z názvů fotek';
+      return `  titulní strana (${from}): ${e.dedication}`;
     }
-    case 'no-title': return '  no dedication in the photo names — the title page prints without text';
+    case 'no-title': return '  v názvech fotek není věnování — titulní strana se vytiskne bez textu';
     case 'order-format': {
       const label = e.mode === 'fullpage' ? 'celostránkové' : 'galerie';
-      return `  format: ${label}${e.mapped ? '' : ' (default — the product isn\'t in the format map)'}`;
+      return `  formát: ${label}${e.mapped ? '' : ' (výchozí — produkt není ve formátové mapě)'}`;
     }
-    case 'build-start': return `  building the PDF from ${e.photos} photo(s)…`;
-    case 'build-done': return `  PDF: ${e.pdfPath} (${e.pairs} pairs)`;
-    case 'build-skipped': return `  PDF already up to date: ${e.pdfPath}`;
-    case 'build-failed': return `  BUILD FAILED — ${e.reason}`;
+    case 'build-start': return `  stavím PDF z ${e.photos} fotek…`;
+    case 'build-done': return `  PDF: ${e.pdfPath} (${e.pairs} párů)`;
+    case 'build-skipped': return `  PDF už je aktuální: ${e.pdfPath}`;
+    case 'build-failed': return `  STAVBA PDF SELHALA — ${e.reason}`;
     case 'run-stopped':
-      return `\nStopped — ${e.ran} of ${e.total} order(s) done. The rest were left untouched; press Go to carry on.`;
+      return `\nZastaveno — ${e.ran} z ${e.total} objednávek hotovo. Zbytek zůstal nedotčený; pokračujte stiskem Spustit.`;
     default: return null;
   }
 }
@@ -419,13 +419,13 @@ function printReport({ orders, counts }) {
   const width = Math.max(...orders.map((o) => o.orderId.length));
   for (const o of orders) {
     const id = o.orderId.padEnd(width);
-    if (o.status === ORDER_STATUS.DONE) console.log(`  ${id}  done    ${o.pdfPath}${o.titled ? '' : '  (no dedication)'}`);
-    else if (o.status === ORDER_STATUS.READY) console.log(`  ${id}  ready   ${o.reason}`);
-    else if (o.status === ORDER_STATUS.HELD) console.log(`  ${id}  held    ${o.reason}`);
-    else console.log(`  ${id}  FAILED  ${o.reason}`);
+    if (o.status === ORDER_STATUS.DONE) console.log(`  ${id}  hotovo  ${o.pdfPath}${o.titled ? '' : '  (bez věnování)'}`);
+    else if (o.status === ORDER_STATUS.READY) console.log(`  ${id}  připr.  ${o.reason}`);
+    else if (o.status === ORDER_STATUS.HELD) console.log(`  ${id}  drženo  ${o.reason}`);
+    else console.log(`  ${id}  SELHALO ${o.reason}`);
   }
-  console.log(`\n${counts.done} done, ${counts.ready} ready to build, ${counts.held} waiting for you, ${counts.failed} failed.`);
-  if (counts.held) console.log('Review them:  npm run review -- <inbox>     then run this again.');
+  console.log(`\n${counts.done} hotovo, ${counts.ready} k sestavení, ${counts.held} čeká na vás, ${counts.failed} selhalo.`);
+  if (counts.held) console.log('Zkontrolujte je:  npm run review -- <inbox>     a pak spusťte znovu.');
 }
 
 // node src/orchestrator.js [inbox] [outbox] [--force] [--review]

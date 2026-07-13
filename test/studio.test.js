@@ -95,7 +95,7 @@ test('a held order appears in needs-you with its draft email and a reason', () =
   assert.equal(board.needsYou[0].orderId, '1523');
   assert.match(board.needsYou[0].draftEmail, /Komu: h@example\.cz/);
   assert.ok(board.needsYou[0].reason, 'a held card carries a why-line');
-  assert.match(board.needsYou[0].reason, /5 of 8/);
+  assert.match(board.needsYou[0].reason, /5 z 8/);
 });
 
 test('a non-held order carries no draft email or reason', () => {

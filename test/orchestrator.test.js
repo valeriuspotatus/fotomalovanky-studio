@@ -193,7 +193,7 @@ test('a flagged photo blocks only its own order; the others still print', async 
     assert.equal(o1510.status, ORDER_STATUS.HELD);
     assert.equal(o1510.pdfPath, null, 'a held order must never reach the builder');
     assert.deepEqual(o1510.held, ['bad']);
-    assert.match(o1510.reason, /waiting for you/);
+    assert.match(o1510.reason, /čeká na vaši kontrolu/);
 
     assert.equal(o1523.status, ORDER_STATUS.DONE);
     assert.ok(existsSync(o1523.pdfPath));
@@ -397,7 +397,7 @@ test('the run says out loud that a book printed with no dedication', async () =>
   try {
     const lines = [];
     await run(f, { builder: new StubBuilder(), onEvent: (e) => lines.push(formatEvent(e)) });
-    assert.ok(lines.some((l) => l && /no dedication/.test(l)), `expected a spoken warning, got: ${lines.filter(Boolean).join(' | ')}`);
+    assert.ok(lines.some((l) => l && /není věnování/.test(l)), `expected a spoken warning, got: ${lines.filter(Boolean).join(' | ')}`);
   } finally {
     f.cleanup();
   }
@@ -545,7 +545,7 @@ test('a photo with no coloring page is surfaced before export, even against a cu
     const { orders } = await run(f, { builder, generator: new StubGenerator() });
 
     assert.equal(orders[0].status, ORDER_STATUS.FAILED);
-    assert.match(orders[0].reason, /builder seam \(load\): 1 photo\(s\) have no coloring page/);
+    assert.match(orders[0].reason, /builder seam \(load\): 1 fotek nemá spárovanou omalovánku/);
     assert.match(orders[0].reason, /\bb\b/);
     assert.equal(builder.calls.length, 0, 'refused before the browser was ever launched');
   } finally {
@@ -628,7 +628,7 @@ test('the run says how many orders it left alone', async () => {
       only: ['1510'],
       onEvent: (e) => lines.push(formatEvent(e)),
     });
-    assert.match(lines[0], /1 order\(s\).*1 more you did not tick/);
+    assert.match(lines[0], /1 objednávek.*1 dalších jste nezaškrtli/);
   } finally {
     f.cleanup();
   }
@@ -671,7 +671,7 @@ test('Stop between orders leaves the ones not yet started untouched, and says so
     assert.ok(stop, 'a run-stopped event is emitted');
     assert.equal(stop.ran, 1);
     assert.equal(stop.total, 3);
-    assert.match(formatEvent(stop), /Stopped — 1 of 3 order\(s\) done/);
+    assert.match(formatEvent(stop), /Zastaveno — 1 z 3 objednávek hotovo/);
   } finally {
     f.cleanup();
   }
@@ -845,7 +845,7 @@ test('a held order says so in the run log', async () => {
   try {
     const lines = [];
     await run(f, { intake: holdIntake(), onEvent: (e) => lines.push(formatEvent(e)) });
-    assert.ok(lines.some((l) => l && /intake hold/.test(l)), `expected an intake line, got: ${lines.filter(Boolean).join(' | ')}`);
+    assert.ok(lines.some((l) => l && /vstupní kontrola/.test(l)), `expected an intake line, got: ${lines.filter(Boolean).join(' | ')}`);
   } finally {
     f.cleanup();
   }

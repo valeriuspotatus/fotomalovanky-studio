@@ -114,7 +114,7 @@ function heldReason(order) {
       /* fall through to the neutral reason */
     }
   }
-  return 'input problem — waiting for you';
+  return 'problém se vstupními fotkami — čeká na vás';
 }
 
 /** One order's board entry — the shape the dashboard renders. Filesystem paths are deliberately

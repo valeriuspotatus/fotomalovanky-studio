@@ -196,7 +196,7 @@ test('an intake-held order surfaces under needs-you on the board, with its draft
     assert.equal(board.needsYou.length, 1);
     assert.equal(board.needsYou[0].orderId, '1479');
     assert.match(board.needsYou[0].draftEmail, /babicka@example\.cz/);
-    assert.match(board.needsYou[0].reason, /5 of 8/, 'the why-line reads off the stored intake block');
+    assert.match(board.needsYou[0].reason, /5 z 8/, 'the why-line reads off the stored intake block');
   } finally {
     s.close();
     rmSync(r, { recursive: true, force: true });

@@ -111,7 +111,7 @@ test('Go starts the pipeline and streams progress lines', async () => {
   assert.equal(res.status, 202);
 
   await until(async () => (await getState()).run.active);
-  await until(async () => (await getState()).run.lines.some((l) => l.includes('order 1510')));
+  await until(async () => (await getState()).run.lines.some((l) => l.includes('objednávka 1510')));
   assert.equal(generator.started, 1, 'the generator is actually working');
 });
 
@@ -248,7 +248,7 @@ test('Stop ends a run in flight, and the tool comes back to rest', async () => {
 
   try {
     await fetch(`${o}/api/_run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    await waitFor((st) => st.run.active && st.run.lines.some((l) => l.includes('order 1601')));
+    await waitFor((st) => st.run.active && st.run.lines.some((l) => l.includes('objednávka 1601')));
 
     // Press Stop while the first order is still on the GPU.
     const stopRes = await (await fetch(`${o}/api/_stop`, { method: 'POST' })).json();
@@ -262,7 +262,7 @@ test('Stop ends a run in flight, and the tool comes back to rest', async () => {
     const st = await state();
     assert.equal(st.run.stopping, false, 'it is no longer stopping — it has stopped');
     assert.equal(st.run.report.counts.done, 1, 'the order that finished is done');
-    assert.ok(st.run.lines.some((l) => /Stopped — 1 of 2/.test(l)), 'the log says what it did');
+    assert.ok(st.run.lines.some((l) => /Zastaveno — 1 z 2/.test(l)), 'the log says what it did');
     assert.equal(gen.started, 1, 'the second order never reached the generator');
 
     // And Stop with nothing running is a harmless no-op.
