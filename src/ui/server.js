@@ -1096,10 +1096,26 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     }
   });
 
-  // Graceful stop: close the WhatsApp session's Chromium cleanly. Without this, killing the server
-  // (Ctrl-C, a restart) tears the browser down mid-flush and whatsapp-web.js's NEXT restore hangs in
-  // 'connecting' forever — the recurring "have to re-scan the QR after every restart" pain. Best-effort.
+  // Auto-fetch: poll Shopify for new orders on a timer so they land on the board on their own, without
+  // the operator clicking "Načíst nové objednávky". Same pass as the button (fetch + generate), so a
+  // tick that lands mid-run/redo/fetch is skipped silently by startAutopilot's run-lock. Off when
+  // shopify.autoFetchMinutes<=0 or Shopify isn't configured. unref'd so it never blocks a clean stop.
+  let autoFetchTimer = null;
+  const autoFetchMin = config.shopify?.autoFetchMinutes ?? 0;
+  if (autoFetchMin > 0 && config.shopify?.enabled && config.shopify?.accessToken) {
+    const tick = () => { try { startAutopilot(); } catch { /* busy or unconfigured — skip this tick */ } };
+    autoFetchTimer = setInterval(tick, Math.max(1, autoFetchMin) * 60_000);
+    autoFetchTimer.unref?.();
+    setTimeout(tick, 15_000).unref?.(); // pull new orders soon after boot, not a full interval later
+    log(`auto-fetch: polling Shopify for new orders every ${autoFetchMin} min`);
+  }
+
+  // Graceful stop: close the WhatsApp session's Chromium cleanly + stop the auto-fetch timer. Without the
+  // clean WhatsApp close, killing the server (Ctrl-C, a restart) tears the browser down mid-flush and
+  // whatsapp-web.js's NEXT restore hangs in 'connecting' forever — the recurring "re-scan the QR after
+  // every restart" pain. Best-effort.
   async function shutdown() {
+    if (autoFetchTimer) clearInterval(autoFetchTimer);
     try { await wa?.close?.(); } catch { /* best-effort */ }
   }
 

@@ -200,6 +200,16 @@ test('shopify defaults are applied when omitted (api version, matchers, allowlis
   assert.equal(cfg.shopify.layoutKeyMatch, 'rozvržení');
   assert.deepEqual(cfg.shopify.photoHostAllowlist, ['cdn.tigren.com']);
   assert.equal(cfg.shopify.estSpendPerOrder, 0.3);
+  assert.equal(cfg.shopify.autoFetchMinutes, 10); // auto-poll on by default
+});
+
+test('shopify.autoFetchMinutes: honored when set, 0 disables, invalid falls back to default', () => {
+  noEnvToken();
+  const base = { enabled: true, storeDomain: 'x.myshopify.com', accessToken: 'shpat_x' };
+  assert.equal(validateConfig({ ...good, shopify: { ...base, autoFetchMinutes: 5 } }).shopify.autoFetchMinutes, 5);
+  assert.equal(validateConfig({ ...good, shopify: { ...base, autoFetchMinutes: 0 } }).shopify.autoFetchMinutes, 0); // off
+  assert.equal(validateConfig({ ...good, shopify: { ...base, autoFetchMinutes: -3 } }).shopify.autoFetchMinutes, 10); // invalid → default
+  assert.equal(validateConfig({ ...good, shopify: { ...base, autoFetchMinutes: 'soon' } }).shopify.autoFetchMinutes, 10);
 });
 
 test('redactForLog drops the shopify access token entirely', () => {

@@ -227,6 +227,12 @@ export function validateConfig(cfg) {
   // RunPod is cheap and customers often pay a little later, so process every photo order on arrival and
   // let payment catch up. When false, financial status is ignored for the "to process" decision.
   const requirePaid = shopRaw.requirePaid !== false;
+  // How often (minutes) the running studio polls Shopify for new orders on its own, so they land on the
+  // board without clicking "Načíst nové objednávky". 0 disables (manual button only). Default 10.
+  const autoFetchMinutes =
+    typeof shopRaw.autoFetchMinutes === 'number' && Number.isFinite(shopRaw.autoFetchMinutes) && shopRaw.autoFetchMinutes >= 0
+      ? shopRaw.autoFetchMinutes
+      : 10;
   // The cursor, handled-order set and night report land here — always an absolute path OUTSIDE the
   // repo tree (it holds customer PII), same guard as whatsapp.sessionDir. Only the default is trusted blind.
   let dataDir = defaultAutopilotDir();
@@ -331,6 +337,7 @@ export function validateConfig(cfg) {
       photoHostAllowlist,
       estSpendPerOrder,
       requirePaid,
+      autoFetchMinutes,
       dataDir,
     },
     // Board display. `firstLiveOrder` hides older test orders; null shows everything.
