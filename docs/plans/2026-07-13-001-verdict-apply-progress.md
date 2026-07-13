@@ -21,8 +21,8 @@ rows N1–N14) autonomously. Blocker-first. Commit after each row lands with tes
 | N6 | Disable send when WhatsApp unlinked | 1 | **done** e2d5521 |
 | N7 | Unify shells: Generátor inside studio shell, one chip component, re-token buttons | 2 | todo |
 | N8 | Board columns: add Stáří; rename FOTKY→Stránky w/ product denominator | 2 | todo |
-| N4 | Waiting-since: "Označit: e-mail odeslán" timestamp; ">5 dní" danger | 2 | todo |
-| N9 | Mail↔order chips (regex `#?\d{4}` → chip w/ live status) | 2 | todo |
+| N4 | Waiting-since: "Označit: e-mail odeslán" timestamp; ">5 dní" danger | 2 | **done** 38ba8f9 |
+| N9 | Mail↔order chips (regex `#?\d{4}` → chip w/ live status) | 2 | **done** ee4ebf8 |
 | N12 | Lightbox + keyboard review (←→/A/B/R) | 2 | todo |
 | N13 | Czech unification (kill "waiting for you", "Go", "Choose File") | 2 | **done** 929844d |
 | N10 | Sent-version staleness (hash+time; stale banner + Odeslat znovu) | 3 | todo |
@@ -77,3 +77,11 @@ needs an order-date source, use folder mtime proxy) → N10 (sent staleness) →
   format's safe zone (probe-verified all 5×3 clean). Added creativeStudio test asserting
   validateConcept(seed)==='pripraveno' for every family×format. 500 green. **7/14 done.**
   Next: N9 (mail↔order #chips) → N4 (waiting-since) → N8 → N10 → N14 → N7 → N12.
+- ee4ebf8 N9 done. dashboard mail reading pane: orderChipsFor() detects `#?\d{4}` (bare number only
+  chips if #-prefixed or a known order → no year/price false links), renders live-status chip →
+  go('orders'). Detection logic verified in isolation. 500 green. **8/14 done.** Next: N4.
+- 38ba8f9 N4 done. Order-level `customerEmailedAt` (manifest get/setEmailedAt, review.markCustomerEmailed,
+  POST /<order>/emailed, studio boardEntry.emailedAt, reviewState exposes it). Generator held panel +
+  dashboard Potřebuje vás show "Čeká na zákazníka od X (N dní)" (danger >5) or "e-mail neodeslán",
+  with a mark/undo button. manifest round-trip test. 501 green. **9/14 done.**
+  Remaining: N8 (board Stáří/Stránky), N10 (sent staleness), N14 (Nastavení), N7 (unify shells), N12 (lightbox).
