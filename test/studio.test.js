@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildBoard, deriveOrderStatus, studioBoard, overnightSummary, ORDER_BOARD_STATES, markDelivered, unmarkDelivered, deliveredMarkerPath } from '../src/studio.js';
+import { buildBoard, deriveOrderStatus, studioBoard, overnightSummary, ORDER_BOARD_STATES, markDelivered, unmarkDelivered, deliveredMarkerPath, markPrinted, unmarkPrinted, printedMarkerPath } from '../src/studio.js';
 
 // Review-state-shaped fakes. buildBoard is pure over these, so the whole status machine is tested
 // without a filesystem or a running server.
@@ -203,6 +203,28 @@ test('markDelivered writes the terminal marker (sent); unmarkDelivered removes i
     unmarkDelivered(dir);
     assert.equal(existsSync(deliveredMarkerPath(dir)), false);
     unmarkDelivered(dir); // no marker present -> must not throw
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('markPrinted writes the printed marker; the printed verdict is terminal and outranks sent (N3)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-printed-'));
+  try {
+    const dir = join(root, '1525');
+    mkdirSync(dir, { recursive: true });
+    assert.equal(markPrinted(dir), ORDER_BOARD_STATES.PRINTED);
+    assert.equal(existsSync(printedMarkerPath(dir)), true);
+    assert.ok(JSON.parse(readFileSync(printedMarkerPath(dir), 'utf8')).at, 'the marker is timestamped');
+
+    // printed wins even when the delivery marker is also present.
+    const o = order('1525', summary({ total: 1, eligible: 1, ready: true }));
+    assert.equal(deriveOrderStatus(o, { pdfBuilt: true, delivered: true, printed: true }), ORDER_BOARD_STATES.PRINTED);
+    assert.equal(deriveOrderStatus(o, { pdfBuilt: true, delivered: true, printed: false }), ORDER_BOARD_STATES.SENT);
+
+    unmarkPrinted(dir);
+    assert.equal(existsSync(printedMarkerPath(dir)), false);
+    unmarkPrinted(dir); // idempotent
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

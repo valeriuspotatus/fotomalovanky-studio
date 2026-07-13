@@ -421,6 +421,7 @@
     approved:         {label:"schváleno",            chip:"c-info"},
     "ready-to-send":  {label:"připraveno k odeslání",chip:"c-info"},
     sent:             {label:"odesláno",             chip:"c-success"},
+    printed:          {label:"vytištěno",            chip:"c-success"},
     failed:           {label:"chyba",                chip:"c-danger"}
   };
   const statusMeta=s=>STATUS[s]||{label:s,chip:"c-neutral"};
@@ -474,7 +475,10 @@
           :`<button class="btn btn-primary sm" disabled title="Nejdříve propojte WhatsApp (QR kód nahoře na této stránce).">Odeslat Jirkovi</button>`;
         act=send+`<button class="btn btn-secondary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`;
       }
-      else if(o.status==="sent") act=`<button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
+      // Sent, awaiting Jirka's print confirmation: the operator closes the loop with "Označit vytištěno"
+      // (N3). This one bit unlocks the photo purge and marks the order truly done.
+      else if(o.status==="sent") act=`<button class="btn btn-primary sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button><button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
+      else if(o.status==="printed") act=`<button class="btn btn-ghost sm act-unprinted" data-unprinted="${esc(o.orderId)}">Vrátit</button>`;
     }
     // The permanent under-count warning (N2): shown beside the status chip on every board glance.
     const inc=o.incomplete?`<span class="chip c-danger" title="Operátor potvrdil knihu s méně stranami, než produkt obsahuje."><span class="dot"></span>neúplná ${o.incomplete.pages}/${o.incomplete.expected}</span>`:"";
@@ -492,7 +496,7 @@
     document.getElementById("kpi-ready").textContent=d.counts.approved||0; // "Připraveno pro PDF" = all approved, awaiting the PDF build
     document.getElementById("kpi-sent").textContent=d.counts.sent||0;
     // sidebar counts — active orders (everything except the ones already sent to Jirka)
-    document.getElementById("nav-orders").textContent=(d.counts.total||0)-(d.counts.sent||0);
+    document.getElementById("nav-orders").textContent=(d.counts.total||0)-(d.counts.sent||0)-(d.counts.printed||0);
     document.getElementById("nav-gen").textContent=d.counts.generating||0;
     const waiting=(d.needsYou||[]).length;
     document.getElementById("nav-todo").textContent=waiting;
@@ -540,16 +544,17 @@
     row.innerHTML=c1+c2;
   }
 
-  // The active board hides orders already sent to Jirka ("done"); a toggle reveals them.
+  // The active board hides finished orders — sent to Jirka or confirmed printed ("done"); a toggle reveals them.
+  const isDone=o=>o.status==="sent"||o.status==="printed";
   let showDone=false;
   function renderOrders(d){
     const b=document.getElementById("ordersBody");
-    const active=d.orders.filter(o=>o.status!=="sent");
-    const done=d.orders.filter(o=>o.status==="sent");
+    const active=d.orders.filter(o=>!isDone(o));
+    const done=d.orders.filter(isDone);
     const rows=showDone?[...active,...done]:active;
     b.innerHTML=rows.length?rows.map(o=>orderRow(o,{actions:true})).join(""):'<tr><td colspan="5" class="empty">Žádné aktivní objednávky.</td></tr>';
     const tog=document.getElementById("doneToggle");
-    tog.innerHTML=done.length?`<button class="btn btn-secondary sm" id="toggleDone">${showDone?"Skrýt odeslané":"Zobrazit odeslané ("+done.length+")"}</button>`:"";
+    tog.innerHTML=done.length?`<button class="btn btn-secondary sm" id="toggleDone">${showDone?"Skrýt dokončené":"Zobrazit dokončené ("+done.length+")"}</button>`:"";
   }
 
   function renderNeedsYou(d){
@@ -662,6 +667,8 @@
   document.getElementById("ordersBody").addEventListener("click",e=>{
     const d=e.target.closest(".act-deliver");if(d){deliverToJirka(d.dataset.deliver,d);return;}
     const s=e.target.closest(".act-sent");if(s){s.disabled=true;orderAction(s.dataset.sent,"sent");return;}
+    const p=e.target.closest(".act-printed");if(p){p.disabled=true;orderAction(p.dataset.printed,"printed");return;}
+    const up=e.target.closest(".act-unprinted");if(up){up.disabled=true;orderAction(up.dataset.unprinted,"unprinted");return;}
     const u=e.target.closest(".act-unsent");if(u){u.disabled=true;orderAction(u.dataset.unsent,"unsent");}
   });
   document.getElementById("doneToggle").addEventListener("click",e=>{

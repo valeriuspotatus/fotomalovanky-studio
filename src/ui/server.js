@@ -9,7 +9,7 @@ import { loadConfig } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent, pdfPathFor } from '../orchestrator.js';
-import { studioBoard, markDelivered, unmarkDelivered } from '../studio.js';
+import { studioBoard, markDelivered, unmarkDelivered, markPrinted, unmarkPrinted } from '../studio.js';
 import { createBridgeClient, BridgeError } from '../proton/bridgeClient.js';
 import { createSmtpClient, SmtpError } from '../proton/smtpClient.js';
 import { summarizeInbox } from '../proton/mailbox.js';
@@ -911,6 +911,22 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         unmarkDelivered(order.orderDir);
+        return json(res, 200, { ok: true });
+      }
+
+      // POST /api/<order>/printed — the operator confirms Jirka printed the book (N3). Terminal marker
+      // that closes the lifecycle past 'sent' and makes the order's photos purge-eligible. Manual only.
+      if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'printed') {
+        const order = state().find((o) => o.orderId === parts[1]);
+        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+        return json(res, 200, { status: markPrinted(order.orderDir) });
+      }
+
+      // POST /api/<order>/unprinted — undo a printed mark set by mistake; the order returns to 'sent'.
+      if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'unprinted') {
+        const order = state().find((o) => o.orderId === parts[1]);
+        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+        unmarkPrinted(order.orderDir);
         return json(res, 200, { ok: true });
       }
 

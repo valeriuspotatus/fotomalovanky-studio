@@ -36,6 +36,29 @@ export function unmarkDelivered(orderDir) {
   return true;
 }
 
+/** The 'printed' marker: the operator confirms Jirka actually printed the book (N3). This single
+ *  manual bit closes the lifecycle past 'sent' — a WhatsApp message could be lost, so 'odesláno' is
+ *  not proof of print — and it is what gates the photo purge: a customer's photos are only ever
+ *  deleted once their book is confirmed printed (see retention.js). Its presence is the source of
+ *  truth for 'printed'. */
+export const printedMarkerPath = (orderDir) => join(orderDir, 'printed.json');
+
+/** Operator marks a sent order printed once Jirka confirms. Terminal + idempotent; the timestamp is
+ *  the clock the purge measures retention from. */
+export function markPrinted(orderDir, info = {}) {
+  writeFileSync(
+    printedMarkerPath(orderDir),
+    JSON.stringify({ at: new Date().toISOString(), by: 'operator', ...info }, null, 2),
+  );
+  return ORDER_BOARD_STATES.PRINTED;
+}
+
+/** Undo a printed mark set by mistake — the order returns to 'sent'. Safe when no marker is present. */
+export function unmarkPrinted(orderDir) {
+  rmSync(printedMarkerPath(orderDir), { force: true });
+  return true;
+}
+
 /** The order-level board statuses. Distinct from the per-photo STATES and from the photo-level
  *  `handoff` (manual repair) — this is where the whole order sits on its way to Jirka. The client
  *  `STATUS` map in src/ui/static/dashboard.html must carry a label for each of these values. */
@@ -46,7 +69,8 @@ export const ORDER_BOARD_STATES = Object.freeze({
   PENDING_REVIEW: 'pending-review',
   APPROVED: 'approved', // every photo approved, but no Final.pdf on disk yet → CTA "Vytvořit PDF"
   READY_TO_SEND: 'ready-to-send', // the book exists on disk → CTA "Odeslat Jirkovi"
-  SENT: 'sent',
+  SENT: 'sent', // delivered to Jirka, awaiting his print confirmation → CTA "Označit vytištěno"
+  PRINTED: 'printed', // Jirka confirmed the print; terminal, and the only state a purge will touch
   FAILED: 'failed',
 });
 
@@ -54,7 +78,7 @@ export const ORDER_BOARD_STATES = Object.freeze({
  *
  *  Order matters: the delivery marker is terminal, an intake hold outranks generation (a held
  *  order never generates), and a live run on this order beats any half-finished photo state. */
-export function deriveOrderStatus(order, { generating = false, pdfBuilt = false, delivered = false } = {}) {
+export function deriveOrderStatus(order, { generating = false, pdfBuilt = false, delivered = false, printed = false } = {}) {
   const s = order.summary ?? { total: 0, eligible: 0, held: 0, manual: 0, failed: 0, pending: 0, ready: false };
   // A stored intake hold only means "held" while nothing has generated past it. Generation is
   // skipped entirely for a held order, so a genuine hold has every photo still pending; once the
@@ -62,6 +86,7 @@ export function deriveOrderStatus(order, { generating = false, pdfBuilt = false,
   // the next run, but guarded here too) must not keep a finished book under "needs you".
   const intakeHeld = order.intake?.verdict === 'hold' && order.intake?.override !== true && s.pending === s.total;
 
+  if (printed) return ORDER_BOARD_STATES.PRINTED; // terminal — outranks sent, the lifecycle is closed
   if (delivered) return ORDER_BOARD_STATES.SENT; // the marker is idempotent — a sent order stays sent
   if (intakeHeld) return ORDER_BOARD_STATES.HELD; // surfaces under Potřebuje vás with its draft email
   if (generating) return ORDER_BOARD_STATES.GENERATING; // the run is on this order right now
@@ -124,7 +149,7 @@ function boardEntry(order, status) {
 /** Build the whole board from review-state orders plus injected fact-providers. Pure over its
  *  inputs — `pdfBuilt`/`delivered` are predicates, `runningOrderId` a plain id — so the whole
  *  status machine is testable without a filesystem or a running server. */
-export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => false, delivered = () => false, firstLiveOrder = null } = {}) {
+export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => false, delivered = () => false, printed = () => false, firstLiveOrder = null } = {}) {
   // Hide old test orders: everything below the first real order number never reaches the board or
   // its counts. Non-numeric ids are always kept — the floor only judges what it can compare.
   const live =
@@ -139,6 +164,7 @@ export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => fal
       generating: runningOrderId != null && order.orderId === runningOrderId,
       pdfBuilt: pdfBuilt(order),
       delivered: delivered(order),
+      printed: printed(order),
     });
     return boardEntry(order, status);
   });
@@ -183,6 +209,7 @@ export function studioBoard({ inboxRoot, outboxRoot, runningOrderId = null, only
     firstLiveOrder,
     pdfBuilt: (o) => existsSync(pdfPathFor(o.orderDir, o.orderId)),
     delivered: (o) => existsSync(deliveredMarkerPath(o.orderDir)),
+    printed: (o) => existsSync(printedMarkerPath(o.orderDir)),
   });
   const overnight = dataDir ? overnightSummary(readReportFn(dataDir)) : null;
   return { ...board, overnight };

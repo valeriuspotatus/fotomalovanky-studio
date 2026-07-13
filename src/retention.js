@@ -8,10 +8,12 @@
 // folder. The line art stays: it is a drawing, and the operator may want to reprint from it.
 //
 // An order is only ever touched when its book is finished and settled:
+//   - the operator has confirmed Jirka printed it (a `printed.json` marker — the 'vytištěno' verdict,
+//     N3): a book merely 'odesláno' over WhatsApp is NOT proof of print and is never purged,
 //   - the PDF exists,
 //   - the PDF is newer than state.json, so it was printed from the decisions on disk and not
 //     left stale by a verdict changed afterwards,
-//   - and it was printed at least `retentionDays` ago.
+//   - and it was confirmed printed at least `retentionDays` ago (measured from the marker).
 //
 // Read the caveat in `purgeWarning` before believing this makes the disk safe.
 
@@ -31,6 +33,9 @@ export const purgeWarning =
   'the finished books to. This only clears the working outbox.';
 
 const pdfPathFor = (orderDir, orderId) => join(orderDir, `${orderId} Final.pdf`);
+// The 'vytištěno' marker studio.js writes (kept as a local literal, like pdfPathFor, so retention
+// doesn't drag in studio.js's whole review/generator import chain).
+const printedMarkerPath = (orderDir) => join(orderDir, 'printed.json');
 
 /** Every order in the outbox, with what a purge would do to it and why. Reads only. */
 export function inspectOutbox({ outboxRoot, days, now = Date.now() }) {
@@ -46,6 +51,7 @@ export function inspectOutbox({ outboxRoot, days, now = Date.now() }) {
     if (!existsSync(state)) continue; // not an order folder
 
     const pdfPath = pdfPathFor(orderDir, orderId);
+    const printedPath = printedMarkerPath(orderDir);
     const manifest = readManifest(orderDir);
     const photos = Object.keys(manifest.photos ?? {})
       .map((base) => outputPaths(`${base}.jpg`, orderDir).original)
@@ -54,10 +60,13 @@ export function inspectOutbox({ outboxRoot, days, now = Date.now() }) {
 
     const order = { orderId, orderDir, pdfPath, photos, bytes: photos.reduce((n, p) => n + p.bytes, 0), skip: null, ageDays: null };
 
-    if (!existsSync(pdfPath)) order.skip = 'the book has not been printed yet';
+    // The 'vytištěno' marker is the gate: a sent-but-unconfirmed book keeps its photos until Jirka
+    // confirms the print. Age is measured from the confirmation, not the PDF build.
+    if (!existsSync(printedPath)) order.skip = 'not confirmed printed yet';
+    else if (!existsSync(pdfPath)) order.skip = 'the book is not on disk';
     else if (statSync(pdfPath).mtimeMs < statSync(state).mtimeMs) order.skip = 'a decision changed after the book was printed';
     else {
-      order.ageDays = Math.floor((now - statSync(pdfPath).mtimeMs) / DAY_MS);
+      order.ageDays = Math.floor((now - statSync(printedPath).mtimeMs) / DAY_MS);
       if (order.ageDays < days) order.skip = `printed ${order.ageDays} day${order.ageDays === 1 ? '' : 's'} ago, keeping for ${days}`;
       else if (!photos.length) order.skip = 'the photographs are already gone';
     }

@@ -15,8 +15,10 @@ const age = (path, ms) => {
   utimesSync(path, t, t);
 };
 
-/** An order folder holding two photos, their line art, a manifest and (optionally) a printed book. */
-function order(outbox, orderId, { pdf = true, printedDaysAgo = 100, staleDecision = false, photos = ['a', 'b'] } = {}) {
+/** An order folder holding two photos, their line art, a manifest, (optionally) a printed book, and
+ *  (optionally) the 'vytištěno' marker — the purge gate. `printed` defaults on; set it false for an
+ *  order that was only sent, or never finished at all. */
+function order(outbox, orderId, { pdf = true, printed = true, printedDaysAgo = 100, staleDecision = false, photos = ['a', 'b'] } = {}) {
   const dir = join(outbox, orderId);
   mkdirSync(dir, { recursive: true });
   const manifest = emptyManifest(orderId);
@@ -33,6 +35,11 @@ function order(outbox, orderId, { pdf = true, printedDaysAgo = 100, staleDecisio
     const pdfPath = join(dir, `${orderId} Final.pdf`);
     writeFileSync(pdfPath, '%PDF-1.4');
     age(pdfPath, printedDaysAgo * DAY);
+  }
+  if (printed) {
+    const printedPath = join(dir, 'printed.json');
+    writeFileSync(printedPath, JSON.stringify({ at: new Date(NOW - printedDaysAgo * DAY).toISOString() }));
+    age(printedPath, printedDaysAgo * DAY); // the marker's mtime is the retention clock
   }
   return dir;
 }
@@ -93,14 +100,28 @@ test('a book printed inside the window is left alone', () => {
   }
 });
 
-test('an order whose book was never printed is never touched, however old', () => {
+test('an order whose book was never finished is never touched, however old', () => {
   const f = fixture();
   try {
-    const dir = order(f.outbox, '1400', { pdf: false, printedDaysAgo: 900 });
+    const dir = order(f.outbox, '1400', { pdf: false, printed: false, printedDaysAgo: 900 });
     const result = purgeOriginals({ outboxRoot: f.outbox, days: 30, now: NOW, dryRun: false });
 
     assert.equal(jpgs(dir).length, 2, 'its photographs are the only way to print it');
-    assert.match(result.skipped[0].skip, /not been printed yet/);
+    assert.match(result.skipped[0].skip, /not confirmed printed yet/);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('an order sent to Jirka but not yet confirmed printed keeps its photos (N3 — odesláno is not vytištěno)', () => {
+  const f = fixture();
+  try {
+    // Book built and delivered long ago, but no printed.json: the WhatsApp message could have been lost.
+    const dir = order(f.outbox, '1400', { printed: false, printedDaysAgo: 900 });
+    const result = purgeOriginals({ outboxRoot: f.outbox, days: 30, now: NOW, dryRun: false });
+
+    assert.equal(jpgs(dir).length, 2, 'nothing is deleted until the print is confirmed');
+    assert.match(result.skipped[0].skip, /not confirmed printed yet/);
   } finally {
     f.cleanup();
   }
@@ -173,7 +194,7 @@ test('several orders are judged one at a time, not as a batch', () => {
   try {
     order(f.outbox, '1400', { printedDaysAgo: 100 }); // purgeable
     order(f.outbox, '1401', { printedDaysAgo: 2 }); //   too recent
-    order(f.outbox, '1402', { pdf: false }); //           unprinted
+    order(f.outbox, '1402', { pdf: false, printed: false }); // never finished
     const result = purgeOriginals({ outboxRoot: f.outbox, days: 30, now: NOW, dryRun: false });
 
     assert.deepEqual(result.orders.map((o) => o.orderId), ['1400']);
