@@ -35,12 +35,12 @@ const PROMENA = {
     CRAYON_TL,
     CRAYON_TR,
     SCRIBBLE_BL,
-    { id: 'logo', type: 'logo', layer: 5, box: { x: 28, y: 6, w: 44, h: 9 }, constraints: { minW: 20 }, formats: { story: { box: { x: 25, y: 5, w: 50, h: 6 } }, landscape: { box: { x: 4, y: 10, w: 32, h: 15 }, style: { align: 'flex-start' } } } },
+    { id: 'logo', type: 'logo', layer: 5, box: { x: 28, y: 6, w: 44, h: 9 }, constraints: { minW: 20 }, formats: { story: { box: { x: 25, y: 5, w: 50, h: 6 } }, landscape: { box: { x: 5, y: 10, w: 32, h: 15 }, style: { align: 'flex-start' } } } },
     { id: 'card', type: 'panel', layer: 6, box: { x: 12, y: 27, w: 76, h: 38 }, formats: { story: { box: { x: 10, y: 24, w: 80, h: 44 } }, landscape: { box: { x: 50, y: 15, w: 46, h: 70 } } } },
     { id: 'before', type: 'image', slot: 'original', placeholder: 'původní fotka', layer: 7, box: { x: 14, y: 29, w: 35, h: 34 }, style: { radius: 18 }, constraints: { required: true, allowedAssetType: 'original' }, formats: { story: { box: { x: 12, y: 26, w: 76, h: 20 } }, landscape: { box: { x: 51.5, y: 18, w: 21.5, h: 64 } } } },
     { id: 'after', type: 'image', slot: 'coloring', placeholder: 'omalovánka', layer: 7, box: { x: 51, y: 29, w: 35, h: 34 }, style: { radius: 18 }, constraints: { required: true, allowedAssetType: 'coloring' }, formats: { story: { box: { x: 12, y: 47, w: 76, h: 20 } }, landscape: { box: { x: 74, y: 18, w: 21.5, h: 64 } } } },
-    { id: 'badge', type: 'badge', field: 'badge', layer: 9, box: { x: 71, y: 19, w: 20, h: 20 }, style: { rotate: 8, fontSize: 18 }, constraints: { maxChars: 26 }, formats: { story: { box: { x: 70, y: 17, w: 22, h: 12 } }, landscape: { hidden: true } } },
-    { id: 'headline', type: 'text', field: 'headline', hiField: 'headlineHi', layer: 10, box: { x: 13, y: 72, w: 74, h: 16 }, style: { pill: true, fontSize: 58, align: 'center' }, constraints: { maxChars: 44, maxLines: 2 }, formats: { story: { box: { x: 8, y: 73, w: 84, h: 13 }, style: { pill: true, fontSize: 74, align: 'center' } }, landscape: { box: { x: 3, y: 38, w: 42, h: 40 }, style: { pill: true, fontSize: 40, align: 'left' } } } },
+    { id: 'badge', type: 'badge', field: 'badge', layer: 9, box: { x: 71, y: 19, w: 20, h: 20 }, style: { rotate: 8, fontSize: 18 }, constraints: { maxChars: 26 }, formats: { story: { box: { x: 68, y: 17, w: 22, h: 12 } }, landscape: { hidden: true } } },
+    { id: 'headline', type: 'text', field: 'headline', hiField: 'headlineHi', layer: 10, box: { x: 13, y: 72, w: 74, h: 16 }, style: { pill: true, fontSize: 58, align: 'center' }, constraints: { maxChars: 44, maxLines: 2 }, formats: { story: { box: { x: 9, y: 73, w: 82, h: 13 }, style: { pill: true, fontSize: 74, align: 'center' } }, landscape: { box: { x: 5, y: 38, w: 42, h: 40 }, style: { pill: true, fontSize: 40, align: 'left' } } } },
   ],
 };
 
@@ -56,11 +56,11 @@ const EMOTIVNI = {
   elements: [
     { id: 'bg', type: 'background', layer: 0, box: { x: 0, y: 0, w: 100, h: 100 } },
     { id: 'hero', type: 'image', slot: 'lifestyle', placeholder: 'lifestyle fotka', layer: 1, box: { x: 0, y: 0, w: 100, h: 58 }, style: { radius: 0 }, constraints: { required: true, allowedAssetType: 'lifestyle' }, formats: { story: { box: { x: 0, y: 0, w: 100, h: 52 } }, landscape: { box: { x: 46, y: 0, w: 54, h: 100 } } } },
-    { id: 'logo', type: 'logo', layer: 5, box: { x: 6, y: 4, w: 36, h: 8 }, style: { align: 'flex-start' }, constraints: { minW: 20 }, formats: { landscape: { box: { x: 4, y: 8, w: 32, h: 13 } } } },
+    { id: 'logo', type: 'logo', layer: 5, box: { x: 6, y: 4, w: 36, h: 8 }, style: { align: 'flex-start' }, constraints: { minW: 20 }, formats: { story: { box: { x: 9, y: 4, w: 36, h: 8 } }, landscape: { box: { x: 5, y: 8, w: 32, h: 13 } } } },
     { id: 'product', type: 'image', slot: 'product', placeholder: 'produkt', layer: 8, box: { x: 62, y: 44, w: 30, h: 30 }, style: { frame: true, rotate: 6 }, formats: { story: { box: { x: 62, y: 40, w: 32, h: 22 } }, landscape: { box: { x: 4, y: 60, w: 20, h: 34 }, style: { frame: true, rotate: -4 } } } },
-    { id: 'headline', type: 'text', field: 'headline', hiField: 'headlineHi', layer: 10, box: { x: 6, y: 62, w: 60, h: 16 }, style: { fontSize: 60, align: 'left', valign: 'top' }, constraints: { maxChars: 40, maxLines: 2 }, formats: { story: { box: { x: 6, y: 58, w: 70, h: 14 }, style: { fontSize: 72, align: 'left' } }, landscape: { box: { x: 4, y: 24, w: 40, h: 26 }, style: { fontSize: 44, align: 'left' } } } },
-    { id: 'support', type: 'text', field: 'support', layer: 10, box: { x: 6, y: 78, w: 56, h: 10 }, style: { fontSize: 27, align: 'left', color: '#5C534B', valign: 'top' }, constraints: { maxChars: 90, maxLines: 2 }, formats: { story: { box: { x: 6, y: 72, w: 70, h: 9 }, style: { fontSize: 32, align: 'left', color: '#5C534B' } }, landscape: { box: { x: 4, y: 50, w: 40, h: 14 }, style: { fontSize: 26, align: 'left', color: '#5C534B' } } } },
-    { id: 'cta', type: 'cta', field: 'cta', layer: 11, box: { x: 6, y: 89, w: 40, h: 8 }, style: { align: 'left', fontSize: 28 }, constraints: { maxChars: 28 }, formats: { story: { box: { x: 6, y: 88, w: 50, h: 6 }, style: { align: 'left', fontSize: 32 } }, landscape: { box: { x: 4, y: 82, w: 30, h: 12 }, style: { align: 'left', fontSize: 26 } } } },
+    { id: 'headline', type: 'text', field: 'headline', hiField: 'headlineHi', layer: 10, box: { x: 6, y: 62, w: 60, h: 16 }, style: { fontSize: 60, align: 'left', valign: 'top' }, constraints: { maxChars: 40, maxLines: 2 }, formats: { story: { box: { x: 9, y: 58, w: 70, h: 14 }, style: { fontSize: 72, align: 'left' } }, landscape: { box: { x: 5, y: 24, w: 40, h: 26 }, style: { fontSize: 44, align: 'left' } } } },
+    { id: 'support', type: 'text', field: 'support', layer: 10, box: { x: 6, y: 78, w: 56, h: 10 }, style: { fontSize: 27, align: 'left', color: '#5C534B', valign: 'top' }, constraints: { maxChars: 90, maxLines: 2 }, formats: { story: { box: { x: 9, y: 72, w: 70, h: 9 }, style: { fontSize: 32, align: 'left', color: '#5C534B' } }, landscape: { box: { x: 5, y: 50, w: 40, h: 14 }, style: { fontSize: 26, align: 'left', color: '#5C534B' } } } },
+    { id: 'cta', type: 'cta', field: 'cta', layer: 11, box: { x: 6, y: 88, w: 40, h: 6 }, style: { align: 'left', fontSize: 28 }, constraints: { maxChars: 28 }, formats: { story: { box: { x: 9, y: 88, w: 50, h: 6 }, style: { align: 'left', fontSize: 32 } }, landscape: { box: { x: 5, y: 79, w: 30, h: 12 }, style: { align: 'left', fontSize: 26 } } } },
   ],
 };
 
@@ -78,9 +78,9 @@ const SPOLECNE = {
     CRAYON_TR,
     { id: 'card', type: 'panel', layer: 4, box: { x: 8, y: 20, w: 84, h: 52 }, formats: { story: { box: { x: 8, y: 16, w: 84, h: 56 } }, landscape: { box: { x: 44, y: 10, w: 52, h: 80 } } } },
     { id: 'hero', type: 'image', slot: 'lifestyle', placeholder: 'společná fotka', layer: 5, box: { x: 10, y: 22, w: 80, h: 48 }, style: { radius: 20 }, constraints: { required: true, allowedAssetType: 'lifestyle' }, formats: { story: { box: { x: 10, y: 18, w: 80, h: 52 } }, landscape: { box: { x: 46, y: 12, w: 48, h: 76 } } } },
-    { id: 'logo', type: 'logo', layer: 6, box: { x: 30, y: 6, w: 40, h: 8 }, constraints: { minW: 20 }, formats: { landscape: { box: { x: 4, y: 10, w: 32, h: 14 }, style: { align: 'flex-start' } } } },
-    { id: 'headline', type: 'text', field: 'headline', hiField: 'headlineHi', layer: 10, box: { x: 8, y: 75, w: 84, h: 13 }, style: { pill: true, fontSize: 52, align: 'center' }, constraints: { maxChars: 42, maxLines: 2 }, formats: { story: { box: { x: 8, y: 76, w: 84, h: 12 }, style: { pill: true, fontSize: 66 } }, landscape: { box: { x: 3, y: 30, w: 40, h: 34 }, style: { pill: true, fontSize: 38, align: 'left' } } } },
-    { id: 'cta', type: 'cta', field: 'cta', layer: 11, box: { x: 33, y: 90, w: 34, h: 7 }, style: { fontSize: 27 }, constraints: { maxChars: 26 }, formats: { story: { box: { x: 30, y: 90, w: 40, h: 5 } }, landscape: { box: { x: 3, y: 70, w: 26, h: 12 }, style: { align: 'left' } } } },
+    { id: 'logo', type: 'logo', layer: 6, box: { x: 30, y: 6, w: 40, h: 8 }, constraints: { minW: 20 }, formats: { landscape: { box: { x: 5, y: 10, w: 32, h: 14 }, style: { align: 'flex-start' } } } },
+    { id: 'headline', type: 'text', field: 'headline', hiField: 'headlineHi', layer: 10, box: { x: 8, y: 75, w: 84, h: 13 }, style: { pill: true, fontSize: 52, align: 'center' }, constraints: { maxChars: 42, maxLines: 2 }, formats: { story: { box: { x: 9, y: 76, w: 82, h: 12 }, style: { pill: true, fontSize: 66 } }, landscape: { box: { x: 5, y: 30, w: 40, h: 34 }, style: { pill: true, fontSize: 38, align: 'left' } } } },
+    { id: 'cta', type: 'cta', field: 'cta', layer: 11, box: { x: 33, y: 88, w: 34, h: 6 }, style: { fontSize: 27 }, constraints: { maxChars: 26 }, formats: { story: { box: { x: 30, y: 90, w: 40, h: 5 } }, landscape: { box: { x: 5, y: 70, w: 26, h: 12 }, style: { align: 'left' } } } },
   ],
 };
 
@@ -96,11 +96,11 @@ const PRODUKT = {
   elements: [
     { id: 'bg', type: 'background', layer: 0, box: { x: 0, y: 0, w: 100, h: 100 } },
     SCRIBBLE_BL,
-    { id: 'logo', type: 'logo', layer: 5, box: { x: 30, y: 7, w: 40, h: 8 }, constraints: { minW: 20 }, formats: { landscape: { box: { x: 4, y: 10, w: 32, h: 14 }, style: { align: 'flex-start' } } } },
+    { id: 'logo', type: 'logo', layer: 5, box: { x: 30, y: 7, w: 40, h: 8 }, constraints: { minW: 20 }, formats: { landscape: { box: { x: 5, y: 10, w: 32, h: 14 }, style: { align: 'flex-start' } } } },
     { id: 'product', type: 'image', slot: 'product', placeholder: 'produkt (kniha)', layer: 6, box: { x: 16, y: 22, w: 68, h: 46 }, style: { frame: true }, constraints: { required: true, allowedAssetType: 'product' }, formats: { story: { box: { x: 12, y: 20, w: 76, h: 46 } }, landscape: { box: { x: 48, y: 12, w: 48, h: 76 }, style: { frame: true } } } },
-    { id: 'headline', type: 'text', field: 'headline', hiField: 'headlineHi', layer: 10, box: { x: 10, y: 72, w: 80, h: 12 }, style: { fontSize: 54, align: 'center' }, constraints: { maxChars: 40, maxLines: 2 }, formats: { story: { box: { x: 8, y: 70, w: 84, h: 12 }, style: { fontSize: 68 } }, landscape: { box: { x: 4, y: 30, w: 40, h: 30 }, style: { fontSize: 42, align: 'left' } } } },
-    { id: 'support', type: 'text', field: 'support', layer: 10, box: { x: 12, y: 83, w: 76, h: 7 }, style: { fontSize: 26, align: 'center', color: '#5C534B' }, constraints: { maxChars: 80, maxLines: 2 }, formats: { landscape: { box: { x: 4, y: 55, w: 40, h: 12 }, style: { fontSize: 24, align: 'left', color: '#5C534B' } } } },
-    { id: 'cta', type: 'cta', field: 'cta', layer: 11, box: { x: 33, y: 90, w: 34, h: 7 }, style: { fontSize: 27 }, constraints: { maxChars: 26 }, formats: { landscape: { box: { x: 4, y: 72, w: 26, h: 12 }, style: { align: 'left' } } } },
+    { id: 'headline', type: 'text', field: 'headline', hiField: 'headlineHi', layer: 10, box: { x: 10, y: 72, w: 80, h: 12 }, style: { fontSize: 54, align: 'center' }, constraints: { maxChars: 40, maxLines: 2 }, formats: { story: { box: { x: 9, y: 70, w: 82, h: 12 }, style: { fontSize: 68 } }, landscape: { box: { x: 5, y: 30, w: 40, h: 30 }, style: { fontSize: 42, align: 'left' } } } },
+    { id: 'support', type: 'text', field: 'support', layer: 10, box: { x: 12, y: 82, w: 76, h: 7 }, style: { fontSize: 26, align: 'center', color: '#5C534B' }, constraints: { maxChars: 80, maxLines: 2 }, formats: { landscape: { box: { x: 5, y: 55, w: 40, h: 12 }, style: { fontSize: 24, align: 'left', color: '#5C534B' } } } },
+    { id: 'cta', type: 'cta', field: 'cta', layer: 11, box: { x: 33, y: 89, w: 34, h: 5 }, style: { fontSize: 27 }, constraints: { maxChars: 26 }, formats: { landscape: { box: { x: 5, y: 72, w: 26, h: 12 }, style: { align: 'left' } } } },
   ],
 };
 
@@ -116,10 +116,10 @@ const REFERENCE = {
   elements: [
     { id: 'bg', type: 'background', layer: 0, box: { x: 0, y: 0, w: 100, h: 100 } },
     CRAYON_TL,
-    { id: 'logo', type: 'logo', layer: 5, box: { x: 30, y: 6, w: 40, h: 8 }, constraints: { minW: 20 }, formats: { landscape: { box: { x: 4, y: 9, w: 30, h: 13 }, style: { align: 'flex-start' } } } },
+    { id: 'logo', type: 'logo', layer: 5, box: { x: 30, y: 6, w: 40, h: 8 }, constraints: { minW: 20 }, formats: { landscape: { box: { x: 5, y: 9, w: 30, h: 13 }, style: { align: 'flex-start' } } } },
     { id: 'photo', type: 'image', slot: 'lifestyle', placeholder: 'fotka zákazníka', layer: 6, box: { x: 12, y: 20, w: 40, h: 36 }, style: { frame: true, rotate: -4 }, constraints: { allowedAssetType: 'lifestyle' }, formats: { story: { box: { x: 10, y: 16, w: 44, h: 30 } }, landscape: { box: { x: 4, y: 26, w: 26, h: 60 }, style: { frame: true } } } },
     { id: 'product', type: 'image', slot: 'product', placeholder: 'produkt', layer: 7, box: { x: 52, y: 24, w: 36, h: 30 }, style: { frame: true, rotate: 5 }, formats: { story: { box: { x: 52, y: 18, w: 38, h: 26 } }, landscape: { box: { x: 68, y: 26, w: 28, h: 60 }, style: { frame: true, rotate: 4 } } } },
-    { id: 'quote', type: 'text', field: 'testimonial', layer: 10, box: { x: 10, y: 60, w: 80, h: 20 }, style: { pill: true, fontSize: 40, align: 'center' }, constraints: { required: true, maxChars: 140, maxLines: 4 }, formats: { story: { box: { x: 8, y: 52, w: 84, h: 20 }, style: { pill: true, fontSize: 48 } }, landscape: { box: { x: 32, y: 30, w: 34, h: 40 }, style: { pill: true, fontSize: 34 } } } },
+    { id: 'quote', type: 'text', field: 'testimonial', layer: 10, box: { x: 10, y: 60, w: 80, h: 20 }, style: { pill: true, fontSize: 40, align: 'center' }, constraints: { required: true, maxChars: 140, maxLines: 4 }, formats: { story: { box: { x: 9, y: 52, w: 82, h: 20 }, style: { pill: true, fontSize: 48 } }, landscape: { box: { x: 32, y: 30, w: 34, h: 40 }, style: { pill: true, fontSize: 34 } } } },
     { id: 'author', type: 'text', field: 'testimonialAuthor', layer: 10, box: { x: 10, y: 82, w: 80, h: 6 }, style: { fontSize: 26, align: 'center', color: '#5C534B' }, constraints: { maxChars: 40 }, formats: { landscape: { box: { x: 32, y: 72, w: 34, h: 8 }, style: { fontSize: 24, align: 'center', color: '#5C534B' } } } },
   ],
 };

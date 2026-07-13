@@ -257,3 +257,23 @@ test('studio preview copy params override the seed and are HTML-escaped', async 
     assert.ok(!html.includes('X <b>'));
   });
 });
+
+test('every template family passes QC clean (pripraveno) with its seed copy in all default formats (N11)', () => {
+  // Guards the "cry wolf" failure: if a fresh, untouched template + its seed copy already trips the
+  // Kontrola panel, the operator learns to ignore it and then misses a real overflow. A fully-composed
+  // seed concept — seed copy + a placeholder for every image slot the template uses — must be clean in
+  // every shipped format. (An unfilled *required* photo is a legitimate "pick a photo" prompt, so we
+  // fill the slots; what must not warn is the layout itself.)
+  for (const template of Object.values(TEMPLATES)) {
+    const assets = Object.fromEntries(templateSlots(template).map((s) => [s, 'data:image/png;base64,placeholder']));
+    const copy = SEED_COPY[template.id] ?? {};
+    for (const format of DEFAULT_FORMATS) {
+      const { status, findings } = validateConcept({ template, format, copy, assets });
+      assert.equal(
+        status,
+        'pripraveno',
+        `${template.id} / ${format} should be clean, got ${status}: ${findings.map((f) => `${f.elementId}:${f.code}`).join(', ')}`,
+      );
+    }
+  }
+});
