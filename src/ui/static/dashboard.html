@@ -505,9 +505,13 @@
       // (N3). If the PDF was rebuilt after send (N10), the primary action becomes "Odeslat znovu" so
       // Jirka isn't left printing a stale book.
       else if(o.status==="sent"){
-        const resend=o.stale?(waState&&waState.state==="linked"
-          ?`<button class="btn btn-primary sm act-deliver" data-deliver="${esc(o.orderId)}">Odeslat znovu</button>`
-          :`<button class="btn btn-primary sm" disabled title="Nejdříve propojte WhatsApp (QR kód nahoře).">Odeslat znovu</button>`):"";
+        // Resend to Jirka is always available on a sent order (he lost the message, wants it again),
+        // and becomes the primary action when the PDF went stale after sending (N10). Disabled with a
+        // tooltip until WhatsApp is linked.
+        const waOn=waState&&waState.state==="linked";
+        const resend=waOn
+          ?`<button class="btn ${o.stale?"btn-primary":"btn-secondary"} sm act-deliver" data-deliver="${esc(o.orderId)}">Odeslat Jirkovi znovu</button>`
+          :`<button class="btn btn-secondary sm" disabled title="Nejdříve propojte WhatsApp (QR kód nahoře na této stránce).">Odeslat Jirkovi znovu</button>`;
         act=`${resend}<button class="btn ${o.stale?"btn-secondary":"btn-primary"} sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button><button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
       }
       else if(o.status==="printed") act=`<button class="btn btn-ghost sm act-unprinted" data-unprinted="${esc(o.orderId)}">Vrátit</button>`;
@@ -737,13 +741,14 @@
     // An incomplete book (N2) must not leave for the printer on an unconfirmed click.
     const o=(studioData&&studioData.orders||[]).find(x=>x.orderId===id);
     if(o&&o.incomplete&&!confirm(`Objednávka ${id} je NEÚPLNÁ kniha (${o.incomplete.pages} z ${o.incomplete.expected} stran). Opravdu ji odeslat Jirkovi?`)) return;
+    const orig=btn?btn.textContent:null; // "Odeslat Jirkovi" or "Odeslat Jirkovi znovu" — restore on failure
     if(btn){btn.disabled=true;btn.textContent="Odesílám…";}
     try{
       const r=await fetch(`/api/${encodeURIComponent(id)}/deliver`,{method:"POST"});
       const j=await r.json().catch(()=>({}));
       if(r.ok&&j.sent){toast("Odesláno Jirkovi ✓");await fetchStudio();}
-      else{toast(j.error||"Odeslání selhalo.");if(btn){btn.disabled=false;btn.textContent="Odeslat Jirkovi";}}
-    }catch(e){toast("Server neodpovídá.");if(btn){btn.disabled=false;btn.textContent="Odeslat Jirkovi";}}
+      else{toast(j.error||"Odeslání selhalo.");if(btn){btn.disabled=false;btn.textContent=orig;}}
+    }catch(e){toast("Server neodpovídá.");if(btn){btn.disabled=false;btn.textContent=orig;}}
   }
   document.getElementById("ordersBody").addEventListener("click",e=>{
     const d=e.target.closest(".act-deliver");if(d){deliverToJirka(d.dataset.deliver,d);return;}
