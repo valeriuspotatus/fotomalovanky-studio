@@ -106,6 +106,30 @@ test('a run does not start when the folder does not exist, and nothing is marked
   assert.equal(current, inbox, 'the tool still points at the folder it did before');
 });
 
+test('GET /api/settings reports wiring status without ever leaking a secret (N14)', async () => {
+  const res = await fetch(`${origin}/api/settings`);
+  assert.equal(res.status, 200);
+  const s = await res.json();
+
+  assert.equal(s.folders.inbox, inbox, 'the folder shown is the one the generator reads');
+  assert.equal(s.folders.outbox, outbox);
+  // Generator is configured; only its host is surfaced, never the token-scoped path.
+  assert.equal(s.integrations.generator.configured, true);
+  assert.equal(s.integrations.generator.host, 'example.test');
+  // Absent integrations read as not-configured rather than crashing.
+  assert.equal(s.integrations.shopify.configured, false);
+  assert.equal(s.integrations.ai.configured, false);
+  assert.equal(s.integrations.mail.configured, false);
+  assert.equal(s.whatsapp.state, 'disabled');
+  assert.equal(s.autopilot.lastRun, null);
+
+  // The hard invariant (verdict N14): no secret value appears anywhere in the payload — not the
+  // token-scoped generator URL, not the raw config key names that would carry a token/password.
+  const blob = JSON.stringify(s);
+  assert.ok(!blob.includes('/tok'), 'the generator token path never renders');
+  assert.ok(!blob.includes('accessToken') && !blob.includes('apiKey') && !blob.includes('baseUrl'));
+});
+
 test('Go starts the pipeline and streams progress lines', async () => {
   const res = await post('/api/_run', { inbox });
   assert.equal(res.status, 202);

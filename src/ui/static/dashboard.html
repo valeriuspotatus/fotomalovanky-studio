@@ -242,6 +242,7 @@
     <div class="sb-foot">
       <div class="user"><div class="avatar">D</div><div class="who"><b>David</b><br><span>Studio</span></div></div>
       <button class="mini" id="themeBtn"><svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></svg><span id="themeLabel">Tmavý režim</span></button>
+      <button class="mini" data-view="settings" onclick="go('settings')"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Nastavení</button>
       <a class="mini" href="/review"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/></svg>Otevřít generátor</a>
     </div>
   </aside>
@@ -413,6 +414,9 @@
 
     <!-- ===== NEEDS YOU ===== -->
     <section class="view" id="v-todo"><div class="todo" id="todo"></div></section>
+
+    <!-- ===== NASTAVENÍ (N14) ===== -->
+    <section class="view" id="v-settings"><div class="settings" id="settings">Načítám…</div></section>
   </main>
   <div id="mailModal" class="mm-overlay" hidden><div class="mm-dialog"><button class="mm-x" id="mmClose" aria-label="Zavřít">✕</button><div id="mmContent"></div></div></div>
   <div id="mmToast" class="mm-toast" hidden></div>
@@ -459,7 +463,8 @@
     creatives:{t:"Kreativy",s:"Reklamní vizuály z fotek — feed, story i wide."},
     calendar:{t:"Kalendář",s:"Sezóna a plán kreativ."},
     mail:{t:"Pošta",s:"Schránka info@fotomalovanky.cz přes Proton Bridge."},
-    todo:{t:"Potřebuje vás",s:"Vše, co čeká na vaše rozhodnutí."}
+    todo:{t:"Potřebuje vás",s:"Vše, co čeká na vaše rozhodnutí."},
+    settings:{t:"Nastavení",s:"Složky, propojení a poslední noční běh — stav, nikdy hesla."}
   };
 
   /* ---- live board from /api/studio ---- */
@@ -839,6 +844,74 @@
       const m=await r.json(); renderMailList(m); setNavMailBadge(m);
     }catch{if(list)list.innerHTML='<div class="empty" style="padding:16px">Server neodpovídá.</div>';}
   }
+  /* ---- Nastavení (N14): read-only status, never a secret value ---- */
+  const stPill=(ok,label,tone)=>`<span class="chip ${tone||(ok?"c-success":"c-neutral")}">${esc(label)}</span>`;
+  const waLabel=(w)=>{const s=w&&w.state;if(s==="linked")return stPill(true,"propojeno");if(s==="disabled")return stPill(false,"vypnuto");if(s==="offline")return stPill(false,"offline","c-danger");return stPill(false,s?("čeká na spárování"):"neznámý","c-warning");};
+  function settingsRow(label,valHtml){return `<div class="set-row"><div class="set-k">${esc(label)}</div><div class="set-v">${valHtml}</div></div>`;}
+  async function fetchSettings(){
+    const box=document.getElementById("settings");
+    if(!box)return;
+    try{
+      const r=await fetch("/api/settings");
+      if(!r.ok){box.innerHTML='<div class="empty" style="padding:16px">Nastavení nelze načíst.</div>';return;}
+      renderSettings(await r.json());
+    }catch{box.innerHTML='<div class="empty" style="padding:16px">Server neodpovídá.</div>';}
+  }
+  function renderSettings(s){
+    const box=document.getElementById("settings");
+    const g=s.integrations.generator, sh=s.integrations.shopify, ai=s.integrations.ai, ml=s.integrations.mail;
+    const ap=s.autopilot||{};
+    const cfg=(o)=>stPill(o.configured,o.configured?"nastaveno":"nenastaveno");
+    const en=(o)=>o.enabled?stPill(true,"zapnuto"):stPill(false,"vypnuto","c-neutral");
+    box.innerHTML=`
+      <div class="set-card">
+        <h3>Složky</h3>
+        <div class="set-note">Vstupní složka je zdroj pro generátor — její změnou přepnete, odkud se čtou objednávky.</div>
+        <div class="set-folder">
+          <input id="setInbox" value="${esc(s.folders.inbox||"")}" spellcheck="false" aria-label="Vstupní složka">
+          <button class="btn" id="setInboxSave">Uložit složku</button>
+        </div>
+        <div class="set-msg" id="setInboxMsg"></div>
+        ${settingsRow("Výstupní složka",`<code>${esc(s.folders.outbox||"—")}</code>`)}
+      </div>
+      <div class="set-card">
+        <h3>Propojení</h3>
+        ${settingsRow("Generátor",`${cfg(g)} ${g.host?`<code>${esc(g.host)}</code>`:""}${g.mode?` <span class="dim">· ${esc(g.mode)}</span>`:""}`)}
+        ${settingsRow("Shopify",`${cfg(sh)} ${en(sh)} ${sh.storeDomain?`<code>${esc(sh.storeDomain)}</code>`:""}${sh.apiVersion?` <span class="dim">· API ${esc(sh.apiVersion)}</span>`:""}`)}
+        ${settingsRow("AI popis fotek",`${cfg(ai)} ${en(ai)}${ai.model?` <code>${esc(ai.model)}</code>`:""}`)}
+        ${settingsRow("Pošta",`${cfg(ml)} ${en(ml)}${ml.user?` <code>${esc(ml.user)}</code>`:""}${ml.host?` <span class="dim">· ${esc(ml.host)}${ml.port?":"+ml.port:""}</span>`:""}`)}
+        ${settingsRow("WhatsApp (Jirkovi)",waLabel(s.whatsapp))}
+        <div class="set-note">Tokeny a hesla se nikde nezobrazují — jen jestli jsou nastavené a kam míří.</div>
+      </div>
+      <div class="set-card">
+        <h3>Automatický noční běh</h3>
+        ${ap.lastRun
+          ? settingsRow("Poslední běh",`${esc(czDateTime(ap.lastRun))} <span class="dim">(${daysSince(ap.lastRun)} ${plD(daysSince(ap.lastRun))} zpět)</span>`)
+            +settingsRow("Zpracováno",`${ap.processed??0} nových · ${ap.generated??0} vygenerováno`)
+            +settingsRow("Odhad útraty",`${ap.estSpend!=null?ap.estSpend.toFixed(2)+" $":"—"}`)
+          : `<div class="set-note">Zatím žádný noční běh — objeví se tu po prvním automatickém zpracování.</div>`}
+      </div>
+      <div class="set-card">
+        <h3>Úklid</h3>
+        ${settingsRow("Doba uchování",`${s.retentionDays!=null?s.retentionDays+" "+plD(s.retentionDays):"—"}`)}
+        <div class="set-note">Vytištěné objednávky se po této době mažou z výstupní složky.</div>
+      </div>`;
+    const inp=document.getElementById("setInbox"), btn=document.getElementById("setInboxSave"), msg=document.getElementById("setInboxMsg");
+    btn.addEventListener("click",async()=>{
+      const path=inp.value.trim();
+      if(!path){msg.textContent="Zadejte cestu ke složce.";msg.className="set-msg err";return;}
+      btn.disabled=true;msg.textContent="Ukládám…";msg.className="set-msg";
+      try{
+        const r=await fetch("/api/_scan",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path})});
+        const d=await r.json().catch(()=>({}));
+        if(!r.ok){msg.textContent=d.error||(r.status===409?"Složka neexistuje nebo právě běží zpracování.":"Nepodařilo se přepnout složku.");msg.className="set-msg err";}
+        else{const n=(d.orders||[]).length;const w=n===1?"objednávka":n>=2&&n<=4?"objednávky":"objednávek";msg.textContent=`Hotovo — složka přepnuta (${n} ${w}).`;msg.className="set-msg ok";fetchStudio();}
+      }catch{msg.textContent="Server neodpovídá.";msg.className="set-msg err";}
+      finally{btn.disabled=false;}
+    });
+  }
+  const czDateTime=(iso)=>{try{return new Date(iso).toLocaleString("cs-CZ",{day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"});}catch{return iso;}};
+
   // Drop one from the nav badge and the home-tile chip. The server also marked the message \Seen, so
   // the reconcile poll below confirms the count — this is just the instant, optimistic update.
   function decMailBadge(){
@@ -1295,7 +1368,7 @@
   paintEvergreen();
 
   /* ---- router ---- */
-  const views=["home","orders","creatives","calendar","mail","todo"];
+  const views=["home","orders","creatives","calendar","mail","todo","settings"];
   function setActiveNav(v){document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.view===v));}
   function go(v){
     if(!views.includes(v))v="home";
@@ -1305,6 +1378,7 @@
     if(location.hash!=="#"+v)history.pushState(null,"","#"+v);
     if(["home","orders","todo"].includes(v))fetchStudio();
     if(v==="mail")fetchMailTab();
+    if(v==="settings")fetchSettings();
     if(v==="creatives"&&window.__cvFit)window.__cvFit();
     window.scrollTo({top:0,behavior:"instant"});
   }

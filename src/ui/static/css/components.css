@@ -293,4 +293,21 @@ svg.chart{width:100%;height:auto;display:block;overflow:visible}
   .kpis{grid-template-columns:repeat(2,1fr)}.continue{grid-template-columns:1fr}.tools{grid-template-columns:repeat(2,1fr)}
   .topbar{flex-direction:column}.search{min-width:0}.sheet .grid{grid-template-columns:1fr}
 }
+/* Nastavení screen (N14) — read-only status cards, one editable folder input */
+.settings{display:flex;flex-direction:column;gap:16px;max-width:720px}
+.set-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:18px 20px}
+.set-card h3{font-size:14px;font-weight:600;margin:0 0 12px}
+.set-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:8px 0;border-top:1px solid var(--border)}
+.set-row:first-of-type{border-top:0}
+.set-k{color:var(--ink-2);font-size:13.5px;flex-shrink:0}
+.set-v{text-align:right;font-size:13.5px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:flex-end}
+.set-v code{font-family:var(--font-mono);font-size:12px;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:1px 6px;word-break:break-all}
+.set-v .dim{color:var(--ink-3);font-size:12px}
+.set-note{color:var(--ink-3);font-size:12.5px;margin:10px 0 0;line-height:1.5}
+.set-folder{display:flex;gap:8px;margin:4px 0 6px}
+.set-folder input{flex:1;min-width:0;height:38px;padding:0 12px;font-family:var(--font-mono);font-size:12.5px;
+  background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--r-md);color:var(--ink)}
+.set-folder input:focus{outline:none;border-color:var(--ink-3)}
+.set-msg{font-size:12.5px;min-height:16px;color:var(--ink-3)}
+.set-msg.ok{color:var(--success)}.set-msg.err{color:var(--danger)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

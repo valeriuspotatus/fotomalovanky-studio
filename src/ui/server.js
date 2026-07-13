@@ -10,6 +10,7 @@ import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent, pdfPathFor } from '../orchestrator.js';
 import { studioBoard, markDelivered, unmarkDelivered, markPrinted, unmarkPrinted } from '../studio.js';
+import { readReport } from '../autopilotReport.js';
 import { createBridgeClient, BridgeError } from '../proton/bridgeClient.js';
 import { createSmtpClient, SmtpError } from '../proton/smtpClient.js';
 import { summarizeInbox } from '../proton/mailbox.js';
@@ -695,6 +696,31 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         } catch (err) {
           return json(res, 200, { available: false, state: 'offline', detail: err.message });
         }
+      }
+
+      // GET /api/settings — the Nastavení screen's read-only status (N14). Reports what is wired and
+      // where, never a secret value: tokens, passwords and the token-scoped generator URL are surfaced
+      // only as configured-or-not (+ safe host/user), never rendered. Changing the input folder is a
+      // separate POST /api/_scan, so this handler stays a pure read.
+      if (req.method === 'GET' && url.pathname === '/api/settings') {
+        const hostOf = (u) => { try { return new URL(u).host; } catch { return null; } };
+        let whatsapp = { available: false, state: wa ? 'offline' : 'disabled' };
+        if (wa) {
+          try { const s = await wa.status(); whatsapp = { available: s.available, state: s.state }; } catch { /* keep offline */ }
+        }
+        const report = readReport(config.shopify?.dataDir ?? null);
+        return json(res, 200, {
+          folders: { inbox, outbox },
+          whatsapp,
+          integrations: {
+            generator: { configured: Boolean(config.generator?.baseUrl), host: hostOf(config.generator?.baseUrl), mode: config.generator?.mode ?? null },
+            shopify: { configured: Boolean(config.shopify?.accessToken), enabled: Boolean(config.shopify?.enabled), storeDomain: config.shopify?.storeDomain ?? null, apiVersion: config.shopify?.apiVersion ?? null },
+            ai: { configured: Boolean(config.ai?.apiKey), enabled: Boolean(config.ai?.enabled), model: config.ai?.model ?? null },
+            mail: { configured: Boolean(config.mail?.pass), enabled: Boolean(config.mail?.enabled), user: config.mail?.user ?? null, host: config.mail?.host ?? null, port: config.mail?.port ?? null },
+          },
+          autopilot: report ? { lastRun: report.ranAt ?? null, processed: report.processed ?? null, generated: report.generated ?? null, estSpend: report.estSpend ?? null } : { lastRun: null },
+          retentionDays: config.retentionDays ?? null,
+        });
       }
 
       // GET /api/studio/templates — the Creative Studio pickers: the 5 template families (each with the
