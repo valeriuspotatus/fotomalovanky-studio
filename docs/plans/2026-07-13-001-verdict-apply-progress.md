@@ -20,7 +20,7 @@ rows N1–N14) autonomously. Blocker-first. Commit after each row lands with tes
 | N5 | Fix calendar grid (7 visible columns, no overlap) | 1 | **done** 460db8c (visual — needs eyeball) |
 | N6 | Disable send when WhatsApp unlinked | 1 | **done** e2d5521 |
 | N7 | Unify shells: Generátor inside studio shell, one chip component, re-token buttons | 2 | todo |
-| N8 | Board columns: add Stáří; rename FOTKY→Stránky w/ product denominator | 2 | todo |
+| N8 | Board columns: add Stáří; rename FOTKY→Stránky w/ product denominator | 2 | **done** da3c4f3 |
 | N4 | Waiting-since: "Označit: e-mail odeslán" timestamp; ">5 dní" danger | 2 | **done** 38ba8f9 |
 | N9 | Mail↔order chips (regex `#?\d{4}` → chip w/ live status) | 2 | **done** ee4ebf8 |
 | N12 | Lightbox + keyboard review (←→/A/B/R) | 2 | todo |
@@ -85,3 +85,8 @@ needs an order-date source, use folder mtime proxy) → N10 (sent staleness) →
   dashboard Potřebuje vás show "Čeká na zákazníka od X (N dní)" (danger >5) or "e-mail neodeslán",
   with a mark/undo button. manifest round-trip test. 501 green. **9/14 done.**
   Remaining: N8 (board Stáří/Stránky), N10 (sent staleness), N14 (Nastavení), N7 (unify shells), N12 (lightbox).
+- da3c4f3 N8 done. studio boardEntry.expectedPages/missingPhotos (from intake count finding);
+  buildBoard injected createdAt (studioBoard = folder birthtime, mtime fallback). dashboard: "Stáří"
+  col (board only, fmtAge), Fotky→Stránky w/ product denominator + "(N fotka chybí)". headers +
+  colspans updated. Test for derived fields + age. 502 green. **10/14 done.**
+  Remaining: N10 (sent staleness), N14 (Nastavení), N7 (unify shells, big), N12 (lightbox, big).
