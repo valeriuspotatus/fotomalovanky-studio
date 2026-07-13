@@ -26,8 +26,9 @@ const heldOrder = (orderId, draftEmail) =>
 
 // ---- deriveOrderStatus precedence -------------------------------------------
 
-test('a generated, all-eligible order with a PDF and no marker is ready-to-send; with a marker it is sent', () => {
+test('all-approved splits by whether the PDF exists: no book on disk = approved, book = ready-to-send, marker = sent (N1)', () => {
   const o = order('1', summary({ total: 2, eligible: 2, ready: true }));
+  assert.equal(deriveOrderStatus(o, { pdfBuilt: false, delivered: false }), ORDER_BOARD_STATES.APPROVED);
   assert.equal(deriveOrderStatus(o, { pdfBuilt: true, delivered: false }), ORDER_BOARD_STATES.READY_TO_SEND);
   assert.equal(deriveOrderStatus(o, { pdfBuilt: true, delivered: true }), ORDER_BOARD_STATES.SENT);
 });
@@ -106,14 +107,15 @@ test('a non-held order carries no draft email or reason', () => {
 test('KPI counts tally the board by status, with a total', () => {
   const board = buildBoard(
     [
-      order('1', summary({ total: 1, eligible: 1, ready: true })), // ready-to-send
+      order('1', summary({ total: 1, eligible: 1, ready: true })), // approved (all approved, no PDF on disk)
       order('2', summary({ total: 2, eligible: 1, held: 1 })), // pending-review
       heldOrder('3', 'x'), // held
       order('4', summary({ total: 1, pending: 1 })), // queued
     ],
   );
   assert.equal(board.counts.total, 4);
-  assert.equal(board.counts[ORDER_BOARD_STATES.READY_TO_SEND], 1);
+  assert.equal(board.counts[ORDER_BOARD_STATES.APPROVED], 1);
+  assert.equal(board.counts[ORDER_BOARD_STATES.READY_TO_SEND], 0);
   assert.equal(board.counts[ORDER_BOARD_STATES.PENDING_REVIEW], 1);
   assert.equal(board.counts[ORDER_BOARD_STATES.HELD], 1);
   assert.equal(board.counts[ORDER_BOARD_STATES.QUEUED], 1);

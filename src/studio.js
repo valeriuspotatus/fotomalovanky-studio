@@ -44,7 +44,8 @@ export const ORDER_BOARD_STATES = Object.freeze({
   GENERATING: 'generating',
   HELD: 'held',
   PENDING_REVIEW: 'pending-review',
-  READY_TO_SEND: 'ready-to-send',
+  APPROVED: 'approved', // every photo approved, but no Final.pdf on disk yet → CTA "Vytvořit PDF"
+  READY_TO_SEND: 'ready-to-send', // the book exists on disk → CTA "Odeslat Jirkovi"
   SENT: 'sent',
   FAILED: 'failed',
 });
@@ -66,7 +67,11 @@ export function deriveOrderStatus(order, { generating = false, pdfBuilt = false,
   if (generating) return ORDER_BOARD_STATES.GENERATING; // the run is on this order right now
   if (s.failed > 0) return ORDER_BOARD_STATES.FAILED;
   if (s.held > 0 || s.manual > 0) return ORDER_BOARD_STATES.PENDING_REVIEW; // a photo awaits the operator
-  if (s.ready || pdfBuilt) return ORDER_BOARD_STATES.READY_TO_SEND; // all approved, or a book already on disk
+  // Split the old "připraveno" collision (N1): a book already on disk is ready to SEND; an order with
+  // every photo approved but no PDF yet is APPROVED and needs "Vytvořit PDF". One state → one CTA, so
+  // the home card and the board can never disagree about whether the PDF exists.
+  if (pdfBuilt) return ORDER_BOARD_STATES.READY_TO_SEND; // the finished book is on disk → send it
+  if (s.ready) return ORDER_BOARD_STATES.APPROVED; // all photos approved, PDF not built yet → build it
   // Anything left is unfinished with nothing flagged: an untouched order, or one a stopped run left
   // part-generated (some photos ok, the rest still to run). Both just need Go pressed to finish —
   // queued, not a review the operator would open to find nothing waiting.
