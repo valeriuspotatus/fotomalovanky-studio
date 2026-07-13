@@ -141,8 +141,25 @@
 
  /* lightbox + editor dialogs */
  dialog{border:none;border-radius:var(--r-lg);padding:0;max-width:96vw;max-height:96vh;background:var(--surface);color:var(--ink)}
- dialog img{max-width:96vw;max-height:96vh;cursor:zoom-out;display:block;background:#fff}
  dialog::backdrop{background:rgba(20,18,16,.6)}
+ /* N12 lightbox: side-by-side compare (original vs coloring) + keyboard review */
+ #lb{width:min(1400px,96vw);max-width:96vw;display:flex;flex-direction:column;overflow:hidden}
+ #lb .lb-head{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+ #lb .lb-head b{font-size:13.5px}
+ #lb .lb-pos{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+ #lb .lb-hint{font-size:11.5px;color:var(--ink-3);margin-left:auto}
+ #lb .lb-hint kbd{font-family:var(--font-mono);font-size:10.5px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:0 4px}
+ #lb .lb-x{background:none;border:0;color:var(--ink-2);font-size:16px;cursor:pointer;padding:2px 6px;line-height:1}
+ #lb .lb-x:hover{color:var(--ink)}
+ #lb .lb-imgs{display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--border);overflow:auto;flex:1;min-height:0}
+ #lb .lb-imgs figure{margin:0;background:#fff;display:flex;flex-direction:column;min-height:0}
+ #lb .lb-imgs img{width:100%;height:100%;max-height:82vh;object-fit:contain;display:block;background:#fff;cursor:zoom-in}
+ #lb .lb-imgs img.zoom{object-fit:none;object-position:center;cursor:zoom-out;max-height:82vh}
+ #lb .lb-imgs figcaption{font-size:11.5px;color:var(--ink-2);text-align:center;padding:4px;background:var(--surface)}
+ #lb .lb-imgs .ph{display:grid;place-items:center;min-height:200px;color:var(--ink-3);font-size:13px;background:var(--surface-2)}
+ #lb .lb-acts{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--border);flex-wrap:wrap}
+ #lb .lb-acts .dim{color:var(--ink-3);font-size:12.5px}
+ @media (max-width:760px){#lb .lb-imgs{grid-template-columns:1fr}}
 
  /* the fix-by-hand editor — chrome restyled; the ewrap/img/canvas geometry is functional, kept verbatim */
  #editor{width:min(1200px,96vw);max-width:96vw}
@@ -221,7 +238,15 @@
 </div>
 
 <div id="toast"></div>
-<dialog id="lb"><img id="lbimg" alt=""></dialog>
+<dialog id="lb">
+  <div class="lb-head">
+    <b id="lb-title"></b><span class="lb-pos" id="lb-pos"></span>
+    <span class="lb-hint">← → mezi fotkami · <kbd>A</kbd> schválit · <kbd>B</kbd> špatně · <kbd>R</kbd> přegenerovat · <kbd>Esc</kbd> zavřít</span>
+    <button class="lb-x" id="lb-close" aria-label="Zavřít">✕</button>
+  </div>
+  <div class="lb-imgs" id="lb-imgs"></div>
+  <div class="lb-acts" id="lb-acts"></div>
+</dialog>
 
 <dialog id="editor">
   <div class="etop">
@@ -1182,10 +1207,89 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.closest('.ded input')) e.target.blur();
 });
 
+// ---- lightbox: compare pair + keyboard review (N12) -------------------------
+// The review set is snapshotted as stable (order, base) keys when the lightbox opens, so ←/→ and
+// auto-advance keep a fixed sequence even though the grid re-sorts by attention after each verdict.
+// Each key resolves to the live tile on render, so images and available actions always reflect now.
+let lbKeys = [];
+let lbIdx = -1;
+let lbBusy = false;
+
+const lbTileFor = (k) =>
+  document.querySelector(`.tile[data-order="${CSS.escape(k.order)}"][data-base="${CSS.escape(k.base)}"]`);
+
+function openLightbox(order, base) {
+  lbKeys = [...document.querySelectorAll('.tile')].map((t) => ({ order: t.dataset.order, base: t.dataset.base }));
+  lbIdx = lbKeys.findIndex((k) => k.order === order && k.base === base);
+  if (lbIdx < 0) { lbKeys = [{ order, base }]; lbIdx = 0; }
+  renderLightbox();
+  const dlg = $('#lb');
+  if (!dlg.open) dlg.showModal();
+}
+
+function renderLightbox() {
+  const k = lbKeys[lbIdx];
+  if (!k) return;
+  const tile = lbTileFor(k);
+  if (!tile) { $('#lb-imgs').innerHTML = '<div class="ph">fotka už tu není</div>'; $('#lb-acts').innerHTML = ''; return; }
+  const imgs = tile.querySelector('.imgs');
+  $('#lb-imgs').innerHTML = imgs ? imgs.innerHTML : '';
+  $('#lb-imgs').querySelectorAll('img').forEach((im) => { im.loading = 'eager'; im.classList.remove('zoom'); });
+  const acts = tile.querySelector('.acts');
+  $('#lb-acts').innerHTML = acts ? acts.innerHTML : '<span class="dim">tato fotka právě nemá žádnou akci</span>';
+  $('#lb-title').textContent = `${k.order} · ${k.base}`;
+  $('#lb-pos').textContent = `${lbIdx + 1}/${lbKeys.length}`;
+}
+
+function lbNav(delta) {
+  if (!lbKeys.length) return;
+  lbIdx = Math.max(0, Math.min(lbKeys.length - 1, lbIdx + delta));
+  renderLightbox();
+}
+
+// A keyboard verdict only fires when the live tile actually offers that action, so A on a locked or
+// already-generating page is a harmless no-op. Approve/reject auto-advance; redo stays to watch it run.
+async function lbAct(k, action) {
+  if (lbBusy) return;
+  const tile = lbTileFor(k);
+  if (!tile || !tile.querySelector(`.acts button[data-a="${action}"]`)) return;
+  lbBusy = true;
+  try {
+    await act(k.order, k.base, action); // awaits its own refresh(true), so the grid is rebuilt after
+  } finally {
+    lbBusy = false;
+  }
+  if (action === 'approve' || action === 'reject') lbNav(1);
+  else renderLightbox();
+}
+
+// ←/→ move; A/B/R are approve/mark-bad/redo; Esc is the dialog's native close.
+document.addEventListener('keydown', (e) => {
+  const dlg = $('#lb');
+  if (!dlg.open) return;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); lbNav(-1); return; }
+  if (e.key === 'ArrowRight') { e.preventDefault(); lbNav(1); return; }
+  const action = { a: 'approve', b: 'reject', r: 'redo' }[e.key.toLowerCase()];
+  if (action) { e.preventDefault(); const k = lbKeys[lbIdx]; if (k) lbAct(k, action); }
+});
+
 document.addEventListener('click', (e) => {
-  const img = e.target.closest('.imgs img');
-  if (img) { $('#lbimg').src = img.src; $('#lb').showModal(); return; }
-  if (e.target === $('#lbimg') || e.target === $('#lb')) { $('#lb').close(); return; }
+  // A grid image opens the pair in the lightbox (N12): original beside coloring, full size.
+  const gridImg = e.target.closest('.imgs img');
+  if (gridImg) { const t = gridImg.closest('.tile'); if (t) openLightbox(t.dataset.order, t.dataset.base); return; }
+  // Inside the lightbox: a tap on an image toggles 1:1 zoom; the ✕ or the backdrop closes it.
+  if (e.target.closest('#lb-close') || e.target === $('#lb')) { $('#lb').close(); return; }
+  const lbImg = e.target.closest('#lb-imgs img');
+  if (lbImg) { lbImg.classList.toggle('zoom'); return; }
+  const lbBtn = e.target.closest('#lb-acts button');
+  if (lbBtn) {
+    const k = lbKeys[lbIdx];
+    if (!k) return;
+    if (lbBtn.dataset.a !== undefined) lbAct(k, lbBtn.dataset.a);
+    else if (lbBtn.dataset.open !== undefined) open(lbBtn.dataset.open, k.order);
+    else if (lbBtn.dataset.edit !== undefined && !lbBtn.disabled) { $('#lb').close(); openEditor(k.order, k.base, lbTileFor(k)?.dataset.edited === '1'); }
+    return;
+  }
 
   const undo = e.target.closest('button[data-restore]');
   if (undo) {
