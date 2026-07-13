@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, writeFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { reviewState } from './review.js';
 import { pdfPathFor } from './orchestrator.js';
@@ -123,6 +123,12 @@ function heldReason(order) {
 function boardEntry(order, status) {
   const s = order.summary ?? {};
   const held = status === ORDER_BOARD_STATES.HELD;
+  // Pages the product should have, and how many photos are still missing (N8) — from the intake
+  // count finding when one exists, else the incomplete-book flag. Null when the order is complete,
+  // so the board denominator falls back to the photos on hand.
+  const countFinding = order.intake?.findings?.find((f) => f.check === 'count');
+  const expectedPages = countFinding?.expected ?? order.intake?.incompleteBook?.expected ?? null;
+  const missingPhotos = countFinding?.missing ?? null;
   return {
     orderId: order.orderId,
     dirName: order.dirName ?? order.orderId,
@@ -137,6 +143,9 @@ function boardEntry(order, status) {
       failed: s.failed ?? 0,
       ready: Boolean(s.ready),
     },
+    // Product page count + missing photos for the "Stránky" column (N8).
+    expectedPages,
+    missingPhotos,
     // Only a held order carries an email to send and a reason; everything else omits them.
     reason: held ? heldReason(order) : null,
     draftEmail: held ? order.draftEmail || '' : '',
@@ -151,7 +160,7 @@ function boardEntry(order, status) {
 /** Build the whole board from review-state orders plus injected fact-providers. Pure over its
  *  inputs — `pdfBuilt`/`delivered` are predicates, `runningOrderId` a plain id — so the whole
  *  status machine is testable without a filesystem or a running server. */
-export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => false, delivered = () => false, printed = () => false, firstLiveOrder = null } = {}) {
+export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => false, delivered = () => false, printed = () => false, createdAt = () => null, firstLiveOrder = null } = {}) {
   // Hide old test orders: everything below the first real order number never reaches the board or
   // its counts. Non-numeric ids are always kept — the floor only judges what it can compare.
   const live =
@@ -168,7 +177,9 @@ export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => fal
       delivered: delivered(order),
       printed: printed(order),
     });
-    return boardEntry(order, status);
+    const entry = boardEntry(order, status);
+    entry.createdAt = createdAt(order); // ms since epoch, or null — drives the Stáří column (N8)
+    return entry;
   });
 
   // Oldest-first: the operator works the queue in the order the customers sent it.
@@ -212,6 +223,16 @@ export function studioBoard({ inboxRoot, outboxRoot, runningOrderId = null, only
     pdfBuilt: (o) => existsSync(pdfPathFor(o.orderDir, o.orderId)),
     delivered: (o) => existsSync(deliveredMarkerPath(o.orderDir)),
     printed: (o) => existsSync(printedMarkerPath(o.orderDir)),
+    // Order age (N8): the folder's creation time, best proxy for when the order arrived. birthtime is
+    // unreliable on some filesystems (reads 0) — fall back to mtime there.
+    createdAt: (o) => {
+      try {
+        const st = statSync(o.orderDir);
+        return st.birthtimeMs || st.mtimeMs || null;
+      } catch {
+        return null;
+      }
+    },
   });
   const overnight = dataDir ? overnightSummary(readReportFn(dataDir)) : null;
   return { ...board, overnight };

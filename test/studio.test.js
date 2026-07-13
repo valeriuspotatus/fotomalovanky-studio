@@ -104,6 +104,22 @@ test('a non-held order carries no draft email or reason', () => {
   assert.equal(entry.reason, null);
 });
 
+test('board entry carries the product page count, missing photos, and injected order age (N8)', () => {
+  const held = order('1724', summary({ total: 1, eligible: 0, pending: 1 }), {
+    intake: { verdict: 'hold', override: false, findings: [{ check: 'count', verdict: 'hold', expected: 2, unique: 1, missing: 1 }] },
+  });
+  const [entry] = buildBoard([held], { createdAt: () => 1_000_000 }).orders;
+  assert.equal(entry.status, ORDER_BOARD_STATES.HELD);
+  assert.equal(entry.expectedPages, 2, 'the product page count drives the Stránky denominator');
+  assert.equal(entry.missingPhotos, 1);
+  assert.equal(entry.createdAt, 1_000_000, 'the injected age flows onto the entry');
+
+  // A complete order has no count finding, so the denominator falls back to photos on hand.
+  const [done] = buildBoard([order('1', summary({ total: 2, eligible: 2, ready: true }))]).orders;
+  assert.equal(done.expectedPages, null);
+  assert.equal(done.missingPhotos, null);
+});
+
 test('KPI counts tally the board by status, with a total', () => {
   const board = buildBoard(
     [

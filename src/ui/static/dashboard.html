@@ -45,6 +45,9 @@
   .file-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
   .file-pick{display:flex;align-items:center;gap:10px;margin:2px 0 4px}
   .file-pick .file-name{font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  /* order board: age column + "N fotka chybí" note (N8) */
+  td.age{color:var(--ink-3);white-space:nowrap}
+  .miss{color:var(--danger);font-size:11.5px}
   /* page-local: the home two-column layout (work rail + calendar rail) */
   .home-grid{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:26px;align-items:start}
   .col-work{min-width:0;display:flex;flex-direction:column;gap:22px}
@@ -286,7 +289,7 @@
           <section>
             <div class="sec-h"><h2>Poslední objednávky</h2><a href="#orders" onclick="go('orders');return false">Zobrazit všechny →</a></div>
             <div class="table"><table>
-              <thead><tr><th>Objednávka</th><th>Fotky</th><th>Titulek</th><th>Stav</th></tr></thead>
+              <thead><tr><th>Objednávka</th><th>Stránky</th><th>Titulek</th><th>Stav</th></tr></thead>
               <tbody id="recentBody"><tr><td colspan="4" class="empty">Načítám…</td></tr></tbody>
             </table></div>
           </section>
@@ -316,7 +319,7 @@
       <div class="overnight" hidden></div>
       <div id="waStrip" class="wa-strip" hidden></div>
       <div class="table"><table>
-        <thead><tr><th>Objednávka</th><th>Fotky</th><th>Titulek</th><th>Stav</th><th></th></tr></thead>
+        <thead><tr><th>Objednávka</th><th>Stáří</th><th>Stránky</th><th>Titulek</th><th>Stav</th><th></th></tr></thead>
         <tbody id="ordersBody"></tbody>
       </table></div>
       <div id="doneToggle" class="done-toggle"></div>
@@ -432,6 +435,8 @@
     failed:           {label:"chyba",                chip:"c-danger"}
   };
   const statusMeta=s=>STATUS[s]||{label:s,chip:"c-neutral"};
+  const plFotka=(n)=>(n===1?"fotka":n>=2&&n<=4?"fotky":"fotek");
+  const fmtAge=(ms)=>{const d=Math.floor((Date.now()-ms)/86400000);return d<=0?"dnes":`${d} d`;}; // order age (N8)
   const chipHtml=s=>{const m=statusMeta(s);return `<span class="chip ${m.chip}"><span class="dot"></span>${esc(m.label)}</span>`;};
 
   /* ---- static marketing content: the calendar's seasonal demand + creative-launch schedule ---- */
@@ -464,7 +469,12 @@
   function orderFaceSvg(){return '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="9" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>';}
 
   function orderRow(o,opts={}){
-    const ph=o.photos.total?`${o.photos.eligible}/${o.photos.total}`:"–";
+    // "Stránky" (N8): pages done over the product's page count (falls back to photos on hand when
+    // the order is complete), plus how many photos are still missing. Board-only "Stáří" age column.
+    const denom=o.expectedPages||o.photos.total;
+    const ph=o.photos.total?`${o.photos.eligible}/${denom}`:"–";
+    const miss=o.missingPhotos>0?` <span class="miss">(${o.missingPhotos} ${plFotka(o.missingPhotos)} chybí)</span>`:"";
+    const ageTd=opts.actions?`<td class="mono age">${o.createdAt?fmtAge(o.createdAt):"–"}</td>`:"";
     let act="";
     if(opts.actions){
       if(o.status==="approved"){
@@ -491,7 +501,8 @@
     const inc=o.incomplete?`<span class="chip c-danger" title="Operátor potvrdil knihu s méně stranami, než produkt obsahuje."><span class="dot"></span>neúplná ${o.incomplete.pages}/${o.incomplete.expected}</span>`:"";
     return `<tr>
       <td><span class="oid">${esc(o.orderId)}</span></td>
-      <td class="mono">${ph}</td>
+      ${ageTd}
+      <td class="mono">${ph}${miss}</td>
       <td><span class="ded-cell">${o.dedication?"„"+esc(o.dedication)+"“":"—"}</span></td>
       <td>${chipHtml(o.status)}${inc}</td>${opts.actions?`<td class="act-cell">${act}</td>`:""}</tr>`;
   }
@@ -559,7 +570,7 @@
     const active=d.orders.filter(o=>!isDone(o));
     const done=d.orders.filter(isDone);
     const rows=showDone?[...active,...done]:active;
-    b.innerHTML=rows.length?rows.map(o=>orderRow(o,{actions:true})).join(""):'<tr><td colspan="5" class="empty">Žádné aktivní objednávky.</td></tr>';
+    b.innerHTML=rows.length?rows.map(o=>orderRow(o,{actions:true})).join(""):'<tr><td colspan="6" class="empty">Žádné aktivní objednávky.</td></tr>';
     const tog=document.getElementById("doneToggle");
     tog.innerHTML=done.length?`<button class="btn btn-secondary sm" id="toggleDone">${showDone?"Skrýt dokončené":"Zobrazit dokončené ("+done.length+")"}</button>`:"";
   }
