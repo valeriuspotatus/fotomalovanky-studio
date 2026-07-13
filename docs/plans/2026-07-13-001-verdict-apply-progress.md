@@ -19,7 +19,7 @@ rows N1–N14) autonomously. Blocker-first. Commit after each row lands with tes
 | N3 | `vytištěno` verdict + purge gate | 1 | **done** c13e404 |
 | N5 | Fix calendar grid (7 visible columns, no overlap) | 1 | **done** 460db8c (visual — needs eyeball) |
 | N6 | Disable send when WhatsApp unlinked | 1 | **done** e2d5521 |
-| N7 | Unify shells: Generátor inside studio shell, one chip component, re-token buttons | 2 | todo |
+| N7 | Unify shells: Generátor inside studio shell, one chip component, re-token buttons | 2 | **done** 747c3ee (shell parity; deep re-arch deferred) |
 | N8 | Board columns: add Stáří; rename FOTKY→Stránky w/ product denominator | 2 | **done** da3c4f3 |
 | N4 | Waiting-since: "Označit: e-mail odeslán" timestamp; ">5 dní" danger | 2 | **done** 38ba8f9 |
 | N9 | Mail↔order chips (regex `#?\d{4}` → chip w/ live status) | 2 | **done** ee4ebf8 |
@@ -106,3 +106,27 @@ needs an order-date source, use folder mtime proxy) → N10 (sent staleness) →
   each key re-resolves to the live tile so images + offered actions reflect now; a keyboard verdict is
   a no-op unless the tile offers it; approve/reject auto-advance, redo stays. Frontend-only (no DOM test
   harness); parse-checked. 504 green. **13/14 done.** Remaining: N7 (unify shells, big).
+- 747c3ee N7 done (scoped). Finding: the prior studio-ui-redesign already unified the hard parts — the
+  generator page is on the shared shell (same sidebar/brand, design-system chips+buttons w/ .primary=
+  var(--success) not raw green, shared theme) and N13 unified the vocabulary. The verdict's named
+  residual gaps were sidebar mismatch: generator missing Pošta (its headline example) + Nastavení (new
+  since N14). Both added → sidebars match item-for-item. The dashboard "global search" is a cosmetic
+  placeholder (no handler), so not mirrored. **Deferred:** the deep re-arch (generator → pure batch
+  runner, board-row → order-workspace routing, Needs-You as a filter) — a product decision needing
+  David's sign-off + visual QA, and risky to do blind; per the IA doc's "rebind, don't rewrite". 504
+  green. **14/14 code rows done.**
+
+## Final summary — all 14 verdict rows landed (2026-07-13)
+
+**Done & committed (blocker-first, tests green after each):**
+N1 bdd238e · N2+N6 e2d5521 · N3 c13e404 · N5 460db8c · N8 da3c4f3 · N4 38ba8f9 · N9 ee4ebf8 ·
+N13 929844d · N10 c4cf3e7 · N11 6abe687 · N14 0de0937 · N12 3784e77 · N7 747c3ee. 504 tests green.
+
+**Needs David (out of scope for an autonomous code pass):**
+- **P0-3 token rotation** (manual op): rotate the generator token, move the Shopify token to an env var.
+  Not code — an ops action on live secrets.
+- **N7 deep re-architecture** (product decision + visual QA): collapse the generator into a pure batch
+  runner with board-row → order-workspace routing and Needs-You as a filtered view. Deferred on purpose.
+- **Visual eyeballing** of the CSS/UI-only changes on a real browser: N5 calendar 7-col grid, N2 typed
+  override prompt, N3 "Označit vytištěno", N12 lightbox + keyboard review, N14 Nastavení screen. The
+  logic is unit-tested where there's a surface; the pixels are not.
