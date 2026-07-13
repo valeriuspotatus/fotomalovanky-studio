@@ -183,6 +183,10 @@ export function validateConfig(cfg) {
     typeof aiRaw.describeInstruction === 'string' && aiRaw.describeInstruction.trim() ? aiRaw.describeInstruction.trim() : null;
   const aiEndpoint = typeof aiRaw.endpoint === 'string' && aiRaw.endpoint.trim() ? aiRaw.endpoint.trim() : 'https://generativelanguage.googleapis.com/v1beta';
   const aiTimeout = Number.isInteger(aiRaw.timeoutMs) && aiRaw.timeoutMs > 0 ? aiRaw.timeoutMs : 60000;
+  // Image generation (gemini-3-pro-image-preview) is far slower than the text describe step and 60s
+  // regularly isn't enough under load — the operator saw "This operation was aborted". Give it its own,
+  // longer budget; describe keeps the shorter timeoutMs. Override with ai.imageTimeoutMs.
+  const aiImageTimeout = Number.isInteger(aiRaw.imageTimeoutMs) && aiRaw.imageTimeoutMs > 0 ? aiRaw.imageTimeoutMs : 180000;
 
   // The overnight autopilot: a scheduled Admin API poll that pulls new PAID photo orders into the
   // inbox and runs the existing pipeline (KTD2). Disabled by default so the tool runs with no Shopify
@@ -322,6 +326,7 @@ export function validateConfig(cfg) {
       describeInstruction: aiDescribeInstruction,
       endpoint: aiEndpoint,
       timeoutMs: aiTimeout,
+      imageTimeoutMs: aiImageTimeout,
     },
     // The overnight autopilot (Shopify Admin API poll). `enabled` false means no poll ever runs and
     // the runner exits inert. `dataDir` is always an absolute path outside the repo tree; `accessToken`

@@ -94,7 +94,9 @@ async function callGemini({ apiKey, endpoint = ENDPOINT_DEFAULT, model, parts, g
  * @returns {Promise<{ base64: string, mimeType: string }>} the generated image
  */
 export async function generateMarketingImage({ config, prompt, referenceBase64 = null, referenceMime = 'image/jpeg', fetchImpl = fetch } = {}) {
-  const { apiKey, model = 'gemini-3-pro-image-preview', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, maxRetries = 3, backoffBaseMs = 1500 } = config ?? {};
+  // Image gen is the slow call — use imageTimeoutMs (longer) when present, not the shared describe timeout.
+  const { apiKey, model = 'gemini-3-pro-image-preview', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, imageTimeoutMs, maxRetries = 3, backoffBaseMs = 1500 } = config ?? {};
+  const imageTimeout = Number.isInteger(imageTimeoutMs) && imageTimeoutMs > 0 ? imageTimeoutMs : timeoutMs;
   if (!apiKey) throw new AiImageError('No AI API key is configured (set ai.apiKey in config.json).', 'not-configured');
   if (!prompt || !String(prompt).trim()) throw new AiImageError('A prompt is required to generate an image.', 'bad-input');
 
@@ -103,7 +105,7 @@ export async function generateMarketingImage({ config, prompt, referenceBase64 =
   const parts = [{ text: String(prompt) }];
   if (referenceBase64) parts.push({ inlineData: { mimeType: referenceMime, data: referenceBase64 } });
 
-  const body = await callGemini({ apiKey, endpoint, model, parts, generationConfig: { responseModalities: ['IMAGE'] }, timeoutMs, fetchImpl, maxRetries, backoffBaseMs });
+  const body = await callGemini({ apiKey, endpoint, model, parts, generationConfig: { responseModalities: ['IMAGE'] }, timeoutMs: imageTimeout, fetchImpl, maxRetries, backoffBaseMs });
   const part = body?.candidates?.[0]?.content?.parts?.find((p) => p?.inlineData?.data);
   if (!part) {
     const note = body?.candidates?.[0]?.content?.parts?.find((p) => p?.text)?.text || body?.promptFeedback?.blockReason || '';

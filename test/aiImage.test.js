@@ -34,6 +34,24 @@ test('generateMarketingImage refuses without an API key or a prompt', async () =
   );
 });
 
+test('image generation uses its own imageTimeoutMs, not the shorter describe timeout', async () => {
+  // imageTimeoutMs is tiny and timeoutMs is huge; a fetch that only settles when its signal aborts
+  // (like real fetch) must be aborted by the SHORT image budget (code 'timeout'). If it wrongly used
+  // the long timeoutMs, this would take ~100s — the test's own guard would fail first.
+  const abortable = (url, opts) =>
+    new Promise((_, reject) => {
+      opts.signal?.addEventListener('abort', () => {
+        const e = new Error('This operation was aborted');
+        e.name = 'AbortError';
+        reject(e);
+      });
+    });
+  await assert.rejects(
+    () => generateMarketingImage({ config: { ...CONFIG, timeoutMs: 100000, imageTimeoutMs: 30, maxRetries: 0 }, prompt: 'x', fetchImpl: abortable }),
+    (e) => e instanceof AiImageError && e.code === 'timeout',
+  );
+});
+
 test('generateMarketingImage returns the generated image and targets the configured model', async () => {
   const cap = {};
   const out = await generateMarketingImage({ config: CONFIG, prompt: 'radostná rodina', fetchImpl: fakeFetch(okImage('ZZZZ', 'image/jpeg'), cap) });
