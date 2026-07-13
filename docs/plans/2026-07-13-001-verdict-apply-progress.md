@@ -23,7 +23,7 @@ rows N1–N14) autonomously. Blocker-first. Commit after each row lands with tes
 | N8 | Board columns: add Stáří; rename FOTKY→Stránky w/ product denominator | 2 | **done** da3c4f3 |
 | N4 | Waiting-since: "Označit: e-mail odeslán" timestamp; ">5 dní" danger | 2 | **done** 38ba8f9 |
 | N9 | Mail↔order chips (regex `#?\d{4}` → chip w/ live status) | 2 | **done** ee4ebf8 |
-| N12 | Lightbox + keyboard review (←→/A/B/R) | 2 | todo |
+| N12 | Lightbox + keyboard review (←→/A/B/R) | 2 | **done** 3784e77 |
 | N13 | Czech unification (kill "waiting for you", "Go", "Choose File") | 2 | **done** 929844d |
 | N10 | Sent-version staleness (hash+time; stale banner + Odeslat znovu) | 3 | **done** c4cf3e7 |
 | N14 | Nastavení screen (folders, WhatsApp/token *status*, autopilot last-run, retention) | 3 | **done** 0de0937 |
@@ -100,3 +100,9 @@ needs an order-date source, use folder mtime proxy) → N10 (sent staleness) →
   editable inbox folder that repoints the generator via POST /api/_scan. Test asserts host surfaces but
   the token path / secret key names never do. components.css .settings block. 504 green. **12/14 done.**
   Remaining: N7 (unify shells, big), N12 (lightbox + keyboard review, big).
+- 3784e77 N12 done. Generator page: tile click → lightbox with original+coloring side by side, tap-to-
+  zoom 1:1, and keyboard review (←/→ move, A schválit, B špatně, R přegenerovat, Esc). Review set
+  snapshotted as stable (order,base) keys on open so nav/auto-advance survive the attention re-sort;
+  each key re-resolves to the live tile so images + offered actions reflect now; a keyboard verdict is
+  a no-op unless the tile offers it; approve/reject auto-advance, redo stays. Frontend-only (no DOM test
+  harness); parse-checked. 504 green. **13/14 done.** Remaining: N7 (unify shells, big).
