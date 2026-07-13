@@ -27,7 +27,7 @@ rows N1–N14) autonomously. Blocker-first. Commit after each row lands with tes
 | N13 | Czech unification (kill "waiting for you", "Go", "Choose File") | 2 | **done** 929844d |
 | N10 | Sent-version staleness (hash+time; stale banner + Odeslat znovu) | 3 | todo |
 | N14 | Nastavení screen (folders, WhatsApp/token *status*, autopilot last-run, retention) | 3 | todo |
-| N11 | Kreativy seeds pass QC (every template×format×seed = pripraveno) + unit test | 2 | todo |
+| N11 | Kreativy seeds pass QC (every template×format×seed = pripraveno) + unit test | 2 | **done** 6abe687 |
 
 Token rotation (P0-3) is a manual op for David (rotate generator token, move Shopify token to env),
 not code — noted in final report, not applied here.
@@ -73,3 +73,7 @@ needs an order-date source, use folder mtime proxy) → N10 (sent staleness) →
   describeFinding/intakeSummary + studio heldReason fallback Czech; Kreativy file input styled w/
   Czech "Vybrat soubor". ~15 test assertions updated. 499 green. **6/14 done (Phase1 + N13).**
   Next: N11 (Kreativy seeds pass QC + unit test).
+- 6abe687 N11 done. Nudged headline/support/CTA/logo/badge boxes in templates.js just inside each
+  format's safe zone (probe-verified all 5×3 clean). Added creativeStudio test asserting
+  validateConcept(seed)==='pripraveno' for every family×format. 500 green. **7/14 done.**
+  Next: N9 (mail↔order #chips) → N4 (waiting-since) → N8 → N10 → N14 → N7 → N12.
