@@ -135,6 +135,8 @@
   .mail-read-blank{color:var(--ink-3);font-size:13px;display:grid;place-items:center;height:100%;text-align:center}
   .mr-subject{font-size:19px;font-weight:600;color:var(--ink);margin-bottom:6px}
   .mr-meta{font-size:12.5px;color:var(--ink-3);margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+  .mr-orders{display:flex;flex-wrap:wrap;gap:6px;margin:-6px 0 16px}
+  .mr-orders .order-chip{cursor:pointer;border:none;font:inherit}
   .mr-body{font-size:13.5px;line-height:1.6;color:var(--ink);white-space:pre-wrap;word-break:break-word}
   .mr-actions{margin-top:20px;display:flex;flex-wrap:wrap;gap:9px}
   .mr-del{margin-left:auto;color:var(--danger);border-color:var(--border)}
@@ -825,6 +827,27 @@
       afterMailRead._t=setTimeout(()=>{fetchMail();fetchMailTab();},1500);
     }
   }
+  // Order chips in a mail (N9): find order numbers in the subject/body and show each as a chip with
+  // its live board status, linking to Objednávky. A bare 4-digit number only becomes a chip if it is
+  // #-prefixed or matches a real order, so a year ("2026") or a price doesn't turn into a false link.
+  function orderChipsFor(text){
+    if(!studioData||!text) return "";
+    const ids=[]; const re=/#?(\d{4})/g; let m;
+    while((m=re.exec(text))){
+      const id=m[1], hashed=m[0][0]==="#";
+      const known=studioData.orders.some(o=>o.orderId===id);
+      if((hashed||known)&&!ids.includes(id)) ids.push(id);
+    }
+    if(!ids.length) return "";
+    const chips=ids.map(id=>{
+      const o=studioData.orders.find(x=>x.orderId===id);
+      if(!o) return `<span class="chip c-neutral" title="Objednávka není na aktuální nástěnce">#${esc(id)} · nenalezena</span>`;
+      const meta=statusMeta(o.status);
+      return `<button class="chip ${meta.chip} order-chip" data-order-chip="${esc(id)}" title="Otevřít v Objednávkách"><span class="dot"></span>#${esc(id)} · ${esc(meta.label)}</button>`;
+    }).join(" ");
+    return `<div class="mr-orders">${chips}</div>`;
+  }
+
   async function openMessageInPane(uid){
     mailTabSelUid=uid;
     document.querySelectorAll("#mailTabList .mail-row").forEach(r=>r.classList.toggle("active",r.dataset.uid===String(uid)));
@@ -837,6 +860,7 @@
     const text=msg.text||(msg.html?msg.html.replace(/<[^>]+>/g," "):"")||"(prázdná zpráva)";
     pane.innerHTML=`<div class="mr-subject">${esc(msg.subject||"(bez předmětu)")}</div>
       <div class="mr-meta">${esc(msg.from||"")}${msg.fromAddress?" &lt;"+esc(msg.fromAddress)+"&gt;":""}${dt?" · "+esc(dt):""}</div>
+      ${orderChipsFor((msg.subject||"")+" "+text)}
       <div class="mr-body">${esc(text)}</div>
       <div class="mr-actions">
         <button class="btn btn-primary" id="mrReply">Odpovědět</button>
@@ -890,6 +914,8 @@
     }catch{toast("Server neodpovídá.");}
   }
   document.getElementById("mailTabList").addEventListener("click",e=>{const it=e.target.closest(".mail-row[data-uid]");if(it&&it.dataset.uid)openMessageInPane(it.dataset.uid);});
+  // An order chip in the reading pane jumps to Objednávky (N9).
+  document.getElementById("mailTabRead").addEventListener("click",e=>{const c=e.target.closest("[data-order-chip]");if(c)go("orders");});
   document.getElementById("mailTabCompose").onclick=()=>openComposer({});
   document.getElementById("mailTabRefresh").onclick=()=>fetchMailTab();
 
