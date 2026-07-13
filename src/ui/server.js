@@ -344,7 +344,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   // The one WhatsApp seam: deliver the finished book to Jirka on the operator's explicit "Odeslat
   // Jirkovi" click. Built from config only when whatsapp is enabled (a caller/test may inject one);
   // null → the deliver action is refused with a clear message. The session links lazily on first use.
-  const wa = waClient ?? (config?.whatsapp?.enabled ? createWhatsAppClient({ recipient: config.whatsapp.recipient, sessionDir: config.whatsapp.sessionDir }) : null);
+  const wa = waClient ?? (config?.whatsapp?.enabled ? createWhatsAppClient({ recipient: config.whatsapp.recipient, sessionDir: config.whatsapp.sessionDir, executablePath: config.whatsapp.executablePath }) : null);
 
   // Kreativy AI images: the operator uploads a reference photo, Nano Banana Pro reimagines it into a
   // marketing "before", and the existing RunPod generator turns that into the "after" line-art. The

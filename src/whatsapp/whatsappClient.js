@@ -44,7 +44,7 @@ function isModuleMissing(err) {
  *  and initialized lazily (on the first status()/send), so an enabled-but-not-yet-installed config
  *  never crashes the server. `clientFactory` returns `{ client, mediaFromFile }` and is overridden in
  *  tests with a fake; `qrEncode` turns a QR string into a data: URL the dashboard can render. */
-export function createWhatsAppClient({ recipient, sessionDir, clientFactory, qrEncode, readyTimeoutMs = 60_000 } = {}) {
+export function createWhatsAppClient({ recipient, sessionDir, executablePath, clientFactory, qrEncode, readyTimeoutMs = 60_000 } = {}) {
   let client = null; // the whatsapp-web.js Client (or the test fake)
   let mediaFromFile = null; // builds a MessageMedia from a file path
   let state = 'connecting'; // connecting | needs-qr | linked | offline | not-installed
@@ -59,7 +59,12 @@ export function createWhatsAppClient({ recipient, sessionDir, clientFactory, qrE
       const mod = await import('whatsapp-web.js');
       const { Client, LocalAuth, MessageMedia } = mod.default ?? mod;
       const auth = sessionDir ? new LocalAuth({ clientId: 'jirka', dataPath: sessionDir }) : new LocalAuth({ clientId: 'jirka' });
-      const c = new Client({ authStrategy: auth, puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] } });
+      // whatsapp-web.js drives a headless Chromium. puppeteer normally resolves its own pinned build,
+      // but that download can be missing/broken; `executablePath` (config.whatsapp.executablePath) lets
+      // the operator point at any installed Chrome/Chromium/Brave/Edge instead. Empty → puppeteer default.
+      const puppeteer = { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] };
+      if (executablePath && String(executablePath).trim()) puppeteer.executablePath = String(executablePath).trim();
+      const c = new Client({ authStrategy: auth, puppeteer });
       return { client: c, mediaFromFile: (p) => MessageMedia.fromFilePath(p) };
     });
   const encodeQr =
@@ -150,7 +155,11 @@ export function createWhatsAppClient({ recipient, sessionDir, clientFactory, qrE
    *  Always resolves (never throws) so the status tile is stable. */
   async function status() {
     await ensureStarted();
-    return { available: true, state, qr: state === 'needs-qr' ? qr : null, recipient: chatIdOf(recipient) || null };
+    // Surface WHY when the session can't come up (missing browser, launch failure) so the dashboard
+    // shows a real reason instead of a silent "offline" dead-end — the confusion behind "Odeslat
+    // Jirkovi does nothing". No secret is in a puppeteer/launch error message.
+    const detail = (state === 'offline' || state === 'not-installed') && initError ? String(initError.message).split('\n')[0].slice(0, 200) : null;
+    return { available: true, state, qr: state === 'needs-qr' ? qr : null, recipient: chatIdOf(recipient) || null, detail };
   }
 
   /** Send one PDF to Jirka with the order-number caption. Throws WhatsAppError on any failure so the

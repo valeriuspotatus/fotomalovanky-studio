@@ -294,7 +294,9 @@ export function validateConfig(cfg) {
     // here would silently ignore anything the operator tuned in config.json.
     intake: cfg.intake && typeof cfg.intake === 'object' && !Array.isArray(cfg.intake) ? cfg.intake : {},
     // Jirka's WhatsApp handoff. `sessionDir` is always an absolute path outside the repo tree.
-    whatsapp: { enabled: whatsappEnabled, recipient, sessionDir },
+    // `executablePath` optionally points puppeteer at an installed Chrome/Chromium when its own
+    // pinned build is missing; empty string when unset → puppeteer's default resolution.
+    whatsapp: { enabled: whatsappEnabled, recipient, sessionDir, executablePath: typeof wa.executablePath === 'string' ? wa.executablePath.trim() : '' },
     // Per-order build format (U9). `format` is the fallback layout; `formatMap` derives it per order.
     delivery: { format: deliveryFormat, formatMap },
     // The dashboard's read-only Proton inbox tile (via Proton Bridge over local IMAP). `enabled`
