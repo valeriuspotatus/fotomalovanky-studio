@@ -34,6 +34,21 @@ test('a name with no dedication segment yields none — that customer wrote noth
   assert.equal(dedicationFromBase(undefined), '');
 });
 
+test('a generic photo label after the separator is "no dedication", not a title (order 1527 bug)', () => {
+  // The customer wrote nothing; the shop filled the field with a placeholder like "foto". Printing
+  // the word "Foto" on the cover is wrong — it must read as blank, same as an absent segment.
+  assert.equal(dedicationFromBase('1527_img0001_-_foto'), '');
+  assert.equal(dedicationFromBase('1527_img0001 - foto'), '', 'newer name format too');
+  assert.equal(dedicationFromBase('1527_img0001_-_foto_2'), '', 'foto + a number is still just the label');
+  assert.equal(dedicationFromBase('1_img1_-_FOTOGRAFIE'), '', 'case + word variants fold to the same placeholder');
+  assert.equal(dedicationFromBase('1_img1_-_photo'), '');
+  assert.equal(dedicationFromBase('1_img1_-_img'), '');
+  // A real dedication that merely contains such a word keeps its other words.
+  assert.equal(dedicationFromBase('1_img1_-_foto_novakove'), 'Foto Novakove');
+  // The whole order of placeholder-named photos derives no title.
+  assert.equal(deriveDedication(['1527_img0001_-_foto', '1527_img0002_-_foto', '1527_img0003_-_foto']), '');
+});
+
 test('a doubled underscore is the "+" the shop stripped out of the name', () => {
   assert.equal(dedicationFromBase('1515_img0001_-_julka__agnes__honzik'), 'Julka + Agnes + Honzik');
   assert.equal(dedicationFromBase('1_img1_-_eva__adam'), 'Eva + Adam');

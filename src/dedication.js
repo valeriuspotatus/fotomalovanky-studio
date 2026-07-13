@@ -42,6 +42,33 @@ const LOWERCASE_WITHIN = new Set([
  *  A word starting with a digit ("18.7.2026") is returned unchanged. */
 const capitalize = (word) => word.charAt(0).toUpperCase() + word.slice(1);
 
+// When the customer writes no title, the shop still puts a generic label after the separator
+// ("1527_img0001_-_foto") — "foto"/"photo"/"img" is "no dedication", not a title, and printing it
+// as the cover text is wrong. These are the placeholders the extension/shop emit for a blank field,
+// accents and case folded; a real dedication that merely contains such a word (e.g. "Foto Novákové")
+// keeps its other words and is untouched.
+const GENERIC_LABELS = new Set([
+  'foto', 'fota', 'fotka', 'fotky', 'fotku', 'fotografie', 'fotografia', 'fotografy',
+  'photo', 'photos', 'picture', 'pictures', 'pic', 'pics',
+  'image', 'images', 'img', 'obrazek', 'obrazky', 'obrazku', 'snimek', 'snimky', 'snimku',
+]);
+
+/** True when the recovered dedication is nothing but generic photo-label words — i.e. the customer
+ *  left the title blank and the shop filled in a placeholder. Accents/case/numbers folded first, so
+ *  "Foto", "foto_2" and "FOTOGRAFIE" all count. Pure digits/punctuation (e.g. a bare date) are NOT
+ *  treated as generic — that could be a real answer — so this only fires on the label words. */
+function isGenericLabel(dedication) {
+  const norm = String(dedication ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '') // fold the combining accents
+    .toLowerCase()
+    .replace(/[0-9]+/g, ' ') // a name may sit beside a date; strip digits for the label test
+    .replace(/[^a-z ]+/g, ' ')
+    .trim();
+  if (!norm) return false; // nothing but digits/punctuation — leave it, might be intentional
+  return norm.split(/\s+/).every((word) => GENERIC_LABELS.has(word));
+}
+
 /** The title-page text hidden in one photo's base name, or '' when the name carries none.
  *  A customer who wrote nothing leaves no "_-_" segment, and that is a real answer: their title
  *  page prints without a text line, and the book is otherwise identical. */
@@ -58,7 +85,7 @@ export function dedicationFromBase(base) {
     .filter(Boolean);
 
   let seenWord = false;
-  return words
+  const dedication = words
     .map((word) => {
       if (word === PLUS) return word;
       const isFirst = !seenWord;
@@ -66,6 +93,9 @@ export function dedicationFromBase(base) {
       return !isFirst && LOWERCASE_WITHIN.has(word.toLowerCase()) ? word.toLowerCase() : capitalize(word);
     })
     .join(' ');
+
+  // A placeholder label ("foto", "photo", …) means the customer wrote nothing — same as no separator.
+  return isGenericLabel(dedication) ? '' : dedication;
 }
 
 /** The key a remembered spelling is filed under: "1366_img0001_-_pro_jiricka" -> "pro_jiricka".
