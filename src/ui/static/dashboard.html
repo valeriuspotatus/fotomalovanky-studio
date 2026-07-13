@@ -319,6 +319,10 @@
     <section class="view" id="v-orders">
       <div class="overnight" hidden></div>
       <div id="waStrip" class="wa-strip" hidden></div>
+      <div class="orders-toolbar">
+        <button class="btn btn-secondary sm" id="fetchOrders">Načíst nové objednávky</button>
+        <span class="fetch-note" id="fetchNote">Stáhne nové objednávky z Shopify a rovnou je vygeneruje.</span>
+      </div>
       <div class="table"><table>
         <thead><tr><th>Objednávka</th><th>Stáří</th><th>Stránky</th><th>Titulek</th><th>Stav</th><th></th></tr></thead>
         <tbody id="ordersBody"></tbody>
@@ -664,13 +668,40 @@
 
   function renderStudio(){
     if(!studioData)return;
-    renderOvernight(studioData);renderHome(studioData);renderOrders(studioData);renderNeedsYou(studioData);
+    renderOvernight(studioData);renderHome(studioData);renderOrders(studioData);renderNeedsYou(studioData);syncFetchButton(studioData);
   }
   async function fetchStudio(){
     try{const res=await fetch("/api/studio");if(!res.ok)return;studioData=await res.json();renderStudio();}
     catch(e){/* offline / not the live server — keep the last board */}
   }
   setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["home","orders","todo"].includes(v))fetchStudio();},2500);
+
+  /* ---- On-demand Shopify fetch (Načíst nové objednávky) ---- */
+  let fetchWasRunning=false; // to toast exactly once when a run finishes
+  function syncFetchButton(d){
+    const btn=document.getElementById("fetchOrders");if(!btn)return;
+    const ap=d.autopilot||{}, running=Boolean(ap.running);
+    btn.disabled=running;btn.setAttribute("aria-busy",running?"true":"false");
+    btn.textContent=running?"Načítám z Shopify…":"Načíst nové objednávky";
+    if(fetchWasRunning&&!running){ // just finished
+      if(ap.error)toast("Načtení selhalo: "+ap.error);
+      else{const c=ap.report?.counts;const n=ap.report?.processed??0;
+        toast(n?`Načteno ${n} nových — ${c?`${c.ready||0} hotových, ${c.held||0} k kontrole, ${c.failed||0} chyb`:"hotovo"}`:"Žádné nové objednávky.");}
+    }
+    fetchWasRunning=running;
+  }
+  async function fetchNewOrders(){
+    const btn=document.getElementById("fetchOrders");
+    if(!confirm("Načíst nové objednávky ze Shopify a rovnou je vygenerovat?\n\nMůže to pár minut trvat a spotřebuje kredit za každou novou objednávku."))return;
+    btn.disabled=true;btn.setAttribute("aria-busy","true");
+    try{
+      const r=await fetch("/api/autopilot/run",{method:"POST"});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){toast(j.error||"Nepodařilo se spustit načítání.");btn.disabled=false;btn.setAttribute("aria-busy","false");return;}
+      fetchWasRunning=true;toast("Načítám objednávky ze Shopify…");fetchStudio();
+    }catch{toast("Server neodpovídá.");btn.disabled=false;btn.setAttribute("aria-busy","false");}
+  }
+  document.getElementById("fetchOrders")?.addEventListener("click",fetchNewOrders);
 
   /* ---- WhatsApp delivery link state: shows "propojeno" or a QR to scan the one time ---- */
   const WA_TEXT={

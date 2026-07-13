@@ -11,6 +11,7 @@ import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent, pdfPathFor } from '../orchestrator.js';
 import { studioBoard, markDelivered, unmarkDelivered, markPrinted, unmarkPrinted } from '../studio.js';
 import { readReport } from '../autopilotReport.js';
+import { runAutopilot } from '../autopilot.js';
 import { createBridgeClient, BridgeError } from '../proton/bridgeClient.js';
 import { createSmtpClient, SmtpError } from '../proton/smtpClient.js';
 import { summarizeInbox } from '../proton/mailbox.js';
@@ -322,6 +323,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   // `orderId` is the order the run is generating right now, so the board can tell 'generating' from
   // 'queued' — the review state alone shows both as all-null photo statuses.
   const run = { active: false, stopping: false, lines: [], report: null, error: null, orderId: null };
+  // On-demand Shopify fetch (the "Načíst nové objednávky" button): runs the same autopilot as the
+  // scheduled task — pull new paid orders, download photos, generate — but triggered by hand. Shares
+  // the run-lock with the manual pipeline so the two can never generate over each other.
+  const autopilot = { running: false, lines: [], report: null, error: null };
   let runController = null; // the live run's AbortController, or null between runs
   let generator = driver ?? null;
   let builderDriver = builder ?? null;
@@ -433,10 +438,12 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
    *  saved meanwhile would be silently overwritten, so verdicts are refused while a run is on. */
   const requireIdle = () => {
     if (run.active) throw new ReviewError('A run is in progress — wait for it to finish before changing anything.');
+    if (autopilot.running) throw new ReviewError('Fetching orders is in progress — wait for it to finish before changing anything.');
   };
 
   function startRun({ inbox: requested, force, buildPdfs = true }) {
     if (run.active) throw new ReviewError('A run is already going.');
+    if (autopilot.running) throw new ReviewError('Fetching orders is in progress — wait for it to finish.');
     if (inFlight.size) throw new ReviewError('A photo is still being regenerated — wait for it to finish.');
 
     const candidate = String(requested ?? '').trim() || inbox;
@@ -525,6 +532,44 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     return { stopping: true };
   }
 
+  /** The "Načíst nové objednávky" button: run the autopilot once, on demand. Same code the scheduled
+   *  task runs — poll Shopify, download photos for new paid orders, generate. Not awaited (it can take
+   *  minutes over the network + GPU); the dashboard watches `autopilot.running` on the /api/studio poll
+   *  and refreshes the board when it clears. Guarded by the shared run-lock so it can't collide with a
+   *  manual run. Spends real credit per new order — the client confirms before calling this. */
+  function startAutopilot() {
+    if (run.active) throw new ReviewError('Právě běží generování — počkejte, až doběhne.');
+    if (autopilot.running) throw new ReviewError('Načítání objednávek už běží.');
+    if (inFlight.size) throw new ReviewError('Právě se přegenerovává fotka — počkejte, až to doběhne.');
+    if (!config.shopify?.enabled || !config.shopify?.accessToken) {
+      throw new ReviewError('Shopify není nastaveno (shopify.enabled + accessToken) — objednávky nelze načíst.');
+    }
+    autopilot.running = true;
+    autopilot.lines = [];
+    autopilot.report = null;
+    autopilot.error = null;
+
+    runAutopilot({
+      config,
+      onEvent: (e) => {
+        const line = formatEvent(e);
+        if (line === null) return;
+        autopilot.lines.push(line);
+        if (autopilot.lines.length > MAX_LOG_LINES) autopilot.lines.splice(0, autopilot.lines.length - MAX_LOG_LINES);
+      },
+    })
+      .then((res) => {
+        autopilot.report = res?.report ?? null;
+        if (res && res.ran === false) autopilot.error = res.reason === 'disabled' ? 'Shopify je vypnuté.' : String(res.reason || 'nespuštěno');
+      })
+      .catch((err) => {
+        autopilot.error = `${err.seam ?? 'autopilot'}: ${err.message}`;
+      })
+      .finally(() => {
+        autopilot.running = false;
+      });
+  }
+
   async function startRedo(orderId, base) {
     requireIdle();
     const key = `${orderId}/${base}`;
@@ -582,7 +627,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           firstLiveOrder: config.studio?.firstLiveOrder ?? null,
           dataDir: config.shopify?.dataDir ?? null,
         });
-        return json(res, 200, { ...board, inbox, run: { active: run.active, orderId: run.orderId } });
+        return json(res, 200, { ...board, inbox, run: { active: run.active, orderId: run.orderId }, autopilot: { running: autopilot.running, error: autopilot.error, report: autopilot.report } });
       }
 
       // GET /api/mail — the read-only Proton inbox tile. Always 200 with a stable shape: the tile
@@ -829,6 +874,18 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       // POST /api/_stop — the Stop button. Winds the run down at the next photo boundary.
       if (req.method === 'POST' && url.pathname === '/api/_stop') {
         return json(res, 200, stopRun());
+      }
+
+      // POST /api/autopilot/run — the "Načíst nové objednávky" button. Fires the autopilot once (fetch
+      // new Shopify orders + generate). 202 + returns immediately; the board poll tracks completion.
+      if (req.method === 'POST' && url.pathname === '/api/autopilot/run') {
+        startAutopilot(); // throws ReviewError → 409 when busy / Shopify off
+        return json(res, 202, { started: true });
+      }
+
+      // GET /api/autopilot/status — running flag + the last run's log/report/error, for the button.
+      if (req.method === 'GET' && url.pathname === '/api/autopilot/status') {
+        return json(res, 200, { running: autopilot.running, lines: autopilot.lines, report: autopilot.report, error: autopilot.error });
       }
 
       // POST /api/_pick-folder { startAt? } — a native folder dialog, so no path has to be typed.

@@ -130,6 +130,16 @@ test('GET /api/settings reports wiring status without ever leaking a secret (N14
   assert.ok(!blob.includes('accessToken') && !blob.includes('apiKey') && !blob.includes('baseUrl'));
 });
 
+test('POST /api/autopilot/run is a clear 409 when Shopify is not configured, and starts nothing', async () => {
+  // The test CONFIG has no shopify block, so the on-demand fetch must refuse before touching the
+  // network — never a crash, never a half-run.
+  const res = await post('/api/autopilot/run');
+  assert.equal(res.status, 409);
+  assert.match((await res.json()).error, /Shopify není nastaveno/);
+  const status = await (await fetch(`${origin}/api/autopilot/status`)).json();
+  assert.equal(status.running, false, 'nothing was started');
+});
+
 test('Go starts the pipeline and streams progress lines', async () => {
   const res = await post('/api/_run', { inbox });
   assert.equal(res.status, 202);

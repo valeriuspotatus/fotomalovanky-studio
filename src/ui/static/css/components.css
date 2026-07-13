@@ -293,6 +293,11 @@ svg.chart{width:100%;height:auto;display:block;overflow:visible}
   .kpis{grid-template-columns:repeat(2,1fr)}.continue{grid-template-columns:1fr}.tools{grid-template-columns:repeat(2,1fr)}
   .topbar{flex-direction:column}.search{min-width:0}.sheet .grid{grid-template-columns:1fr}
 }
+/* Objednávky toolbar — the on-demand Shopify fetch button */
+.orders-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.orders-toolbar .fetch-note{font-size:12.5px;color:var(--ink-3)}
+.orders-toolbar button[aria-busy="true"]{opacity:.7;cursor:progress}
+
 /* Nastavení screen (N14) — read-only status cards, one editable folder input */
 .settings{display:flex;flex-direction:column;gap:16px;max-width:720px}
 .set-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:18px 20px}
