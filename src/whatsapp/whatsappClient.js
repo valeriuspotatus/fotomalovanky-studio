@@ -185,6 +185,19 @@ export function createWhatsAppClient({ recipient, sessionDir, executablePath, cl
     }
   }
 
+  /** The groups this linked account belongs to, as [{ id, name }]. Lets the operator target a
+   *  group (a stable "…@g.us" id) instead of one person's number — so members can be added later
+   *  without re-linking or changing anything here. Requires a linked session; throws otherwise. */
+  async function listGroups() {
+    await ensureStarted();
+    await waitForReady();
+    const chats = await client.getChats();
+    return chats
+      .filter((c) => c?.isGroup)
+      .map((c) => ({ id: c.id?._serialized ?? String(c.id ?? ''), name: c.name ?? '' }))
+      .filter((g) => g.id);
+  }
+
   async function close() {
     try {
       await client?.destroy?.();
@@ -193,5 +206,5 @@ export function createWhatsAppClient({ recipient, sessionDir, executablePath, cl
     }
   }
 
-  return { status, sendDocument, close };
+  return { status, sendDocument, listGroups, close };
 }

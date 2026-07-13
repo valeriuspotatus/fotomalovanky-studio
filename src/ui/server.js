@@ -743,6 +743,18 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         }
       }
 
+      // GET /api/whatsapp/groups — the groups the linked account is in, so delivery can target a stable
+      // group id ("…@g.us") instead of one person's number. Requires a linked session (409 if not).
+      if (req.method === 'GET' && url.pathname === '/api/whatsapp/groups') {
+        if (!wa?.listGroups) return json(res, 503, { error: 'WhatsApp odesílání není nastaveno.', code: 'not-configured' });
+        try {
+          return json(res, 200, { groups: await wa.listGroups() });
+        } catch (err) {
+          const code = err instanceof WhatsAppError ? err.code : 'unknown';
+          return json(res, code === 'not-linked' ? 409 : 503, { error: err.message, code });
+        }
+      }
+
       // GET /api/settings — the Nastavení screen's read-only status (N14). Reports what is wired and
       // where, never a secret value: tokens, passwords and the token-scoped generator URL are surfaced
       // only as configured-or-not (+ safe host/user), never rendered. Changing the input folder is a

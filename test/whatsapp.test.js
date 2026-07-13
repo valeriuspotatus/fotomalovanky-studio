@@ -45,6 +45,9 @@ class FakeWaClient extends EventEmitter {
     this.sent.push({ chatId, media, options });
     return { id: { _serialized: 'msg-1' } };
   }
+  async getChats() {
+    return this.opts.chats ?? [];
+  }
   async destroy() {
     this.destroyed = true;
   }
@@ -227,6 +230,22 @@ test('deliver with no WhatsApp configured is a clear 503, not a crash', async ()
     assert.equal(res.status, 503);
     assert.equal((await res.json()).code, 'not-configured');
   });
+});
+
+test('listGroups returns only groups (id + name), once the session is linked', async () => {
+  const fake = new FakeWaClient({
+    autoReady: true,
+    chats: [
+      { isGroup: false, name: 'David', id: { _serialized: '420@c.us' } },
+      { isGroup: true, name: 'Objednávky', id: { _serialized: '120363111@g.us' } },
+      { isGroup: true, name: '', id: { _serialized: '' } }, // no id → dropped
+    ],
+  });
+  const wa = createWhatsAppClient({ recipient: '420@c.us', clientFactory: fakeFactory(fake), qrEncode: fakeQr });
+  await wa.status(); // kick off init → ready
+  await tick();
+  const groups = await wa.listGroups();
+  assert.deepEqual(groups, [{ id: '120363111@g.us', name: 'Objednávky' }]);
 });
 
 test('shutdown() closes the WhatsApp client so the browser tears down cleanly on stop', async () => {
