@@ -880,6 +880,7 @@
         ${settingsRow("Shopify",`${cfg(sh)} ${en(sh)} ${sh.storeDomain?`<code>${esc(sh.storeDomain)}</code>`:""}${sh.apiVersion?` <span class="dim">· API ${esc(sh.apiVersion)}</span>`:""}`)}
         ${settingsRow("AI popis fotek",`${cfg(ai)} ${en(ai)}${ai.model?` <code>${esc(ai.model)}</code>`:""}`)}
         ${settingsRow("Pošta",`${cfg(ml)} ${en(ml)}${ml.user?` <code>${esc(ml.user)}</code>`:""}${ml.host?` <span class="dim">· ${esc(ml.host)}${ml.port?":"+ml.port:""}</span>`:""}`)}
+        ${ml.from&&ml.from!==ml.user?settingsRow("Odesílá jako",`<code>${esc(ml.from)}</code>`):""}
         ${settingsRow("WhatsApp (Jirkovi)",waLabel(s.whatsapp))}
         <div class="set-note">Tokeny a hesla se nikde nezobrazují — jen jestli jsou nastavené a kam míří.</div>
       </div>

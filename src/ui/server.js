@@ -331,7 +331,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   const mail = mailClient ?? (config?.mail?.enabled ? createBridgeClient(config.mail) : null);
   // The outbound SMTP seam, wired only when mail is on. `smtp` null → the composer's Send is refused
   // with a clear message rather than silently failing. Same Bridge creds, the SMTP port (default 1025).
-  const smtp = smtpClient ?? (config?.mail?.enabled ? createSmtpClient({ host: config.mail.host, port: config.mail.smtpPort, user: config.mail.user, pass: config.mail.pass, secure: config.mail.secure }) : null);
+  const smtp = smtpClient ?? (config?.mail?.enabled ? createSmtpClient({ host: config.mail.host, port: config.mail.smtpPort, user: config.mail.user, pass: config.mail.pass, secure: config.mail.secure, fromAddress: config.mail.fromAddress }) : null);
   const mailLimit = config?.mail?.recentLimit ?? 6;
   let mailCache = null; // { at: epochMs, payload } — a successful read is reused briefly so the tile's
   const MAIL_TTL = 30_000; // poll doesn't reopen an IMAP session every few seconds.
@@ -716,7 +716,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
             generator: { configured: Boolean(config.generator?.baseUrl), host: hostOf(config.generator?.baseUrl), mode: config.generator?.mode ?? null },
             shopify: { configured: Boolean(config.shopify?.accessToken), enabled: Boolean(config.shopify?.enabled), storeDomain: config.shopify?.storeDomain ?? null, apiVersion: config.shopify?.apiVersion ?? null },
             ai: { configured: Boolean(config.ai?.apiKey), enabled: Boolean(config.ai?.enabled), model: config.ai?.model ?? null },
-            mail: { configured: Boolean(config.mail?.pass), enabled: Boolean(config.mail?.enabled), user: config.mail?.user ?? null, host: config.mail?.host ?? null, port: config.mail?.port ?? null },
+            mail: { configured: Boolean(config.mail?.pass), enabled: Boolean(config.mail?.enabled), user: config.mail?.user ?? null, from: config.mail?.fromAddress ?? config.mail?.user ?? null, host: config.mail?.host ?? null, port: config.mail?.port ?? null },
           },
           autopilot: report ? { lastRun: report.ranAt ?? null, processed: report.processed ?? null, generated: report.generated ?? null, estSpend: report.estSpend ?? null } : { lastRun: null },
           retentionDays: config.retentionDays ?? null,

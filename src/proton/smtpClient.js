@@ -16,8 +16,11 @@ export class SmtpError extends Error {
 
 /** Build a sender bound to one Bridge account. `transportFactory` returns a nodemailer-like transport
  *  ({ sendMail }); it defaults to the real dependency and is overridden in tests. `fromName` is the
- *  display name on the From header; the address is always the authenticated Bridge user. */
-export function createSmtpClient({ host = '127.0.0.1', port = 1025, user, pass, secure = false, fromName = 'Fotomalovánky.cz', transportFactory } = {}) {
+ *  display name on the From header. Auth is always the Bridge `user`, but the visible From can be any
+ *  address that account owns — an alias / send-as (`fromAddress`) — which Proton accepts; it rejects
+ *  only addresses the account does not own. Defaults to the account address. */
+export function createSmtpClient({ host = '127.0.0.1', port = 1025, user, pass, secure = false, fromName = 'Fotomalovánky.cz', fromAddress, transportFactory } = {}) {
+  const sender = (fromAddress && String(fromAddress).trim()) || user;
   const makeTransport =
     transportFactory ??
     (async () => {
@@ -27,13 +30,13 @@ export function createSmtpClient({ host = '127.0.0.1', port = 1025, user, pass, 
       return createTransport({ host, port, secure, auth: { user, pass }, tls: { rejectUnauthorized: false } });
     });
 
-  /** Send one message. `to` and `text` are required; `inReplyTo`/`references` thread a reply; the
-   *  From address is fixed to the Bridge account (Proton rejects any other sender). */
+  /** Send one message. `to` and `text` are required; `inReplyTo`/`references` thread a reply; the From
+   *  header uses `sender` (the configured alias, or the Bridge account when none is set). */
   async function sendMail({ to, subject = '', text, inReplyTo = '', references = [], attachments = [] } = {}) {
     if (!to || !String(to).trim()) throw new SmtpError('bad-input', 'A recipient (to) is required.');
     if (!text || !String(text).trim()) throw new SmtpError('bad-input', 'The message body is empty.');
 
-    const message = { from: fromName ? `${fromName} <${user}>` : user, to: String(to).trim(), subject: String(subject), text: String(text) };
+    const message = { from: fromName ? `${fromName} <${sender}>` : sender, to: String(to).trim(), subject: String(subject), text: String(text) };
     if (inReplyTo) message.inReplyTo = inReplyTo;
     if (references && references.length) message.references = references;
     if (attachments && attachments.length) message.attachments = attachments;

@@ -345,10 +345,18 @@ test('smtpClient sends from the Bridge account with the display name, and thread
   const out = await smtp.sendMail({ to: 'babicka@x.cz', subject: 'Re: Dotaz', text: 'Dobrý den…', inReplyTo: '<abc@x.cz>', references: ['<root@x.cz>'] });
   assert.equal(out.messageId, '<generated@bridge>');
   assert.equal(t.sent.length, 1);
-  assert.equal(t.sent[0].from, 'Fotomalovánky.cz <info@fotomalovanky.cz>', 'From is always the authenticated Bridge address');
+  assert.equal(t.sent[0].from, 'Fotomalovánky.cz <info@fotomalovanky.cz>', 'From defaults to the authenticated Bridge address');
   assert.equal(t.sent[0].to, 'babicka@x.cz');
   assert.equal(t.sent[0].inReplyTo, '<abc@x.cz>');
   assert.deepEqual(t.sent[0].references, ['<root@x.cz>']);
+});
+
+test('smtpClient sends From a configured alias while auth stays on the Bridge account', async () => {
+  const t = fakeTransport();
+  // Auth is info@ (the Bridge account); the visible From is the david@ alias David sends under.
+  const smtp = createSmtpClient({ user: 'info@fotomalovanky.cz', pass: 'x', fromAddress: 'david@fotomalovanky.cz', transportFactory: t.factory });
+  await smtp.sendMail({ to: 'babicka@x.cz', text: 'Dobrý den…' });
+  assert.equal(t.sent[0].from, 'Fotomalovánky.cz <david@fotomalovanky.cz>', 'From is the alias, not the auth account');
 });
 
 test('smtpClient refuses an empty recipient or body before opening a connection', async () => {
