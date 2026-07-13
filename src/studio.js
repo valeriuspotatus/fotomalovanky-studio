@@ -110,6 +110,9 @@ function boardEntry(order, status) {
     // Only a held order carries an email to send and a reason; everything else omits them.
     reason: held ? heldReason(order) : null,
     draftEmail: held ? order.draftEmail || '' : '',
+    // The persistent "operator shipped an under-count book" flag (N2), or null. Set at override
+    // time and never cleared, so it warns on every board glance and in the send confirmation.
+    incomplete: order.intake?.incompleteBook ?? null,
   };
 }
 

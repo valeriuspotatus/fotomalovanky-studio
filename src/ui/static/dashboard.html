@@ -460,18 +460,24 @@
     if(opts.actions){
       if(o.status==="ready-to-send"){
         // With WhatsApp linked, the primary action sends the book to Jirka and marks it in one step;
-        // a manual "mark sent" stays as the fallback for when David sends it by hand.
-        const waOn=waState&&waState.available&&waState.state!=="disabled";
-        const send=waOn?`<button class="btn btn-primary sm act-deliver" data-deliver="${esc(o.orderId)}">Odeslat Jirkovi</button>`:"";
+        // a manual "mark sent" stays as the fallback for when David sends it by hand. Until the
+        // session is actually linked (needs-qr / connecting / offline), the send button is disabled
+        // with a tooltip — an active send while unlinked (N6) hits an unknown failure path.
+        const waOn=waState&&waState.state==="linked";
+        const send=waOn
+          ?`<button class="btn btn-primary sm act-deliver" data-deliver="${esc(o.orderId)}">Odeslat Jirkovi</button>`
+          :`<button class="btn btn-primary sm" disabled title="Nejdříve propojte WhatsApp (QR kód nahoře na této stránce).">Odeslat Jirkovi</button>`;
         act=send+`<button class="btn btn-secondary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`;
       }
       else if(o.status==="sent") act=`<button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
     }
+    // The permanent under-count warning (N2): shown beside the status chip on every board glance.
+    const inc=o.incomplete?`<span class="chip c-danger" title="Operátor potvrdil knihu s méně stranami, než produkt obsahuje."><span class="dot"></span>neúplná ${o.incomplete.pages}/${o.incomplete.expected}</span>`:"";
     return `<tr>
       <td><span class="oid">${esc(o.orderId)}</span></td>
       <td class="mono">${ph}</td>
       <td><span class="ded-cell">${o.dedication?"„"+esc(o.dedication)+"“":"—"}</span></td>
-      <td>${chipHtml(o.status)}</td>${opts.actions?`<td class="act-cell">${act}</td>`:""}</tr>`;
+      <td>${chipHtml(o.status)}${inc}</td>${opts.actions?`<td class="act-cell">${act}</td>`:""}</tr>`;
   }
 
   function renderHome(d){
@@ -629,6 +635,9 @@
   // Send the book to Jirka on WhatsApp. The order becomes 'sent' only if the server's send succeeded;
   // a failure leaves it on the board with a toast so David can retry (or mark it sent by hand).
   async function deliverToJirka(id,btn){
+    // An incomplete book (N2) must not leave for the printer on an unconfirmed click.
+    const o=(studioData&&studioData.orders||[]).find(x=>x.orderId===id);
+    if(o&&o.incomplete&&!confirm(`Objednávka ${id} je NEÚPLNÁ kniha (${o.incomplete.pages} z ${o.incomplete.expected} stran). Opravdu ji odeslat Jirkovi?`)) return;
     if(btn){btn.disabled=true;btn.textContent="Odesílám…";}
     try{
       const r=await fetch(`/api/${encodeURIComponent(id)}/deliver`,{method:"POST"});

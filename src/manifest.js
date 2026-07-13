@@ -193,3 +193,19 @@ export function setIntakeOverride(manifest, on = true) {
   manifest.intake = { ...(manifest.intake ?? {}), override: Boolean(on) };
   return manifest;
 }
+
+/** The persistent "operator knowingly shipped an under-count book" flag, or null. Set only when the
+ *  operator overrides a missing-photos hold by typing the reduced page count. It OUTLIVES the hold —
+ *  the intake block stays in state.json after the override lifts the hold — so the board, the order
+ *  card and the send step all keep warning that this book has fewer pages than the product sold. */
+export function getIncompleteBook(manifest) {
+  return manifest.intake?.incompleteBook ?? null;
+}
+
+export function setIncompleteBook(manifest, { pages, expected }) {
+  manifest.intake = {
+    ...(manifest.intake ?? {}),
+    incompleteBook: { pages, expected, at: new Date().toISOString() },
+  };
+  return manifest;
+}

@@ -864,12 +864,15 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       }
 
       // POST /api/<order>/intake-override — "generate it anyway" clears an intake hold, so the
-      // next Go generates the order despite the flagged photos.
+      // next Go generates the order despite the flagged photos. A missing-photos hold requires
+      // `confirmCount` (the typed reduced page count); overrideIntake throws a ReviewError (→ 409)
+      // if it does not match, so the operator cannot ship an under-count book on a stray click.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'intake-override') {
         requireIdle();
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
-        return json(res, 200, { override: overrideIntake(order.orderDir) });
+        const { confirmCount = null } = await readJson(req).catch(() => ({}));
+        return json(res, 200, overrideIntake(order.orderDir, { confirmCount }));
       }
 
       // POST /api/<order>/deliver — the operator's explicit "Odeslat Jirkovi": send the finished

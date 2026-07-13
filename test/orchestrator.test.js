@@ -767,7 +767,8 @@ test('"generate it anyway" clears the hold on the next run', async () => {
     const first = await run(f, { intake: holdIntake() });
     assert.equal(first.orders[0].status, ORDER_STATUS.HELD);
 
-    overrideIntake(first.orders[0].orderDir);
+    // A missing-photos hold demands the typed reduced page count (5 of 8 present).
+    overrideIntake(first.orders[0].orderDir, { confirmCount: 5 });
 
     const generator = new StubGenerator();
     const builder = new StubBuilder();
@@ -776,6 +777,27 @@ test('"generate it anyway" clears the hold on the next run', async () => {
     assert.equal(orders[0].status, ORDER_STATUS.DONE, 'the override lets it through despite the hold');
     assert.deepEqual(generator.calls, ['a']);
     assert.ok(existsSync(orders[0].pdfPath));
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('overriding a missing-photos hold needs the typed page count and stamps a permanent flag (N2)', async () => {
+  const f = fixture({ 1510: ['a'] });
+  try {
+    const { orderDir } = (await run(f, { intake: holdIntake() })).orders[0]; // holds: 5 of 8, 3 missing
+
+    // Wrong count (or none) is refused, and the hold still stands.
+    assert.throws(() => overrideIntake(orderDir, { confirmCount: 8 }), /Neúplná kniha/);
+    assert.throws(() => overrideIntake(orderDir), /Neúplná kniha/);
+    assert.equal(readManifest(orderDir).intake.override, false);
+    assert.equal(readManifest(orderDir).intake.incompleteBook, undefined);
+
+    // The right count (photos actually present) lets it through and records the flag for good.
+    const res = overrideIntake(orderDir, { confirmCount: 5 });
+    assert.equal(res.override, true);
+    assert.deepEqual({ pages: res.incompleteBook.pages, expected: res.incompleteBook.expected }, { pages: 5, expected: 8 });
+    assert.equal(readManifest(orderDir).intake.incompleteBook.pages, 5);
   } finally {
     f.cleanup();
   }

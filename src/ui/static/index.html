@@ -559,13 +559,35 @@ async function saveDedication(orderId, text) {
 }
 
 /** "Generate it anyway": clear an intake hold. The order generates on the next Go, not now — a run
- *  is what spends the GPU, and the operator may want to clear several holds before pressing it. */
-async function intakeProceed(orderId) {
+ *  is what spends the GPU, and the operator may want to clear several holds before pressing it.
+ *
+ *  When the hold is missing photos, `pages`/`expected` are set: the operator must type the reduced
+ *  page count back before we send it, so a stray click cannot ship a book with fewer pages than the
+ *  customer paid for. The book then carries a permanent "neúplná kniha" flag through PDF and send. */
+async function intakeProceed(orderId, pages = null, expected = null) {
+  let confirmCount = null;
+  if (pages != null) {
+    const typed = prompt(`Tato kniha bude mít jen ${pages} ${plF(pages)} místo ${expected}.\n\nNapište ${pages} pro potvrzení, že ji chcete vytvořit neúplnou:`);
+    if (typed === null) return; // operator backed out
+    if (String(typed).trim() !== String(pages)) {
+      toast(`Nepotvrzeno — napište přesně ${pages}.`, true);
+      return;
+    }
+    confirmCount = Number(pages);
+  }
   try {
-    const res = await fetch(`/api/${enc(orderId)}/intake-override`, { method: 'POST' });
+    const res = await fetch(`/api/${enc(orderId)}/intake-override`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmCount }),
+    });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'objednávku se nepodařilo aktualizovat');
-    toast('Vygeneruje se při dalším stisknutí Go.');
+    toast(
+      body.incompleteBook
+        ? `Potvrzeno: neúplná kniha (${body.incompleteBook.pages}/${body.incompleteBook.expected}). Vygeneruje se při dalším Go.`
+        : 'Vygeneruje se při dalším stisknutí Go.',
+    );
   } catch (err) {
     toast(err.message, true);
   }
@@ -946,11 +968,15 @@ function intakePanel(o, locked) {
   const mail = o.draftEmail
     ? `<details class="imail"><summary>Návrh e-mailu zákazníkovi</summary><pre>${esc(o.draftEmail)}</pre><button data-copy-email>Kopírovat e-mail</button></details>`
     : '';
+  // A missing-photos hold makes "Přesto vygenerovat" demand the typed page count (N2): carry the
+  // real counts on the button so the confirm prompt can name them.
+  const under = (k.findings || []).find((f) => f.check === 'count' && f.verdict === 'hold' && f.missing > 0);
+  const countAttrs = under ? ` data-pages="${esc(String(under.unique))}" data-expected="${esc(String(under.expected))}"` : '';
   return `<div class="intake" data-order="${esc(o.orderId)}">
       <div class="ihead"><b>Drženo — před generováním zkontrolujte fotky.</b> Pro tuto objednávku se nic nevytvořilo.</div>
       <ul class="ilist">${items}</ul>
       ${mail}
-      <div class="iacts"><button data-intake-proceed${locked ? ' disabled' : ''}>Přesto vygenerovat</button></div>
+      <div class="iacts"><button data-intake-proceed${countAttrs}${locked ? ' disabled' : ''}>Přesto vygenerovat</button></div>
     </div>`;
 }
 
@@ -960,6 +986,10 @@ function orderSection(o, locked) {
   const badge = s.ready
     ? `<span class="chip ready">hotovo — ${s.total} ${plF(s.total)}</span>`
     : `<span class="chip hold">${s.eligible}/${s.total} hotovo</span>`;
+  // The permanent under-count warning (N2): once the operator confirmed an incomplete book, it stays
+  // visible on the card through generation, PDF and send — never silently a "finished" order.
+  const ib = o.intake?.incompleteBook;
+  const incompleteChip = ib ? `<span class="chip hold" title="Operátor potvrdil knihu s méně stranami, než produkt obsahuje.">neúplná kniha ${ib.pages}/${ib.expected}</span>` : '';
 
   // An untouched order shows the text recovered from the photo names; the operator's own answer,
   // once given, always wins — including the answer of emptying the box, which is undoable.
@@ -987,7 +1017,7 @@ function orderSection(o, locked) {
       ${hint}
     </div>`;
   return `<section class="order">
-    <header><h2>Objednávka ${esc(o.orderId)}</h2>${note}${badge}${ded}<button class="mode-toggle" data-focus="${esc(o.orderId)}">${focusOrders.has(o.orderId) ? 'Mřížka' : 'Detail'}</button></header>
+    <header><h2>Objednávka ${esc(o.orderId)}</h2>${note}${badge}${incompleteChip}${ded}<button class="mode-toggle" data-focus="${esc(o.orderId)}">${focusOrders.has(o.orderId) ? 'Mřížka' : 'Detail'}</button></header>
     ${intakePanel(o, locked)}
     <div class="grid${focusOrders.has(o.orderId) ? ' focus' : ''}">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
   </section>`;
@@ -1140,7 +1170,9 @@ document.addEventListener('click', (e) => {
 
   const proceed = e.target.closest('button[data-intake-proceed]');
   if (proceed) {
-    intakeProceed(proceed.closest('.intake').dataset.order);
+    const pages = proceed.dataset.pages ? Number(proceed.dataset.pages) : null;
+    const expected = proceed.dataset.expected ? Number(proceed.dataset.expected) : null;
+    intakeProceed(proceed.closest('.intake').dataset.order, pages, expected);
     return;
   }
 

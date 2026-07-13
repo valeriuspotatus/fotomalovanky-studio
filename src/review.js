@@ -20,6 +20,8 @@ import {
   getIntake,
   setIntakeOverride,
   getIntakeOverride,
+  getIncompleteBook,
+  setIncompleteBook,
   readManifest,
   writeManifest,
   summarizeOrder,
@@ -172,12 +174,32 @@ export function setOrderDedication(orderDir, text, { memoryRoot = MEMORY_DIR } =
 }
 
 /** "Generate it anyway": clear an intake hold so the next run generates the order despite the
- *  flagged photos. Order-level, like the dedication — the whole order was held, not one photo. */
-export function overrideIntake(orderDir, on = true) {
+ *  flagged photos. Order-level, like the dedication — the whole order was held, not one photo.
+ *
+ *  When the hold is that photos are MISSING, an unguarded override would ship a book with fewer
+ *  pages than the customer paid for. So that case demands `confirmCount` — the operator has to type
+ *  the reduced page count (the number of photos actually present) back to us — and we stamp a
+ *  persistent `incompleteBook` flag that follows the order through PDF and send. Quality-only holds
+ *  (blur, dark, duplicate) are not under-count and clear with a plain override. */
+export function overrideIntake(orderDir, { on = true, confirmCount = null } = {}) {
   const manifest = readManifest(orderDir);
+  const under = on
+    ? (getIntake(manifest)?.findings ?? []).find((f) => f.check === 'count' && f.verdict === 'hold' && f.missing > 0)
+    : null;
+
+  if (under) {
+    const pages = under.unique; // photos actually present = the pages this book will have
+    if (Number(confirmCount) !== pages) {
+      throw new ReviewError(
+        `Neúplná kniha: napište ${pages} pro potvrzení, že kniha bude mít ${pages} stran místo ${under.expected}.`,
+      );
+    }
+    setIncompleteBook(manifest, { pages, expected: under.expected });
+  }
+
   setIntakeOverride(manifest, on);
   writeManifest(orderDir, manifest);
-  return getIntakeOverride(manifest);
+  return { override: getIntakeOverride(manifest), incompleteBook: getIncompleteBook(manifest) };
 }
 
 // ---- verdicts -------------------------------------------------------------
