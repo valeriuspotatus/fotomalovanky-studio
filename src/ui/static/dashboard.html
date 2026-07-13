@@ -580,8 +580,12 @@
   let showDone=false;
   function renderOrders(d){
     const b=document.getElementById("ordersBody");
-    const active=d.orders.filter(o=>!isDone(o));
-    const done=d.orders.filter(isDone);
+    // Newest order on top (order numbers grow over time) — the one you just made is right there when
+    // you open Objednávky. The "Stáří" column + stale chips still surface anything that's rotting, so
+    // nothing gets lost by not leading with the oldest. (Potřebuje vás stays oldest-first — chase order.)
+    const byNewest=(a,b)=>b.orderId.localeCompare(a.orderId,"en",{numeric:true});
+    const active=d.orders.filter(o=>!isDone(o)).sort(byNewest);
+    const done=d.orders.filter(isDone).sort(byNewest);
     const rows=showDone?[...active,...done]:active;
     b.innerHTML=rows.length?rows.map(o=>orderRow(o,{actions:true})).join(""):'<tr><td colspan="6" class="empty">Žádné aktivní objednávky.</td></tr>';
     const tog=document.getElementById("doneToggle");

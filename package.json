@@ -30,7 +30,9 @@
     "mailparser": "^3.9.14",
     "nodemailer": "^9.0.3",
     "playwright": "^1.48.0",
-    "sharp": "^0.33.5"
+    "qrcode": "^1.5.4",
+    "sharp": "^0.33.5",
+    "whatsapp-web.js": "^1.34.7"
   },
   "files": [
     "src",
