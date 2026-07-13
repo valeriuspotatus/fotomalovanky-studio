@@ -26,7 +26,7 @@ rows N1–N14) autonomously. Blocker-first. Commit after each row lands with tes
 | N12 | Lightbox + keyboard review (←→/A/B/R) | 2 | todo |
 | N13 | Czech unification (kill "waiting for you", "Go", "Choose File") | 2 | **done** 929844d |
 | N10 | Sent-version staleness (hash+time; stale banner + Odeslat znovu) | 3 | **done** c4cf3e7 |
-| N14 | Nastavení screen (folders, WhatsApp/token *status*, autopilot last-run, retention) | 3 | todo |
+| N14 | Nastavení screen (folders, WhatsApp/token *status*, autopilot last-run, retention) | 3 | **done** 0de0937 |
 | N11 | Kreativy seeds pass QC (every template×format×seed = pripraveno) + unit test | 2 | **done** 6abe687 |
 
 Token rotation (P0-3) is a manual op for David (rotate generator token, move Shopify token to env),
@@ -94,3 +94,9 @@ needs an order-date source, use folder mtime proxy) → N10 (sent staleness) →
   predicate (current PDF mtime > sent + 1s), entry.stale only for SENT. dashboard: "zastaralé" chip +
   "Odeslat znovu" primary action (reuses /deliver, re-stamps → clears). End-to-end test. 503 green.
   **11/14 done.** Remaining: N14 (Nastavení screen), N7 (unify shells, big), N12 (lightbox, big).
+- 0de0937 N14 done. GET /api/settings = read-only wiring status (folders, generator/shopify/ai/mail
+  configured + safe host/user only, whatsapp state, autopilot last-run from readReport, retentionDays);
+  never renders a token/password/baseUrl. Dashboard Nastavení view (footer nav) w/ status cards +
+  editable inbox folder that repoints the generator via POST /api/_scan. Test asserts host surfaces but
+  the token path / secret key names never do. components.css .settings block. 504 green. **12/14 done.**
+  Remaining: N7 (unify shells, big), N12 (lightbox + keyboard review, big).
