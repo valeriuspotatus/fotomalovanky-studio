@@ -564,13 +564,25 @@
     tog.innerHTML=done.length?`<button class="btn btn-secondary sm" id="toggleDone">${showDone?"Skrýt dokončené":"Zobrazit dokončené ("+done.length+")"}</button>`:"";
   }
 
+  // Waiting-since (N4): how long the ball has been in the customer's court, danger after 5 days.
+  const plD=(n)=>(n===1?"den":n>=2&&n<=4?"dny":"dní");
+  const daysSince=(iso)=>Math.max(0,Math.floor((Date.now()-new Date(iso).getTime())/86400000));
+  async function markEmailed(id,on){
+    try{const r=await fetch(`/api/${encodeURIComponent(id)}/emailed`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({on})});
+      if(r.ok){toast(on?"Označeno: e-mail odeslán":"Značka e-mailu zrušena");await fetchStudio();}else toast("Nepodařilo se uložit.");}
+    catch{toast("Server neodpovídá.");}
+  }
   function renderNeedsYou(d){
     const list=d.needsYou||[], tw=document.getElementById("todo");
     tw.innerHTML="";
     if(!list.length){tw.append(el("div","empty","Nic nečeká — všechny vstupy jsou v pořádku."));return;}
     list.forEach(o=>{
       const item=el("div","item");
-      item.innerHTML=`<div class="k">objednávka ${esc(o.orderId)}</div><h3>${esc(o.reason||"Potřebuje vás")}</h3>`;
+      const n=o.emailedAt?daysSince(o.emailedAt):null;
+      const wait=o.emailedAt
+        ? `<div class="k-wait${n>5?" danger":""}">Čeká na zákazníka od ${esc(new Date(o.emailedAt).toLocaleDateString("cs-CZ",{day:"numeric",month:"numeric"}))} (${n} ${plD(n)})</div>`
+        : `<div class="k-wait muted">E-mail zákazníkovi zatím neodeslán.</div>`;
+      item.innerHTML=`<div class="k">objednávka ${esc(o.orderId)}</div><h3>${esc(o.reason||"Potřebuje vás")}</h3>${wait}`;
       if(o.draftEmail){
         const ta=el("textarea","mail");ta.value=o.draftEmail;ta.readOnly=true;item.append(ta);
         const btn=el("button","btn btn-secondary copy","Kopírovat e-mail");
@@ -582,6 +594,9 @@
         };
         item.append(btn);
       }
+      const eb=el("button","btn btn-ghost sm email-mark",o.emailedAt?"Zrušit značku e-mailu":"Označit: e-mail odeslán");
+      eb.onclick=()=>markEmailed(o.orderId,!o.emailedAt);
+      item.append(eb);
       tw.append(item);
     });
   }

@@ -183,6 +183,20 @@ export function clearIntake(manifest) {
   return manifest;
 }
 
+/** When the operator emailed the customer about a held order (ISO string), or null. Order-level
+ *  communication state (N4), orthogonal to the intake verdict: it records that the ball is in the
+ *  customer's court since a date, so a held order shows "čeká na zákazníka od X" and doesn't rot
+ *  un-chased. Distinct from the drafted email, which is only a copy-paste template. */
+export function getEmailedAt(manifest) {
+  return manifest.customerEmailedAt ?? null;
+}
+
+export function setEmailedAt(manifest, iso) {
+  if (iso) manifest.customerEmailedAt = iso;
+  else delete manifest.customerEmailedAt;
+  return manifest;
+}
+
 /** Has the operator said "generate it anyway" despite a held intake verdict? */
 export function getIntakeOverride(manifest) {
   return manifest.intake?.override === true;

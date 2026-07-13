@@ -15,8 +15,20 @@ import {
   emptyManifest,
   readManifest,
   writeManifest,
+  getEmailedAt,
+  setEmailedAt,
   ManifestError,
 } from '../src/manifest.js';
+
+test('customer-emailed timestamp round-trips and clears (N4)', () => {
+  const m = emptyManifest('1510');
+  assert.equal(getEmailedAt(m), null, 'unset by default');
+  setEmailedAt(m, '2026-07-10T08:00:00.000Z');
+  assert.equal(getEmailedAt(m), '2026-07-10T08:00:00.000Z');
+  setEmailedAt(m, null);
+  assert.equal(getEmailedAt(m), null, 'cleared');
+  assert.equal('customerEmailedAt' in m, false, 'the field is removed, not left as null');
+});
 
 test('builder eligibility is limited to ok and approved', () => {
   assert.ok(isBuilderEligible(STATES.OK));

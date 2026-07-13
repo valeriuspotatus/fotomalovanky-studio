@@ -33,6 +33,7 @@ import {
   redo,
   setOrderDedication,
   overrideIntake,
+  markCustomerEmailed,
   applyPhotoEdit,
   revertPhotoEdit,
   ReviewError,
@@ -912,6 +913,15 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         unmarkDelivered(order.orderDir);
         return json(res, 200, { ok: true });
+      }
+
+      // POST /api/<order>/emailed { on? } — the operator marks (or clears) that they emailed the
+      // customer about a held order (N4), so the queue can age it and stop the hold from rotting.
+      if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'emailed') {
+        const order = state().find((o) => o.orderId === parts[1]);
+        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+        const { on = true } = await readJson(req).catch(() => ({}));
+        return json(res, 200, { emailedAt: markCustomerEmailed(order.orderDir, on) });
       }
 
       // POST /api/<order>/printed — the operator confirms Jirka printed the book (N3). Terminal marker

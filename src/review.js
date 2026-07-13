@@ -22,6 +22,8 @@ import {
   getIntakeOverride,
   getIncompleteBook,
   setIncompleteBook,
+  getEmailedAt,
+  setEmailedAt,
   readManifest,
   writeManifest,
   summarizeOrder,
@@ -121,6 +123,9 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
       intake,
       draftEmail,
       dedication: getDedication(manifest),
+      // When the operator last emailed the customer about a hold (N4), so the grid + board can show
+      // "čeká na zákazníka od X" and flag orders that have waited too long.
+      emailedAt: getEmailedAt(manifest),
       // Only ever a *suggestion* for an untouched order. Once the operator has decided — even
       // by emptying the box — the grid must show their decision, not talk them out of it.
       suggestedDedication: hasDedication(manifest) ? '' : suggestion,
@@ -200,6 +205,15 @@ export function overrideIntake(orderDir, { on = true, confirmCount = null } = {}
   setIntakeOverride(manifest, on);
   writeManifest(orderDir, manifest);
   return { override: getIntakeOverride(manifest), incompleteBook: getIncompleteBook(manifest) };
+}
+
+/** Record (or clear) that the operator emailed the customer about a held order (N4). Stores the
+ *  current time so the queue can age it; `on: false` clears it (emailed by mistake / customer replied). */
+export function markCustomerEmailed(orderDir, on = true) {
+  const manifest = readManifest(orderDir);
+  setEmailedAt(manifest, on ? new Date().toISOString() : null);
+  writeManifest(orderDir, manifest);
+  return getEmailedAt(manifest);
 }
 
 // ---- verdicts -------------------------------------------------------------

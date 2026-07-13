@@ -264,6 +264,10 @@ td .upd{color:var(--ink-3);font-size:12.5px}
   background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:12px;resize:vertical}
 .item .copy{margin-top:10px}
 .item .copy.ok{background:var(--success);border-color:var(--success);color:#fff}
+.item .k-wait{font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.item .k-wait.muted{font-weight:400;color:var(--ink-3)}
+.item .k-wait.danger{color:var(--danger)}
+.item .email-mark{margin-top:10px;margin-left:8px}
 
 /* ============================ SEASON CHART (calendar) ============================ */
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px;box-shadow:var(--shadow-sm);margin-bottom:18px}

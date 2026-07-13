@@ -127,6 +127,9 @@
  .intake .imail summary{cursor:pointer;font-size:12.5px;color:var(--ink-2)}
  .intake .imail pre{white-space:pre-wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);
      padding:9px 11px;margin:8px 0;font:12.5px/1.5 var(--font-mono);max-height:280px;overflow:auto}
+ .intake .iwait{margin-top:9px;font-size:12.5px;font-weight:600;color:var(--ink-2)}
+ .intake .iwait.muted{font-weight:400;color:var(--ink-3)}
+ .intake .iwait.danger{color:var(--danger)}
  .intake .iacts{margin-top:9px;display:flex;gap:8px;flex-wrap:wrap}
 
  /* toast */
@@ -248,6 +251,9 @@ const enc = encodeURIComponent;
 // Czech plural forms: 1 / 2–4 / 5+ (used for "fotka/fotky/fotek" and "objednávka/objednávky/objednávek").
 const plF = (n) => (n === 1 ? 'fotka' : n >= 2 && n <= 4 ? 'fotky' : 'fotek');
 const plO = (n) => (n === 1 ? 'objednávka' : n >= 2 && n <= 4 ? 'objednávky' : 'objednávek');
+const plD = (n) => (n === 1 ? 'den' : n >= 2 && n <= 4 ? 'dny' : 'dní');
+const daysSince = (iso) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+const czDate = (iso) => new Date(iso).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' });
 
 const LABEL = {
   ok: 'v pořádku', approved: 'schváleno', flagged: 'ke kontrole',
@@ -552,6 +558,22 @@ async function saveDedication(orderId, text) {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'text titulní strany se nepodařilo uložit');
     toast(body.dedication ? 'Titulní strana uložena.' : 'Titulní strana smazána — kniha se vytiskne bez věnování.');
+  } catch (err) {
+    toast(err.message, true);
+  }
+  await refresh(true);
+}
+
+/** Record (or clear) that the customer was emailed about a held order (N4), so the queue can age it. */
+async function markEmailed(orderId, on) {
+  try {
+    const res = await fetch(`/api/${enc(orderId)}/emailed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on }),
+    });
+    if (!res.ok) throw new Error('nepodařilo se uložit');
+    toast(on ? 'Označeno: e-mail zákazníkovi odeslán.' : 'Značka e-mailu zrušena.');
   } catch (err) {
     toast(err.message, true);
   }
@@ -972,11 +994,21 @@ function intakePanel(o, locked) {
   // real counts on the button so the confirm prompt can name them.
   const under = (k.findings || []).find((f) => f.check === 'count' && f.verdict === 'hold' && f.missing > 0);
   const countAttrs = under ? ` data-pages="${esc(String(under.unique))}" data-expected="${esc(String(under.expected))}"` : '';
+  // Waiting-since (N4): once emailed, show how long the ball has been in the customer's court, in
+  // danger after 5 days. Unmarked orders say so, so a hold never silently rots un-chased.
+  const n = o.emailedAt ? daysSince(o.emailedAt) : null;
+  const wait = o.emailedAt
+    ? `<div class="iwait${n > 5 ? ' danger' : ''}">Čeká na zákazníka od ${esc(czDate(o.emailedAt))} (${n} ${plD(n)})</div>`
+    : `<div class="iwait muted">E-mail zákazníkovi zatím neodeslán.</div>`;
+  const emailBtn = o.emailedAt
+    ? `<button data-email-unmark>Zrušit „e-mail odeslán"</button>`
+    : `<button data-email-mark>Označit: e-mail odeslán</button>`;
   return `<div class="intake" data-order="${esc(o.orderId)}">
       <div class="ihead"><b>Drženo — před generováním zkontrolujte fotky.</b> Pro tuto objednávku se nic nevytvořilo.</div>
       <ul class="ilist">${items}</ul>
       ${mail}
-      <div class="iacts"><button data-intake-proceed${countAttrs}${locked ? ' disabled' : ''}>Přesto vygenerovat</button></div>
+      ${wait}
+      <div class="iacts">${emailBtn}<button data-intake-proceed${countAttrs}${locked ? ' disabled' : ''}>Přesto vygenerovat</button></div>
     </div>`;
 }
 
@@ -1173,6 +1205,12 @@ document.addEventListener('click', (e) => {
     const pages = proceed.dataset.pages ? Number(proceed.dataset.pages) : null;
     const expected = proceed.dataset.expected ? Number(proceed.dataset.expected) : null;
     intakeProceed(proceed.closest('.intake').dataset.order, pages, expected);
+    return;
+  }
+
+  const emailMark = e.target.closest('button[data-email-mark], button[data-email-unmark]');
+  if (emailMark) {
+    markEmailed(emailMark.closest('.intake').dataset.order, emailMark.matches('[data-email-mark]'));
     return;
   }
 
