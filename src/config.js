@@ -41,6 +41,15 @@ export function defaultAutopilotDir(env = process.env, platform = process.platfo
   return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'fotomalovanky', 'autopilot');
 }
 
+/** A per-user data directory OUTSIDE the repo tree for the generated marketing creatives (the ad PNGs
+ *  + their index). Not PII, but binary and bulky — it must never land in the working tree. Defaults to
+ *  the OS per-user data dir; overridable with an absolute path in config.json (creatives.dataDir). */
+export function defaultCreativesDir(env = process.env, platform = process.platform, home = homedir()) {
+  if (platform === 'win32') return join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'fotomalovanky', 'creatives');
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'fotomalovanky', 'creatives');
+  return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'fotomalovanky', 'creatives');
+}
+
 /** The product/variant -> build-mode map (U9), dropping anything malformed and rejecting a typoed
  *  mode rather than silently building the wrong layout. */
 function normalizeFormatMap(raw) {
@@ -258,6 +267,21 @@ export function validateConfig(cfg) {
     }
   }
 
+  // Where the generated marketing creatives live (ad PNGs + creatives-index.json) — always an absolute
+  // path OUTSIDE the repo tree (bulky binaries, must stay uncommittable), same guard as shopify.dataDir.
+  const creativesRaw = cfg.creatives && typeof cfg.creatives === 'object' && !Array.isArray(cfg.creatives) ? cfg.creatives : {};
+  let creativesDir = defaultCreativesDir();
+  if (typeof creativesRaw.dataDir === 'string' && creativesRaw.dataDir.trim()) {
+    creativesDir = resolve(creativesRaw.dataDir.trim());
+    const rel = relative(process.cwd(), creativesDir);
+    const outsideRepo = isAbsolute(rel) || rel === '..' || rel.startsWith('..' + sep);
+    if (!outsideRepo) {
+      throw new ConfigError(
+        `creatives.dataDir (${creativesDir}) resolves inside the project tree. It holds generated ad PNGs and must never be committable — use an absolute path outside the repo, or omit it to use the safe default.`,
+      );
+    }
+  }
+
   // Board display: the first REAL order number. Older ids are test orders and are hidden from the
   // board and its counts. Null (default) shows everything, so nothing changes until the operator
   // sets it.
@@ -323,6 +347,8 @@ export function validateConfig(cfg) {
     // The dashboard's read-only Proton inbox tile (via Proton Bridge over local IMAP). `enabled`
     // false means the tile shows an "offline" state and never connects.
     mail: { enabled: mailEnabled, host: mailHost, port: mailPort, smtpPort: mailSmtpPort, user: mailUser, pass: mailPass, fromAddress: mailFrom, secure: mailSecure, recentLimit: mailLimit },
+    // Where generated marketing creatives (ad PNGs + index) are stored. Absolute, outside the repo.
+    creatives: { dataDir: creativesDir },
     // The Kreativy AI image step (Gemini / Nano Banana Pro). `enabled` false means the studio's
     // "generate image" action is unavailable and never calls out.
     ai: {

@@ -146,3 +146,35 @@ export async function describeImage({ config, referenceBase64, referenceMime = '
   }
   return text;
 }
+
+/**
+ * One text-only Gemini call (no image out) — used by the ad-copy generator to write occasion-specific
+ * Czech copy. Reuses callGemini's retry/backoff + error classification. Defaults to the light describe
+ * model (config.copyModel overrides); returns the joined text of the first candidate.
+ * @param {object} o
+ * @param {object} o.config     the resolved config.ai block { apiKey, describeModel/copyModel, endpoint, timeoutMs }
+ * @param {string} o.prompt     the request
+ * @param {string} [o.instruction] optional leading system-style instruction
+ * @param {string} [o.model]    override the model
+ * @param {function} [o.fetchImpl] injected for tests
+ * @returns {Promise<string>}
+ */
+export async function generateText({ config, prompt, instruction, model, fetchImpl = fetch } = {}) {
+  const { apiKey, copyModel, describeModel = 'gemini-flash-lite-latest', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, maxRetries = 5, backoffBaseMs = 1500 } = config ?? {};
+  if (!apiKey) throw new AiImageError('No AI API key is configured (set ai.apiKey in config.json).', 'not-configured');
+  if (!prompt || !String(prompt).trim()) throw new AiImageError('A prompt is required.', 'bad-input');
+  const parts = [];
+  if (instruction) parts.push({ text: String(instruction) });
+  parts.push({ text: String(prompt) });
+  const body = await callGemini({ apiKey, endpoint, model: model || copyModel || describeModel, parts, generationConfig: null, timeoutMs, fetchImpl, maxRetries, backoffBaseMs });
+  const text = (body?.candidates?.[0]?.content?.parts ?? [])
+    .map((p) => p?.text)
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  if (!text) {
+    const note = body?.promptFeedback?.blockReason || '';
+    throw new AiImageError(`The text step returned no text.${note ? ` (${String(note).slice(0, 200)})` : ''}`, 'no-image');
+  }
+  return text;
+}
