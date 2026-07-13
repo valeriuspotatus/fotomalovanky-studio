@@ -39,7 +39,7 @@ test('validateConfig defaults the AI image + describe models when ai is off', ()
   const cfg = validateConfig(good);
   assert.equal(cfg.ai.enabled, false);
   assert.equal(cfg.ai.model, 'gemini-3-pro-image-preview');
-  assert.equal(cfg.ai.describeModel, 'gemini-flash-latest');
+  assert.equal(cfg.ai.describeModel, 'gemini-flash-lite-latest');
   assert.equal(cfg.ai.describeInstruction, null);
 });
 

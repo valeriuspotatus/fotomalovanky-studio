@@ -104,10 +104,17 @@ test('a 503 that never clears exhausts retries and surfaces a clear overload err
   let calls = 0;
   const down = async () => { calls++; return { ok: false, status: 503, text: async () => 'high demand' }; };
   await assert.rejects(
-    () => generateMarketingImage({ config: CONFIG, prompt: 'p', fetchImpl: down }),
+    () => generateMarketingImage({ config: { ...CONFIG, maxRetries: 3 }, prompt: 'p', fetchImpl: down }),
     (e) => e instanceof AiImageError && e.code === 'api' && /přetížený/.test(e.message),
   );
   assert.equal(calls, 4, 'initial attempt + 3 retries');
+});
+
+test('the default retry budget rides out a longer 503 spike (more attempts than before)', async () => {
+  let calls = 0;
+  const down = async () => { calls++; return { ok: false, status: 503, text: async () => 'high demand' }; };
+  await assert.rejects(() => generateMarketingImage({ config: CONFIG, prompt: 'p', fetchImpl: down }), AiImageError);
+  assert.equal(calls, 6, 'initial attempt + 5 retries by default'); // was 4; overload spikes now get more chances
 });
 
 test('a response with no image part is a no-image error, surfacing the model note', async () => {

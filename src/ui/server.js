@@ -900,6 +900,17 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, { running: autopilot.running, lines: autopilot.lines, report: autopilot.report, error: autopilot.error });
       }
 
+      // POST /api/_shutdown — stop the server cleanly. Runs the graceful shutdown (closes WhatsApp's
+      // Chromium via client.destroy) BEFORE exiting, so the linked session flushes to disk and the next
+      // start restores it without a re-scan. This is how the server is restarted programmatically on
+      // Windows, where a background process can't be sent a real Ctrl-C/SIGINT. Localhost-only server.
+      if (req.method === 'POST' && url.pathname === '/api/_shutdown') {
+        json(res, 200, { stopping: true });
+        // Answer first, then close the browser and exit once the response has flushed.
+        setTimeout(() => { shutdown().finally(() => process.exit(0)); }, 150);
+        return;
+      }
+
       // POST /api/_pick-folder { startAt? } — a native folder dialog, so no path has to be typed.
       if (req.method === 'POST' && url.pathname === '/api/_pick-folder') {
         const { startAt } = await readJson(req);

@@ -95,7 +95,7 @@ async function callGemini({ apiKey, endpoint = ENDPOINT_DEFAULT, model, parts, g
  */
 export async function generateMarketingImage({ config, prompt, referenceBase64 = null, referenceMime = 'image/jpeg', fetchImpl = fetch } = {}) {
   // Image gen is the slow call — use imageTimeoutMs (longer) when present, not the shared describe timeout.
-  const { apiKey, model = 'gemini-3-pro-image-preview', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, imageTimeoutMs, maxRetries = 3, backoffBaseMs = 1500 } = config ?? {};
+  const { apiKey, model = 'gemini-3-pro-image-preview', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, imageTimeoutMs, maxRetries = 5, backoffBaseMs = 1500 } = config ?? {};
   const imageTimeout = Number.isInteger(imageTimeoutMs) && imageTimeoutMs > 0 ? imageTimeoutMs : timeoutMs;
   if (!apiKey) throw new AiImageError('No AI API key is configured (set ai.apiKey in config.json).', 'not-configured');
   if (!prompt || !String(prompt).trim()) throw new AiImageError('A prompt is required to generate an image.', 'bad-input');
@@ -126,7 +126,7 @@ export async function generateMarketingImage({ config, prompt, referenceBase64 =
  * @returns {Promise<string>} the generated identity-free prompt
  */
 export async function describeImage({ config, referenceBase64, referenceMime = 'image/jpeg', instruction, fetchImpl = fetch } = {}) {
-  const { apiKey, describeModel = 'gemini-flash-latest', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, describeInstruction, maxRetries = 3, backoffBaseMs = 1500 } = config ?? {};
+  const { apiKey, describeModel = 'gemini-flash-lite-latest', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, describeInstruction, maxRetries = 5, backoffBaseMs = 1500 } = config ?? {};
   if (!apiKey) throw new AiImageError('No AI API key is configured (set ai.apiKey in config.json).', 'not-configured');
   if (!referenceBase64) throw new AiImageError('A reference photo is required to describe.', 'bad-input');
 

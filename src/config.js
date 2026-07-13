@@ -177,7 +177,10 @@ export function validateConfig(cfg) {
   const aiModel = typeof aiRaw.model === 'string' && aiRaw.model.trim() ? aiRaw.model.trim() : 'gemini-3-pro-image-preview';
   // The vision model that reads a customer photo into an identity-free scene prompt (the "describe"
   // half of describe-then-generate). A cheaper text/vision model, separate from the image model above.
-  const aiDescribeModel = typeof aiRaw.describeModel === 'string' && aiRaw.describeModel.trim() ? aiRaw.describeModel.trim() : 'gemini-flash-latest';
+  // gemini-flash-lite-latest, not gemini-flash-latest: the plain flash-latest alias is heavily
+  // contended and returns sustained 503 "high demand", which blocked Kreativy at the describe step.
+  // The lite sibling is far more available and more than enough to write a scene description.
+  const aiDescribeModel = typeof aiRaw.describeModel === 'string' && aiRaw.describeModel.trim() ? aiRaw.describeModel.trim() : 'gemini-flash-lite-latest';
   // Optional override for the privacy instruction sent with that photo; falls back to the built-in one.
   const aiDescribeInstruction =
     typeof aiRaw.describeInstruction === 'string' && aiRaw.describeInstruction.trim() ? aiRaw.describeInstruction.trim() : null;
@@ -187,6 +190,10 @@ export function validateConfig(cfg) {
   // regularly isn't enough under load — the operator saw "This operation was aborted". Give it its own,
   // longer budget; describe keeps the shorter timeoutMs. Override with ai.imageTimeoutMs.
   const aiImageTimeout = Number.isInteger(aiRaw.imageTimeoutMs) && aiRaw.imageTimeoutMs > 0 ? aiRaw.imageTimeoutMs : 180000;
+  // Gemini's image + flash models return 503 "high demand" in spikes; more retries with backoff ride
+  // the spike out instead of surfacing a hard error to the operator. Override via ai.maxRetries/backoffBaseMs.
+  const aiMaxRetries = Number.isInteger(aiRaw.maxRetries) && aiRaw.maxRetries >= 0 ? aiRaw.maxRetries : 5;
+  const aiBackoffBaseMs = Number.isInteger(aiRaw.backoffBaseMs) && aiRaw.backoffBaseMs >= 0 ? aiRaw.backoffBaseMs : 1500;
 
   // The overnight autopilot: a scheduled Admin API poll that pulls new PAID photo orders into the
   // inbox and runs the existing pipeline (KTD2). Disabled by default so the tool runs with no Shopify
@@ -327,6 +334,8 @@ export function validateConfig(cfg) {
       endpoint: aiEndpoint,
       timeoutMs: aiTimeout,
       imageTimeoutMs: aiImageTimeout,
+      maxRetries: aiMaxRetries,
+      backoffBaseMs: aiBackoffBaseMs,
     },
     // The overnight autopilot (Shopify Admin API poll). `enabled` false means no poll ever runs and
     // the runner exits inert. `dataDir` is always an absolute path outside the repo tree; `accessToken`
