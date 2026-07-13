@@ -971,15 +971,17 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, overrideIntake(order.orderDir, { confirmCount }));
       }
 
-      // POST /api/whatsapp/test — send a test document to the configured recipient to confirm the link
-      // works end-to-end, WITHOUT marking any order delivered. The server picks a built PDF (never a
-      // client-supplied path, so this can't be used to exfiltrate an arbitrary file).
+      // POST /api/whatsapp/test — send a test document to confirm the link works end-to-end, WITHOUT
+      // marking any order delivered. The server picks a built PDF (never a client-supplied path, so this
+      // can't be used to exfiltrate an arbitrary file). Optional body { to } overrides the destination —
+      // used to verify a group id ("…@g.us") before it's made the configured recipient.
       if (req.method === 'POST' && url.pathname === '/api/whatsapp/test') {
         if (!wa) return json(res, 503, { error: 'WhatsApp odesílání není nastaveno.', code: 'not-configured' });
+        const { to } = await readJson(req, 4096).catch(() => ({}));
         const withPdf = state().map((o) => ({ o, pdf: pdfPathFor(o.orderDir, o.orderId) })).find((x) => existsSync(x.pdf));
         if (!withPdf) return json(res, 400, { error: 'Není žádné hotové PDF k odeslání jako test.' });
         try {
-          const sent = await wa.sendDocument({ filePath: withPdf.pdf, caption: 'Test z Fotomalovánky studia ✅ — WhatsApp spojení funguje.' });
+          const sent = await wa.sendDocument({ filePath: withPdf.pdf, caption: 'Test z Fotomalovánky studia ✅ — WhatsApp spojení funguje.', to: to || undefined });
           return json(res, 200, { sent: true, to: sent.to, order: withPdf.o.orderId });
         } catch (err) {
           const code = err instanceof WhatsAppError ? err.code : 'unknown';
