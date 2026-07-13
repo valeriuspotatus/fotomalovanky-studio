@@ -1,5 +1,5 @@
-import { existsSync, writeFileSync, rmSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, writeFileSync, rmSync, statSync, readFileSync } from 'node:fs';
+import { join, basename } from 'node:path';
 import { reviewState } from './review.js';
 import { pdfPathFor } from './orchestrator.js';
 import { intakeSummary } from './intake.js';
@@ -22,9 +22,14 @@ export const deliveredMarkerPath = (orderDir) => join(orderDir, 'delivered.json'
  *  nothing here contacts Jirka; it only records that the operator already did. Idempotent. Later,
  *  automated WhatsApp delivery (Phase 2) would write the same marker in the operator's place. */
 export function markDelivered(orderDir, info = {}) {
+  // Stamp the mtime of the exact PDF that went out (N10): if the book is rebuilt after this, the
+  // board can tell the sent file is now stale and offer to re-send. mtime, not a hash — a rebuild
+  // always rewrites the file, and hashing every sent PDF on each board poll would be wasteful.
+  const pdf = pdfPathFor(orderDir, basename(orderDir));
+  const sentPdfMtime = existsSync(pdf) ? statSync(pdf).mtimeMs : null;
   writeFileSync(
     deliveredMarkerPath(orderDir),
-    JSON.stringify({ at: new Date().toISOString(), by: 'operator', ...info }, null, 2),
+    JSON.stringify({ at: new Date().toISOString(), by: 'operator', ...info, sentPdfMtime }, null, 2),
   );
   return ORDER_BOARD_STATES.SENT;
 }
@@ -160,7 +165,7 @@ function boardEntry(order, status) {
 /** Build the whole board from review-state orders plus injected fact-providers. Pure over its
  *  inputs — `pdfBuilt`/`delivered` are predicates, `runningOrderId` a plain id — so the whole
  *  status machine is testable without a filesystem or a running server. */
-export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => false, delivered = () => false, printed = () => false, createdAt = () => null, firstLiveOrder = null } = {}) {
+export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => false, delivered = () => false, printed = () => false, createdAt = () => null, stale = () => false, firstLiveOrder = null } = {}) {
   // Hide old test orders: everything below the first real order number never reaches the board or
   // its counts. Non-numeric ids are always kept — the floor only judges what it can compare.
   const live =
@@ -179,6 +184,8 @@ export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => fal
     });
     const entry = boardEntry(order, status);
     entry.createdAt = createdAt(order); // ms since epoch, or null — drives the Stáří column (N8)
+    // Only a sent order can be stale: its PDF was rebuilt after it went to Jirka (N10).
+    entry.stale = status === ORDER_BOARD_STATES.SENT && stale(order);
     return entry;
   });
 
@@ -231,6 +238,18 @@ export function studioBoard({ inboxRoot, outboxRoot, runningOrderId = null, only
         return st.birthtimeMs || st.mtimeMs || null;
       } catch {
         return null;
+      }
+    },
+    // Sent-file staleness (N10): the current PDF is newer than the one recorded at send time.
+    stale: (o) => {
+      const marker = deliveredMarkerPath(o.orderDir);
+      const pdf = pdfPathFor(o.orderDir, o.orderId);
+      if (!existsSync(marker) || !existsSync(pdf)) return false;
+      try {
+        const { sentPdfMtime } = JSON.parse(readFileSync(marker, 'utf8'));
+        return typeof sentPdfMtime === 'number' && statSync(pdf).mtimeMs > sentPdfMtime + 1000; // 1s epsilon
+      } catch {
+        return false;
       }
     },
   });

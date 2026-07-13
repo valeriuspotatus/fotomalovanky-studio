@@ -493,18 +493,26 @@
         act=send+`<button class="btn btn-secondary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`;
       }
       // Sent, awaiting Jirka's print confirmation: the operator closes the loop with "Označit vytištěno"
-      // (N3). This one bit unlocks the photo purge and marks the order truly done.
-      else if(o.status==="sent") act=`<button class="btn btn-primary sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button><button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
+      // (N3). If the PDF was rebuilt after send (N10), the primary action becomes "Odeslat znovu" so
+      // Jirka isn't left printing a stale book.
+      else if(o.status==="sent"){
+        const resend=o.stale?(waState&&waState.state==="linked"
+          ?`<button class="btn btn-primary sm act-deliver" data-deliver="${esc(o.orderId)}">Odeslat znovu</button>`
+          :`<button class="btn btn-primary sm" disabled title="Nejdříve propojte WhatsApp (QR kód nahoře).">Odeslat znovu</button>`):"";
+        act=`${resend}<button class="btn ${o.stale?"btn-secondary":"btn-primary"} sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button><button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
+      }
       else if(o.status==="printed") act=`<button class="btn btn-ghost sm act-unprinted" data-unprinted="${esc(o.orderId)}">Vrátit</button>`;
     }
     // The permanent under-count warning (N2): shown beside the status chip on every board glance.
     const inc=o.incomplete?`<span class="chip c-danger" title="Operátor potvrdil knihu s méně stranami, než produkt obsahuje."><span class="dot"></span>neúplná ${o.incomplete.pages}/${o.incomplete.expected}</span>`:"";
+    // Sent-file staleness (N10): the PDF was rebuilt after it went to Jirka.
+    const staleChip=o.stale?`<span class="chip c-warning" title="PDF bylo po odeslání znovu sestaveno — Jirka má starší verzi."><span class="dot"></span>zastaralé</span>`:"";
     return `<tr>
       <td><span class="oid">${esc(o.orderId)}</span></td>
       ${ageTd}
       <td class="mono">${ph}${miss}</td>
       <td><span class="ded-cell">${o.dedication?"„"+esc(o.dedication)+"“":"—"}</span></td>
-      <td>${chipHtml(o.status)}${inc}</td>${opts.actions?`<td class="act-cell">${act}</td>`:""}</tr>`;
+      <td>${chipHtml(o.status)}${staleChip}${inc}</td>${opts.actions?`<td class="act-cell">${act}</td>`:""}</tr>`;
   }
 
   function renderHome(d){

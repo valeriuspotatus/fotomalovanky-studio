@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildBoard, deriveOrderStatus, studioBoard, overnightSummary, ORDER_BOARD_STATES, markDelivered, unmarkDelivered, deliveredMarkerPath, markPrinted, unmarkPrinted, printedMarkerPath } from '../src/studio.js';
@@ -201,6 +201,33 @@ test('firstLiveOrder hides test orders below it; counts follow, non-numeric ids 
   assert.equal(board.counts.total, 3);
   // With no floor, nothing is hidden — the default must not change existing behaviour.
   assert.equal(buildBoard([order('1231'), order('1524')]).counts.total, 2);
+});
+
+test('a sent order whose PDF is rebuilt after delivery reads as stale (N10)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-stale-'));
+  try {
+    const outbox = join(root, 'outbox');
+    const d = join(outbox, '1719');
+    mkdirSync(d, { recursive: true });
+    const pdf = join(d, '1719 Final.pdf');
+    writeFileSync(pdf, '%PDF sent version');
+    markDelivered(d); // stamps sentPdfMtime = the current PDF's mtime
+    assert.equal(typeof JSON.parse(readFileSync(deliveredMarkerPath(d), 'utf8')).sentPdfMtime, 'number');
+
+    const fakeState = () => [order('1719', summary({ total: 1, eligible: 1, ready: true }), { orderDir: d })];
+    let board = studioBoard({ inboxRoot: null, outboxRoot: outbox, state: fakeState });
+    assert.equal(board.orders[0].status, ORDER_BOARD_STATES.SENT);
+    assert.equal(board.orders[0].stale, false, 'just sent — the file Jirka has is current');
+
+    // Rebuild the book after it was sent: a newer PDF than the one recorded at send time.
+    writeFileSync(pdf, '%PDF rebuilt version');
+    const later = (statSync(pdf).mtimeMs + 5000) / 1000;
+    utimesSync(pdf, later, later);
+    board = studioBoard({ inboxRoot: null, outboxRoot: outbox, state: fakeState });
+    assert.equal(board.orders[0].stale, true, 'rebuilt after send — Jirka has the old book');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('markDelivered writes the terminal marker (sent); unmarkDelivered removes it and is idempotent', () => {
