@@ -228,3 +228,12 @@ test('deliver with no WhatsApp configured is a clear 503, not a crash', async ()
     assert.equal((await res.json()).code, 'not-configured');
   });
 });
+
+test('shutdown() closes the WhatsApp client so the browser tears down cleanly on stop', async () => {
+  let closed = 0;
+  const waClient = { status: async () => ({ available: true, state: 'linked' }), close: async () => { closed++; } };
+  const { server, shutdown } = createReviewServer({ config: CONFIG, driver: { generate: async () => {} }, waClient });
+  server.close();
+  await shutdown();
+  assert.equal(closed, 1, 'the WhatsApp session was closed on shutdown');
+});

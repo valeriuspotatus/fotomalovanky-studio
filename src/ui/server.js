@@ -959,6 +959,22 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, overrideIntake(order.orderDir, { confirmCount }));
       }
 
+      // POST /api/whatsapp/test — send a test document to the configured recipient to confirm the link
+      // works end-to-end, WITHOUT marking any order delivered. The server picks a built PDF (never a
+      // client-supplied path, so this can't be used to exfiltrate an arbitrary file).
+      if (req.method === 'POST' && url.pathname === '/api/whatsapp/test') {
+        if (!wa) return json(res, 503, { error: 'WhatsApp odesílání není nastaveno.', code: 'not-configured' });
+        const withPdf = state().map((o) => ({ o, pdf: pdfPathFor(o.orderDir, o.orderId) })).find((x) => existsSync(x.pdf));
+        if (!withPdf) return json(res, 400, { error: 'Není žádné hotové PDF k odeslání jako test.' });
+        try {
+          const sent = await wa.sendDocument({ filePath: withPdf.pdf, caption: 'Test z Fotomalovánky studia ✅ — WhatsApp spojení funguje.' });
+          return json(res, 200, { sent: true, to: sent.to, order: withPdf.o.orderId });
+        } catch (err) {
+          const code = err instanceof WhatsAppError ? err.code : 'unknown';
+          return json(res, 502, { error: `Testovací odeslání selhalo — ${err.message}`, code });
+        }
+      }
+
       // POST /api/<order>/deliver — the operator's explicit "Odeslat Jirkovi": send the finished
       // <order> Final.pdf to Jirka's WhatsApp with the order number as caption, THEN mark it delivered.
       // The order is written to 'sent' ONLY when the WhatsApp send resolves — a failed send leaves the
@@ -1066,7 +1082,14 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     }
   });
 
-  return { server, inFlight };
+  // Graceful stop: close the WhatsApp session's Chromium cleanly. Without this, killing the server
+  // (Ctrl-C, a restart) tears the browser down mid-flush and whatsapp-web.js's NEXT restore hangs in
+  // 'connecting' forever — the recurring "have to re-scan the QR after every restart" pain. Best-effort.
+  async function shutdown() {
+    try { await wa?.close?.(); } catch { /* best-effort */ }
+  }
+
+  return { server, inFlight, shutdown };
 }
 
 // CLI: node src/ui/server.js [inbox] [outbox] [--port 4173] [--no-open]
@@ -1085,7 +1108,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(1);
   }
 
-  const { server } = createReviewServer({ config, inboxRoot, outboxRoot, revealFinished: true, log: (m) => console.log(`  ${m}`) });
+  const { server, shutdown } = createReviewServer({ config, inboxRoot, outboxRoot, revealFinished: true, log: (m) => console.log(`  ${m}`) });
+  // Close the WhatsApp Chromium cleanly on stop so the next start restores its session instead of
+  // hanging. Guard against double-fire (SIGINT then SIGTERM) and give the browser a moment to flush.
+  let stopping = false;
+  const stop = async () => {
+    if (stopping) return;
+    stopping = true;
+    await shutdown();
+    process.exit(0);
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
   server.on('error', (err) => {
     const why =
       err.code === 'EADDRINUSE'
