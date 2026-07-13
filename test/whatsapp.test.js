@@ -248,6 +248,18 @@ test('listGroups returns only groups (id + name), once the session is linked', a
   assert.deepEqual(groups, [{ id: '120363111@g.us', name: 'Objednávky' }]);
 });
 
+test('GET /api/<order>/pdf serves the built book inline, and 404s before it exists', async () => {
+  await withServer({ withPdf: true }, async (origin) => {
+    const r = await fetch(`${origin}/api/1510/pdf`);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type') || '', /application\/pdf/);
+    assert.match(await r.text(), /^%PDF/);
+  });
+  await withServer({ withPdf: false }, async (origin) => {
+    assert.equal((await fetch(`${origin}/api/1510/pdf`)).status, 404);
+  });
+});
+
 test('shutdown() closes the WhatsApp client so the browser tears down cleanly on stop', async () => {
   let closed = 0;
   const waClient = { status: async () => ({ available: true, state: 'linked' }), close: async () => { closed++; } };

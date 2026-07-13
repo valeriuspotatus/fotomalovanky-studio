@@ -320,8 +320,7 @@
       <div class="overnight" hidden></div>
       <div id="waStrip" class="wa-strip" hidden></div>
       <div class="orders-toolbar">
-        <button class="btn btn-secondary sm" id="fetchOrders">Načíst nové objednávky</button>
-        <span class="fetch-note" id="fetchNote">Stáhne nové objednávky z Shopify a rovnou je vygeneruje.</span>
+        <span class="fetch-note" id="fetchNote">Nové objednávky se stahují automaticky ze Shopify.</span>
       </div>
       <div class="table"><table>
         <thead><tr><th>Objednávka</th><th>Stáří</th><th>Stránky</th><th>Titulek</th><th>Stav</th><th></th></tr></thead>
@@ -515,6 +514,10 @@
         act=`${resend}<button class="btn ${o.stale?"btn-secondary":"btn-primary"} sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button><button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
       }
       else if(o.status==="printed") act=`<button class="btn btn-ghost sm act-unprinted" data-unprinted="${esc(o.orderId)}">Vrátit</button>`;
+      // A "Zobrazit PDF" link for any order whose book is on disk, so the operator can open it in a new
+      // tab and check it before sending. Leads the actions — it's the "look before you send" step.
+      if(["ready-to-send","sent","printed"].includes(o.status))
+        act=`<a class="btn btn-secondary sm" href="/api/${esc(o.orderId)}/pdf" target="_blank" rel="noopener">Zobrazit PDF</a>`+act;
     }
     // The permanent under-count warning (N2): shown beside the status chip on every board glance.
     const inc=o.incomplete?`<span class="chip c-danger" title="Operátor potvrdil knihu s méně stranami, než produkt obsahuje."><span class="dot"></span>neúplná ${o.incomplete.pages}/${o.incomplete.expected}</span>`:"";
@@ -680,32 +683,20 @@
   }
   setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["home","orders","todo"].includes(v))fetchStudio();},2500);
 
-  /* ---- On-demand Shopify fetch (Načíst nové objednávky) ---- */
+  /* ---- Auto-fetch status: orders download from Shopify on a timer; the note shows activity + a
+         one-time toast when a background fetch finishes. (The old manual "Načíst" button is gone.) ---- */
   let fetchWasRunning=false; // to toast exactly once when a run finishes
   function syncFetchButton(d){
-    const btn=document.getElementById("fetchOrders");if(!btn)return;
+    const note=document.getElementById("fetchNote");if(!note)return;
     const ap=d.autopilot||{}, running=Boolean(ap.running);
-    btn.disabled=running;btn.setAttribute("aria-busy",running?"true":"false");
-    btn.textContent=running?"Načítám z Shopify…":"Načíst nové objednávky";
+    note.textContent=running?"Stahuji nové objednávky ze Shopify…":"Nové objednávky se stahují automaticky ze Shopify.";
     if(fetchWasRunning&&!running){ // just finished
       if(ap.error)toast("Načtení selhalo: "+ap.error);
       else{const c=ap.report?.counts;const n=ap.report?.processed??0;
-        toast(n?`Načteno ${n} nových — ${c?`${c.ready||0} hotových, ${c.held||0} k kontrole, ${c.failed||0} chyb`:"hotovo"}`:"Žádné nové objednávky.");}
+        if(n)toast(`Načteno ${n} nových — ${c?`${c.ready||0} hotových, ${c.held||0} k kontrole, ${c.failed||0} chyb`:"hotovo"}`);}
     }
     fetchWasRunning=running;
   }
-  async function fetchNewOrders(){
-    const btn=document.getElementById("fetchOrders");
-    if(!confirm("Načíst nové objednávky ze Shopify a rovnou je vygenerovat?\n\nMůže to pár minut trvat a spotřebuje kredit za každou novou objednávku."))return;
-    btn.disabled=true;btn.setAttribute("aria-busy","true");
-    try{
-      const r=await fetch("/api/autopilot/run",{method:"POST"});
-      const j=await r.json().catch(()=>({}));
-      if(!r.ok){toast(j.error||"Nepodařilo se spustit načítání.");btn.disabled=false;btn.setAttribute("aria-busy","false");return;}
-      fetchWasRunning=true;toast("Načítám objednávky ze Shopify…");fetchStudio();
-    }catch{toast("Server neodpovídá.");btn.disabled=false;btn.setAttribute("aria-busy","false");}
-  }
-  document.getElementById("fetchOrders")?.addEventListener("click",fetchNewOrders);
 
   /* ---- WhatsApp delivery link state: shows "propojeno" or a QR to scan the one time ---- */
   const WA_TEXT={

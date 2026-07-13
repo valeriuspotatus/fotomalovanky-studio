@@ -1031,6 +1031,22 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, { status: markDelivered(order.orderDir) });
       }
 
+      // GET /api/<order>/pdf — the finished <order> Final.pdf, inline, so the operator can open it in a
+      // new tab and check the book before sending it to Jirka. Addressed by order id (no path from the
+      // page reaches the filesystem); 404 until the book is built. no-store so a rebuilt PDF isn't cached.
+      if (req.method === 'GET' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'pdf') {
+        const order = state().find((o) => o.orderId === parts[1]);
+        if (!order) return json(res, 404, { error: 'Unknown order.' });
+        const pdfPath = pdfPathFor(order.orderDir, order.orderId);
+        if (!existsSync(pdfPath)) return json(res, 404, { error: 'PDF ještě není hotové.' });
+        res.writeHead(200, {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `inline; filename="${order.orderId}.pdf"`,
+          'Cache-Control': 'no-store',
+        });
+        return res.end(readFileSync(pdfPath));
+      }
+
       // POST /api/<order>/unsent — undo a delivery mark set by mistake; the order returns to the board.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'unsent') {
         const order = state().find((o) => o.orderId === parts[1]);
