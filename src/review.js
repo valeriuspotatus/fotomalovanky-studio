@@ -63,6 +63,11 @@ export function photoFiles(outboxRoot, orderId, base, sourcePath = null) {
 /** Join what the inbox says an order contains with what the manifest says happened to it.
  *  Photos the batch has not reached yet appear with a null status — that is the grid's
  *  "generating…" placeholder, and it is why an order with a photo still to run is not ready. */
+/** An order the operator deleted from the board carries this marker in its outbox folder. The order
+ *  and its files stay on disk (recoverable — delete the marker to restore it), but it no longer shows
+ *  anywhere the board is derived from reviewState. Same folder-marker pattern as delivered/printed. */
+export const hiddenMarkerPath = (orderDir) => join(orderDir, 'hidden.json');
+
 export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = MEMORY_DIR }) {
   let ingested = [];
   try {
@@ -84,6 +89,7 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
   const orders = [];
   for (const [orderId, order] of byId) {
     const orderDir = join(outboxRoot, orderId);
+    if (existsSync(hiddenMarkerPath(orderDir))) continue; // the operator deleted it from the board
     const manifest = readManifest(orderDir);
     const sources = new Map((order.photos ?? []).map((p) => [photoBase(p), p]));
     const bases = sources.size > 0 ? [...sources.keys()] : Object.keys(manifest.photos ?? {});

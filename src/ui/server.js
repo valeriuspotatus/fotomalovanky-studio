@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { readFileSync, statSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -12,6 +12,8 @@ import { runPipeline, formatEvent, pdfPathFor } from '../orchestrator.js';
 import { studioBoard, markDelivered, unmarkDelivered, markPrinted, unmarkPrinted } from '../studio.js';
 import { readReport } from '../autopilotReport.js';
 import { runAutopilot } from '../autopilot.js';
+import { hiddenMarkerPath } from '../review.js';
+import { loadState, markHandled, saveState } from '../autopilotState.js';
 import { createBridgeClient, BridgeError } from '../proton/bridgeClient.js';
 import { createSmtpClient, SmtpError } from '../proton/smtpClient.js';
 import { summarizeInbox } from '../proton/mailbox.js';
@@ -1045,6 +1047,26 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           'Cache-Control': 'no-store',
         });
         return res.end(readFileSync(pdfPath));
+      }
+
+      // POST /api/<order>/delete — remove an order from the board for good. Writes a hidden marker so it
+      // stops showing (the folder + files stay on disk, recoverable by deleting the marker), and marks it
+      // handled so the auto-fetch poll never re-materializes and regenerates it from Shopify. Refused
+      // while that order is mid-generation, so a live run's folder isn't yanked out from under it.
+      if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'delete') {
+        const order = state().find((o) => o.orderId === parts[1]);
+        if (!order) return json(res, 404, { error: 'Unknown order.' });
+        if (run.active && run.orderId === order.orderId) return json(res, 409, { error: 'Objednávka se právě generuje — počkejte, než doběhne.', code: 'busy' });
+        mkdirSync(order.orderDir, { recursive: true });
+        writeFileSync(hiddenMarkerPath(order.orderDir), JSON.stringify({ hiddenAt: new Date().toISOString() }, null, 2));
+        if (config.shopify?.dataDir) {
+          try {
+            const st = loadState(config.shopify.dataDir);
+            markHandled(st, order.orderId, { status: 'deleted', at: new Date().toISOString() });
+            saveState(config.shopify.dataDir, st);
+          } catch { /* best-effort — the hidden marker alone still keeps it off the board */ }
+        }
+        return json(res, 200, { deleted: order.orderId });
       }
 
       // POST /api/<order>/unsent — undo a delivery mark set by mistake; the order returns to the board.

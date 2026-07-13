@@ -518,6 +518,8 @@
       // tab and check it before sending. Leads the actions — it's the "look before you send" step.
       if(["ready-to-send","sent","printed"].includes(o.status))
         act=`<a class="btn btn-secondary sm" href="/api/${esc(o.orderId)}/pdf" target="_blank" rel="noopener">Zobrazit PDF</a>`+act;
+      // Always offer a way to remove a finished/unwanted order from the board (recoverable on disk).
+      act+=`<button class="btn btn-ghost sm act-delete" data-delete="${esc(o.orderId)}" title="Odebrat objednávku z nástěnky">Smazat</button>`;
     }
     // The permanent under-count warning (N2): shown beside the status chip on every board glance.
     const inc=o.incomplete?`<span class="chip c-danger" title="Operátor potvrdil knihu s méně stranami, než produkt obsahuje."><span class="dot"></span>neúplná ${o.incomplete.pages}/${o.incomplete.expected}</span>`:"";
@@ -726,6 +728,17 @@
     try{const r=await fetch(`/api/${encodeURIComponent(id)}/${action}`,{method:"POST"});if(r.ok)await fetchStudio();}
     catch(e){/* offline — leave the board as-is */}
   }
+  // Remove an order from the board for good. Files stay on disk (recoverable), but it stops showing and
+  // won't be re-fetched from Shopify. Confirmed, since it makes the order vanish from the operator's view.
+  async function deleteOrder(id){
+    if(!confirm(`Smazat objednávku ${id} z nástěnky?\n\nZmizí ze seznamu a už se znovu nenačte. (Soubory zůstanou na disku a jdou obnovit.)`))return;
+    try{
+      const r=await fetch(`/api/${encodeURIComponent(id)}/delete`,{method:"POST"});
+      const j=await r.json().catch(()=>({}));
+      if(r.ok){toast(`Objednávka ${id} smazána.`);await fetchStudio();}
+      else toast(j.error||"Smazání selhalo.");
+    }catch(e){toast("Server neodpovídá.");}
+  }
   // Send the book to Jirka on WhatsApp. The order becomes 'sent' only if the server's send succeeded;
   // a failure leaves it on the board with a toast so David can retry (or mark it sent by hand).
   async function deliverToJirka(id,btn){
@@ -746,7 +759,8 @@
     const s=e.target.closest(".act-sent");if(s){s.disabled=true;orderAction(s.dataset.sent,"sent");return;}
     const p=e.target.closest(".act-printed");if(p){p.disabled=true;orderAction(p.dataset.printed,"printed");return;}
     const up=e.target.closest(".act-unprinted");if(up){up.disabled=true;orderAction(up.dataset.unprinted,"unprinted");return;}
-    const u=e.target.closest(".act-unsent");if(u){u.disabled=true;orderAction(u.dataset.unsent,"unsent");}
+    const u=e.target.closest(".act-unsent");if(u){u.disabled=true;orderAction(u.dataset.unsent,"unsent");return;}
+    const del=e.target.closest(".act-delete");if(del){deleteOrder(del.dataset.delete);}
   });
   document.getElementById("doneToggle").addEventListener("click",e=>{
     if(e.target.closest("#toggleDone")){showDone=!showDone;if(studioData)renderOrders(studioData);}

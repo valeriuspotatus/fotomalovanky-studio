@@ -260,6 +260,20 @@ test('GET /api/<order>/pdf serves the built book inline, and 404s before it exis
   });
 });
 
+test('POST /api/<order>/delete hides the order from the board (marker on disk, files kept)', async () => {
+  await withServer({ withPdf: true }, async (origin, orderDir) => {
+    let board = await (await fetch(`${origin}/api/studio`)).json();
+    assert.ok(board.orders.some((o) => o.orderId === '1510'), 'on the board before delete');
+    const r = await fetch(`${origin}/api/1510/delete`, { method: 'POST' });
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).deleted, '1510');
+    board = await (await fetch(`${origin}/api/studio`)).json();
+    assert.ok(!board.orders.some((o) => o.orderId === '1510'), 'gone from the board after delete');
+    assert.ok(existsSync(join(orderDir, 'hidden.json')), 'a recoverable hidden marker was written');
+    assert.ok(existsSync(join(orderDir, '1510 Final.pdf')), 'the book file is kept, not deleted');
+  });
+});
+
 test('shutdown() closes the WhatsApp client so the browser tears down cleanly on stop', async () => {
   let closed = 0;
   const waClient = { status: async () => ({ available: true, state: 'linked' }), close: async () => { closed++; } };
