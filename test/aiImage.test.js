@@ -6,7 +6,7 @@ import { generateMarketingImage, describeImage, DESCRIBE_INSTRUCTION, AiImageErr
 // request shape, response parsing, and every error path — with an injected fetch, so the suite
 // stays offline. The live call is verified against the real API once the key is in config.json.
 
-const CONFIG = { apiKey: 'test-key', model: 'gemini-3-pro-image-preview', endpoint: 'https://gen.example/v1beta', timeoutMs: 5000 };
+const CONFIG = { apiKey: 'test-key', model: 'gemini-3-pro-image-preview', endpoint: 'https://gen.example/v1beta', timeoutMs: 5000, backoffBaseMs: 0 };
 
 /** A fake fetch that records the call and returns a canned Response-like object. */
 function fakeFetch(response, capture = {}) {
@@ -68,6 +68,28 @@ test('an auth failure maps to the auth code, other HTTP errors to api', async ()
     () => generateMarketingImage({ config: CONFIG, prompt: 'p', fetchImpl: async () => serverRes }),
     (e) => e instanceof AiImageError && e.code === 'api',
   );
+});
+
+test('a transient 503 overload is retried and recovers on a later attempt', async () => {
+  let calls = 0;
+  const flaky = async () => {
+    calls++;
+    if (calls < 3) return { ok: false, status: 503, text: async () => 'high demand' };
+    return okImage('OK64', 'image/png');
+  };
+  const out = await generateMarketingImage({ config: CONFIG, prompt: 'p', fetchImpl: flaky });
+  assert.deepEqual(out, { base64: 'OK64', mimeType: 'image/png' });
+  assert.equal(calls, 3, 'two 503s were retried, the third attempt succeeded');
+});
+
+test('a 503 that never clears exhausts retries and surfaces a clear overload error', async () => {
+  let calls = 0;
+  const down = async () => { calls++; return { ok: false, status: 503, text: async () => 'high demand' }; };
+  await assert.rejects(
+    () => generateMarketingImage({ config: CONFIG, prompt: 'p', fetchImpl: down }),
+    (e) => e instanceof AiImageError && e.code === 'api' && /přetížený/.test(e.message),
+  );
+  assert.equal(calls, 4, 'initial attempt + 3 retries');
 });
 
 test('a response with no image part is a no-image error, surfacing the model note', async () => {

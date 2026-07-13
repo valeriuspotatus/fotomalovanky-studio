@@ -350,6 +350,16 @@ let queueOpen = null;
 let queueAll = false; // show every order in the folder, not just the most recent
 const focusOrders = new Set(); // orders shown one-photo-at-a-time (Focus mode)
 
+// Orders the operator has cleared out of the working view with "Uklidit" — done books that are still
+// in the inbox folder but no longer need a hand. Kept in localStorage so the clear survives a reload
+// (the point is to open the tool to a clean desk each morning). They drop into Historie, never lost,
+// with a "Vrátit do práce" button to pull one back.
+const DISMISS_KEY = 'fma:dismissed';
+const dismissed = new Set((() => { try { return JSON.parse(localStorage.getItem(DISMISS_KEY) || '[]'); } catch { return []; } })());
+const saveDismissed = () => { try { localStorage.setItem(DISMISS_KEY, JSON.stringify([...dismissed])); } catch {} };
+function dismissOrder(id) { dismissed.add(id); saveDismissed(); refresh(true); }
+function undismissOrder(id) { dismissed.delete(id); saveDismissed(); refresh(true); }
+
 // Clicking Go blurs the title-page box, so its save is already in flight when the run starts.
 // The server refuses a dedication once a run is active, so let the save land first — otherwise
 // the click that starts the book is the click that throws its title page away.
@@ -1075,8 +1085,13 @@ function orderSection(o, locked) {
       <input id="ded-${esc(o.orderId)}" value="${esc(shown)}"${locked ? ' disabled' : ''} placeholder="bez věnování — titulní strana bude bez textu">
       ${hint}
     </div>`;
+  // "Uklidit" clears a done order out of the working view (into Historie); dismissed orders show
+  // "Vrátit do práce" instead. Only offered for orders actually in the working set (inbox, not built).
+  const clearBtn = dismissed.has(o.orderId)
+    ? `<button class="mode-toggle" data-undismiss="${esc(o.orderId)}" title="Vrátit tuto objednávku do pracovního seznamu">Vrátit do práce</button>`
+    : (o.inInbox && !o.built ? `<button class="mode-toggle" data-dismiss="${esc(o.orderId)}" title="Uklidit z pracovního seznamu — přesune do Historie">Uklidit</button>` : '');
   return `<section class="order">
-    <header><h2>Objednávka ${esc(o.orderId)}</h2>${note}${badge}${incompleteChip}${ded}<button class="mode-toggle" data-focus="${esc(o.orderId)}">${focusOrders.has(o.orderId) ? 'Mřížka' : 'Detail'}</button></header>
+    <header><h2>Objednávka ${esc(o.orderId)}</h2>${note}${badge}${incompleteChip}${ded}<button class="mode-toggle" data-focus="${esc(o.orderId)}">${focusOrders.has(o.orderId) ? 'Mřížka' : 'Detail'}</button>${clearBtn}</header>
     ${intakePanel(o, locked)}
     <div class="grid${focusOrders.has(o.orderId) ? ' focus' : ''}">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
   </section>`;
@@ -1103,8 +1118,12 @@ function render(data, force) {
   // A built book leaves the working view on its own (into history), so done orders don't pile up and
   // the operator never refreshes to clear them. The working view is only what still needs a hand:
   // generating, held for review, or generated-and-waiting-for-PDF.
-  const primary = orders.filter((o) => o.inInbox && !o.built);
-  const earlier = orders.filter((o) => !o.inInbox || o.built);
+  // Newest order on top (order numbers grow over time), so the one you just ran is there the moment
+  // the page opens. Cleared ("uklizené") orders leave the working view for Historie, same as built ones.
+  const primary = orders
+    .filter((o) => o.inInbox && !o.built && !dismissed.has(o.orderId))
+    .sort((a, b) => b.orderId.localeCompare(a.orderId, 'en', { numeric: true }));
+  const earlier = orders.filter((o) => !o.inInbox || o.built || dismissed.has(o.orderId));
 
   paintHistoryButton(earlier.length);
 
@@ -1365,6 +1384,11 @@ document.addEventListener('click', (e) => {
     refresh(true);
     return;
   }
+
+  const clearBtn = e.target.closest('button[data-dismiss]');
+  if (clearBtn) { dismissOrder(clearBtn.dataset.dismiss); return; }
+  const restoreBtn = e.target.closest('button[data-undismiss]');
+  if (restoreBtn) { undismissOrder(restoreBtn.dataset.undismiss); return; }
 
   const btn = e.target.closest('button[data-a],button[data-open]');
   if (!btn) return;
