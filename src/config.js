@@ -151,6 +151,11 @@ export function validateConfig(cfg) {
   }
   const mailUser = typeof mailRaw.user === 'string' && mailRaw.user.trim() ? mailRaw.user.trim() : null;
   const mailPass = typeof mailRaw.pass === 'string' && mailRaw.pass ? mailRaw.pass : null;
+  // The visible From on outbound replies. Auth stays on mailUser (the Bridge account); this may be any
+  // address that account owns — a send-as alias (David sends the customer correspondence). Defaults to
+  // the account address when unset. Proton rejects a From the account does not own, so a wrong value
+  // surfaces as a send error, not silent spoofing.
+  const mailFrom = typeof mailRaw.fromAddress === 'string' && mailRaw.fromAddress.trim() ? mailRaw.fromAddress.trim() : null;
   const mailSecure = mailRaw.secure === true;
   const mailLimit = Number.isInteger(mailRaw.recentLimit) && mailRaw.recentLimit > 0 ? mailRaw.recentLimit : 6;
   if (mailEnabled && (!mailUser || !mailPass)) {
@@ -294,7 +299,7 @@ export function validateConfig(cfg) {
     delivery: { format: deliveryFormat, formatMap },
     // The dashboard's read-only Proton inbox tile (via Proton Bridge over local IMAP). `enabled`
     // false means the tile shows an "offline" state and never connects.
-    mail: { enabled: mailEnabled, host: mailHost, port: mailPort, smtpPort: mailSmtpPort, user: mailUser, pass: mailPass, secure: mailSecure, recentLimit: mailLimit },
+    mail: { enabled: mailEnabled, host: mailHost, port: mailPort, smtpPort: mailSmtpPort, user: mailUser, pass: mailPass, fromAddress: mailFrom, secure: mailSecure, recentLimit: mailLimit },
     // The Kreativy AI image step (Gemini / Nano Banana Pro). `enabled` false means the studio's
     // "generate image" action is unavailable and never calls out.
     ai: {
