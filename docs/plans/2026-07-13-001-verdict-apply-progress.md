@@ -25,7 +25,7 @@ rows N1–N14) autonomously. Blocker-first. Commit after each row lands with tes
 | N9 | Mail↔order chips (regex `#?\d{4}` → chip w/ live status) | 2 | **done** ee4ebf8 |
 | N12 | Lightbox + keyboard review (←→/A/B/R) | 2 | todo |
 | N13 | Czech unification (kill "waiting for you", "Go", "Choose File") | 2 | **done** 929844d |
-| N10 | Sent-version staleness (hash+time; stale banner + Odeslat znovu) | 3 | todo |
+| N10 | Sent-version staleness (hash+time; stale banner + Odeslat znovu) | 3 | **done** c4cf3e7 |
 | N14 | Nastavení screen (folders, WhatsApp/token *status*, autopilot last-run, retention) | 3 | todo |
 | N11 | Kreativy seeds pass QC (every template×format×seed = pripraveno) + unit test | 2 | **done** 6abe687 |
 
@@ -90,3 +90,7 @@ needs an order-date source, use folder mtime proxy) → N10 (sent staleness) →
   col (board only, fmtAge), Fotky→Stránky w/ product denominator + "(N fotka chybí)". headers +
   colspans updated. Test for derived fields + age. 502 green. **10/14 done.**
   Remaining: N10 (sent staleness), N14 (Nastavení), N7 (unify shells, big), N12 (lightbox, big).
+- c4cf3e7 N10 done. markDelivered stamps sent PDF mtime into delivered.json; studioBoard `stale`
+  predicate (current PDF mtime > sent + 1s), entry.stale only for SENT. dashboard: "zastaralé" chip +
+  "Odeslat znovu" primary action (reuses /deliver, re-stamps → clears). End-to-end test. 503 green.
+  **11/14 done.** Remaining: N14 (Nastavení screen), N7 (unify shells, big), N12 (lightbox, big).
