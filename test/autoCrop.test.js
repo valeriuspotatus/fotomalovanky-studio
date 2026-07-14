@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { autoCropColoring, contentBox } from '../src/autoCrop.js';
+import { autoCropColoring, contentBox, deframe } from '../src/autoCrop.js';
 
 /** Write a WxH white PNG with a black rectangle of ink, mimicking a coloring page. */
 async function inkPng(path, W, H, rect) {
@@ -14,7 +14,58 @@ async function inkPng(path, W, H, rect) {
   await sharp(buf, { raw: { width: W, height: H, channels: 1 } }).png().toFile(path);
 }
 
+/** Write a WxH white PNG with a solid black keyline border `t` px thick, plus an interior ink block. */
+async function borderedPng(path, W, H, t, inner) {
+  const buf = Buffer.alloc(W * H, 255);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) if (x < t || x >= W - t || y < t || y >= H - t) buf[y * W + x] = 0;
+  for (let y = inner.top; y < inner.top + inner.height; y++)
+    for (let x = inner.left; x < inner.left + inner.width; x++) buf[y * W + x] = 0;
+  await sharp(buf, { raw: { width: W, height: H, channels: 1 } }).png().toFile(path);
+}
+
 const svgOf = (w, h) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0.00 0.00 ${w}.00 ${h}.00"><path d="M0 0"/></svg>`;
+
+test('deframe crops a solid black border keyline off both the PNG and the SVG', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fma-deframe-'));
+  try {
+    const png = join(dir, 'p_bw.png'), svg = join(dir, 'p.svg');
+    await borderedPng(png, 400, 300, 4, { left: 150, top: 110, width: 100, height: 80 });
+    writeFileSync(svg, svgOf(400, 300));
+
+    const res = await deframe({ pngPath: png, svgPath: svg });
+    assert.equal(res.deframed, true);
+
+    const m = await sharp(png).metadata();
+    assert.ok(m.width < 400 && m.width >= 380, `width lost the border (got ${m.width})`);
+    assert.ok(m.height < 300 && m.height >= 280, `height lost the border (got ${m.height})`);
+
+    // The new perimeter is clean paper — the keyline is gone, not just hidden.
+    const { data, info } = await sharp(png).grayscale().raw().toBuffer({ resolveWithObject: true });
+    let topEdgeInk = 0;
+    for (let x = 0; x < info.width; x++) if (data[x] < 120) topEdgeInk++;
+    assert.equal(topEdgeInk, 0, 'top edge is clean paper after deframe');
+
+    const vb = readFileSync(svg, 'utf8').match(/viewBox="([^"]+)"/)[1].split(/\s+/).map(Number);
+    assert.ok(vb[0] >= 4 && vb[0] <= 6, `viewBox x moved past the border (got ${vb[0]})`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('deframe leaves a normal borderless page untouched', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fma-deframe-'));
+  try {
+    const png = join(dir, 'p_bw.png'), svg = join(dir, 'p.svg');
+    await inkPng(png, 300, 300, { left: 60, top: 60, width: 180, height: 180 });
+    writeFileSync(svg, svgOf(300, 300));
+    const res = await deframe({ pngPath: png, svgPath: svg });
+    assert.equal(res.deframed, false);
+    assert.equal((await sharp(png).metadata()).width, 300, 'no-frame page untouched');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('a subject marooned in white is cropped to its ink, and the SVG viewBox follows', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'fma-crop-'));

@@ -5,7 +5,7 @@ import { loadConfig } from './config.js';
 import { ingestOrders } from './ingest.js';
 import { createGeneratorDriver } from './generator/factory.js';
 import { photoBase, writeOutputs } from './organize.js';
-import { autoCropColoring } from './autoCrop.js';
+import { autoCropColoring, deframe } from './autoCrop.js';
 import { assessOutputFiles } from './qcFiles.js';
 import {
   STATES,
@@ -86,6 +86,10 @@ export async function generatePhoto({ config, photoPath, orderDir, manifest, ord
     // paid for over a crop hiccup — the uncropped page is still perfectly usable.
     if (config.builder?.autoCrop !== false) {
       try {
+        // First whiten any black border keyline (the model draws one on some wide pages) so the crop
+        // below removes it from both the PNG and the printed SVG instead of the frame defeating the crop.
+        const df = await deframe({ pngPath: out.coloringPng, svgPath: out.coloringSvg });
+        if (df.deframed) onEvent({ type: 'deframed', orderId, base });
         const c = await autoCropColoring({ pngPath: out.coloringPng, svgPath: out.coloringSvg });
         if (c.cropped) onEvent({ type: 'auto-cropped', orderId, base, kept: Number(c.kept.toFixed(2)) });
       } catch (err) {
