@@ -162,6 +162,36 @@
   /* bell: jumps to Potřebuje vás; a coral dot when something is waiting */
   .icon-btn{position:relative}
   .icon-btn.has::after{content:"";position:absolute;top:7px;right:7px;width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 2px var(--surface)}
+  /* ---- Kalendář reklam: the calendar-of-ads gallery ---- */
+  .ad-cal{margin-bottom:30px}
+  .ad-cal-status{color:var(--ink-2);font-size:13px;margin:2px 2px 16px}
+  .ad-occ{padding:16px 0;border-top:1px solid var(--border)}
+  .ad-occ:first-of-type{border-top:none}
+  .ad-occ.flash{animation:adflash 1.6s ease-out}
+  @keyframes adflash{0%{background:var(--brand-weak,rgba(99,102,241,.14))}100%{background:transparent}}
+  .ad-occ-h{display:flex;gap:14px;align-items:baseline}
+  .ad-date{flex:0 0 64px;font-weight:800;color:var(--ink-3);font-size:13px;font-variant-numeric:tabular-nums;text-transform:lowercase}
+  .ad-occ-meta b{font-size:15px;color:var(--ink)}
+  .ad-persona{font-size:12.5px;color:var(--ink-3);margin-top:2px}
+  .ad-tone{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:999px;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--border)}
+  .ad-tone.tone-brand{color:#b4315b;border-color:#f0c4d2}
+  .ad-tone.tone-warm{color:#b5701a;border-color:#f0dcc0}
+  .ad-tone.tone-info{color:#3f74b0;border-color:#c7dbf0}
+  .ad-angle{font-size:13px;color:var(--ink-2);line-height:1.5;margin:8px 0 12px;padding-left:78px}
+  .ad-thumbs{display:flex;flex-wrap:wrap;gap:12px;padding-left:78px}
+  .ad-thumb{margin:0;width:150px;cursor:pointer;border-radius:10px;overflow:hidden;border:1px solid var(--border);background:var(--surface-2);transition:transform .12s,box-shadow .12s}
+  .ad-thumb:hover{transform:translateY(-2px);box-shadow:var(--shadow-md,0 6px 18px rgba(0,0,0,.12))}
+  .ad-thumb img{display:block;width:100%;height:150px;object-fit:cover;background:#fff}
+  .ad-thumb figcaption{font-size:11px;color:var(--ink-3);text-align:center;padding:5px 4px;text-transform:capitalize}
+  .ad-empty{padding-left:78px;font-size:12.5px;color:var(--ink-4,var(--ink-3));font-style:italic}
+  .ad-studio-h{margin:8px 0 14px}
+  .ad-lightbox{position:fixed;inset:0;z-index:100;background:rgba(15,15,20,.82);display:none;align-items:center;justify-content:center;padding:24px}
+  .ad-lightbox.on{display:flex}
+  .ad-lb-inner{max-width:min(92vw,900px);max-height:92vh;display:flex;flex-direction:column;gap:10px}
+  .ad-lb-inner img{max-width:100%;max-height:82vh;object-fit:contain;border-radius:10px;background:#fff}
+  .ad-lb-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;color:#fff;font-size:13px}
+  @media(max-width:720px){.ad-angle,.ad-thumbs,.ad-empty{padding-left:0}}
+
   /* ---- Kreativy studio: controls on the left, a live iframe preview on the right ---- */
   .kreativy{display:grid;grid-template-columns:340px minmax(0,1fr);gap:22px;align-items:start}
   .cv-controls{padding:20px;display:flex;flex-direction:column;gap:18px}
@@ -334,6 +364,13 @@
 
     <!-- ===== CREATIVES (Kreativy studio) — deterministic layered template engine ===== -->
     <section class="view" id="v-creatives">
+      <!-- Calendar of ads: for each marketing occasion, a mix of on-brand ads the robot pre-generated. -->
+      <div class="ad-cal">
+        <div class="sec-h"><h2>Kalendář reklam</h2><span class="eg-sub">Pro každou příležitost sada reklam v tónu značky — vytváří robot (Gemini)</span></div>
+        <div class="ad-cal-status cap" id="adCalStatus">Načítám…</div>
+        <div id="adCalList"></div>
+      </div>
+      <div class="ad-studio-h sec-h"><h2>Ruční studio</h2><span class="eg-sub">Vytvořte jednotlivou kreativu ručně</span></div>
       <div class="kreativy">
         <div class="card cv-controls">
           <div class="cv-group">
@@ -1229,6 +1266,49 @@
     }).catch(()=>{ $("cvMsg").className="cv-msg warn"; $("cvMsg").textContent="Kreativní studio je dostupné jen v běžícím nástroji."; });
   })();
 
+  /* ---- Kalendář reklam: the calendar of pre-generated ads, grouped by marketing occasion. Fetches
+         /api/creatives/calendar (occasions + their generated ad PNGs) and renders a gallery. ---- */
+  (function(){
+    const MON=["led","úno","bře","dub","kvě","čvn","čvc","srp","zář","říj","lis","pro"];
+    const TONE={brand:"Značka",warm:"Sezónní",info:"Obecné"};
+    let loaded=false, pendingFocus=null;
+    window.loadAdCal=async function(force){
+      if(loaded&&!force){applyFocus();return;}
+      const list=document.getElementById("adCalList"), status=document.getElementById("adCalStatus");
+      try{
+        const r=await fetch("/api/creatives/calendar"); if(!r.ok)throw 0;
+        const j=await r.json();
+        const withAds=j.occasions.filter(o=>o.ads.length).length;
+        const total=j.occasions.reduce((n,o)=>n+o.ads.length,0);
+        status.textContent=total?`${total} reklam · ${withAds} z ${j.occasions.length} příležitostí hotových`+(j.aiEnabled?"":" · AI vypnuté"):(j.aiEnabled?"Zatím žádné reklamy — vytváří robot na pozadí.":"AI je vypnuté (nastavte ai.apiKey v config.json).");
+        list.innerHTML=j.occasions.map(renderOcc).join("");
+        list.querySelectorAll(".ad-thumb").forEach(t=>t.onclick=()=>openAdLightbox(t.dataset.url,t.dataset.cap));
+        loaded=true; applyFocus();
+      }catch(e){ status.textContent="Kalendář reklam je dostupný jen v běžícím nástroji."; }
+    };
+    function renderOcc(o){
+      const date=`${o.d}. ${MON[o.m-1]}`;
+      const thumbs=o.ads.length
+        ? `<div class="ad-thumbs">${o.ads.map(a=>{const cap=`${a.family} · ${a.format}`;return `<figure class="ad-thumb" data-url="${esc(a.url)}" data-cap="${esc(cap)}" title="${esc(cap)}"><img loading="lazy" src="${esc(a.url)}" alt="${esc(cap)}"><figcaption>${esc(a.format)}</figcaption></figure>`;}).join("")}</div>`
+        : `<div class="ad-empty">Zatím negenerováno</div>`;
+      return `<div class="ad-occ" id="adocc-${esc(o.key)}" data-name="${esc(o.name)}">
+        <div class="ad-occ-h"><div class="ad-date">${esc(date)}</div><div class="ad-occ-meta"><b>${esc(o.name)}</b> <span class="ad-tone tone-${esc(o.tone)}">${TONE[o.tone]||esc(o.tone)}</span><div class="ad-persona">${esc(o.persona)}</div></div></div>
+        <div class="ad-angle">${esc(o.angle)}</div>${thumbs}</div>`;
+    }
+    function openAdLightbox(url,cap){
+      let ov=document.getElementById("adLightbox");
+      if(!ov){ov=document.createElement("div");ov.id="adLightbox";ov.className="ad-lightbox";ov.onclick=()=>ov.classList.remove("on");document.body.appendChild(ov);}
+      ov.innerHTML=`<div class="ad-lb-inner"><img src="${esc(url)}" alt="${esc(cap)}"><div class="ad-lb-bar"><span>${esc(cap)}</span><a class="btn btn-secondary sm" href="${esc(url)}" download onclick="event.stopPropagation()">Stáhnout PNG</a></div></div>`;
+      ov.classList.add("on");
+    }
+    window.adFocus=function(name){ pendingFocus=name; if(!loaded)loadAdCal(); else applyFocus(); };
+    function applyFocus(){
+      if(!pendingFocus)return; const name=pendingFocus; pendingFocus=null;
+      const card=[...document.querySelectorAll(".ad-occ")].find(c=>c.dataset.name===name);
+      if(card){card.scrollIntoView({behavior:"smooth",block:"start"});card.classList.add("flash");setTimeout(()=>card.classList.remove("flash"),1600);}
+    }
+  })();
+
   /* ---- month-navigable marketing calendar: the Přehled rail and the Kalendář tab share one
          (year, month) state so they always match. Days carry the year's marketing occasions
          (from David's calendar plan), the creative launches (LANE), and the 1st/15th reminders. ---- */
@@ -1331,7 +1411,7 @@
     title.textContent=`${sel.d}. ${MON_GEN[sel.m-1]} · ${WEEKDAYS[dow]}${today?" · dnes":""}`;
     const evs=CAL_EVENTS[sel.m+"-"+sel.d]||[];
     body.innerHTML=evs.length
-      ? evs.map(e=>`<div class="day-ev tone-${e.tone}"><div class="de-type">${esc(e.type)}</div><div class="de-title">${esc(e.title)}</div>${e.angle?`<div class="de-angle">${esc(e.angle)}</div>`:""}${e.cta?`<a class="de-cta" href="#creatives" onclick="go('creatives');return false">Vytvořit kreativu →</a>`:""}</div>`).join("")
+      ? evs.map(e=>`<div class="day-ev tone-${e.tone}"><div class="de-type">${esc(e.type)}</div><div class="de-title">${esc(e.title)}</div>${e.angle?`<div class="de-angle">${esc(e.angle)}</div>`:""}${e.cta?`<a class="de-cta" href="#creatives" data-adname="${esc(e.title)}" onclick="go('creatives');adFocus(this.dataset.adname);return false">Zobrazit reklamy →</a>`:""}</div>`).join("")
       : '<div class="empty">Na tento den nic naplánováno.</div>';
   }
   function selectDay(day){sel={y:curY,m:curM,d:day};paintMonth("calGrid");paintMonth("calGridBig");renderDayDetail();}
@@ -1443,7 +1523,7 @@
     if(["home","orders","todo"].includes(v))fetchStudio();
     if(v==="mail")fetchMailTab();
     if(v==="settings")fetchSettings();
-    if(v==="creatives"&&window.__cvFit)window.__cvFit();
+    if(v==="creatives"){if(window.loadAdCal)loadAdCal();if(window.__cvFit)window.__cvFit();}
     window.scrollTo({top:0,behavior:"instant"});
   }
   window.addEventListener("popstate",()=>go((location.hash||"#home").slice(1)));

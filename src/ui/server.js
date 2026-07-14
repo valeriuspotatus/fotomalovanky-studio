@@ -27,6 +27,8 @@ import { THEMES } from '../creatives/studio/brandKit.js';
 import { listTemplates, getTemplate, SEED_COPY } from '../creatives/studio/templates.js';
 import { renderStudioHtml } from '../creatives/studio/renderStudioHtml.js';
 import { validateConcept, creativeFilename, COPY_FIELDS } from '../creatives/studio/templateModel.js';
+import { MARKETING_CAL, occasionKey } from '../creatives/calendar.js';
+import { readIndex as readCreativesIndex } from '../creatives/adCalendar.js';
 import { ingestOrders, IngestError } from '../ingest.js';
 import {
   reviewState,
@@ -792,6 +794,49 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           formats: DEFAULT_FORMATS.map((k) => ({ key: k, label: STUDIO_FORMATS[k].label, w: STUDIO_FORMATS[k].w, h: STUDIO_FORMATS[k].h })),
           aiEnabled: Boolean(config?.ai?.enabled),
         });
+      }
+
+      // GET /api/creatives/calendar — the marketing-calendar occasions, each merged with any ads already
+      // generated for it (the "calendar of ads"). Ad PNGs are served by /creatives/ad/<key>/<file> below.
+      if (req.method === 'GET' && url.pathname === '/api/creatives/calendar') {
+        const index = readCreativesIndex(config.creatives.dataDir);
+        const occasions = MARKETING_CAL.map((o) => {
+          const key = occasionKey(o);
+          const entry = index.occasions[key];
+          return {
+            key,
+            m: o.m,
+            d: o.d,
+            name: o.name,
+            persona: o.persona,
+            angle: o.angle,
+            tone: o.tone,
+            generatedAt: entry?.generatedAt ?? null,
+            ads: (entry?.ads ?? []).map((a) => ({
+              family: a.family,
+              template: a.template,
+              format: a.format,
+              copy: a.copy ?? null,
+              url: `/creatives/ad/${key}/${encodeURIComponent(a.file)}`,
+            })),
+          };
+        });
+        return json(res, 200, { generatedAt: index.generatedAt, aiEnabled: Boolean(config?.ai?.enabled), occasions });
+      }
+
+      // GET /creatives/ad/<key>/<file> — one generated ad PNG from the creatives data dir. Addressed by
+      // (key, file), both regex-validated, and the resolved path is confined to the ads folder so nothing
+      // from the URL can escape it.
+      if (req.method === 'GET' && parts[0] === 'creatives' && parts[1] === 'ad' && parts.length === 4) {
+        const key = parts[2];
+        const file = decodeURIComponent(parts[3]);
+        if (!/^\d{2}-\d{2}-[a-z0-9-]+$/.test(key) || !/^[a-z0-9_.-]+\.png$/i.test(file)) return json(res, 400, { error: 'bad id' });
+        const root = resolve(config.creatives.dataDir, 'ads');
+        const path = resolve(root, key, file);
+        if (!path.startsWith(root + sep)) return json(res, 400, { error: 'bad path' });
+        if (!existsSync(path)) return json(res, 404, { error: 'not found' });
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
+        return res.end(readFileSync(path));
       }
 
       // GET /studio/preview?template=&format=&theme=&<copy fields>=&images=<id> — the layered concept as
