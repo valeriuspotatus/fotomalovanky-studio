@@ -15,6 +15,11 @@ const BRAND_VOICE = [
   'křičení velkými písmeny, žádné vykřičníky navíc. Emoce a vzpomínka jsou důležitější než sleva.',
 ].join(' ');
 
+/** Max combined `headline` + `headlineHi` chars for templates whose headline box is narrow and sits
+ *  right above the support/CTA — a longer headline wraps to 3 lines and overlaps them. `emotivni-darek`
+ *  is the one such family (left-aligned 60%-wide box). The wide centered-pill headlines are fine. */
+export const TIGHT_HEADLINE = { 'emotivni-darek': 34 };
+
 /** Effective character cap for a field. `support` is capped tighter than the template's hard limit so
  *  it stays a punchy ~single line and can't overflow into the CTA in the tighter product layout. */
 export function copyCap(field, limits) {
@@ -48,6 +53,9 @@ export function buildCopyPrompt({ occasion, template }) {
         'začátek titulku a "headlineHi" = posledních 1–2 slova, která větu dokončí (zvýrazní se). Např. ' +
         'celý titulek „Vzpomínka, která se dá vybarvit“ => "headline":„Vzpomínka, která se dá“, ' +
         '"headlineHi":„vybarvit“. Slova z "headlineHi" se NESMÍ objevit v "headline".'
+      : '',
+    TIGHT_HEADLINE[template.id]
+      ? `Celý titulek ("headline" + "headlineHi" dohromady) musí být krátký — nejvýše ${TIGHT_HEADLINE[template.id]} znaků, aby se vešel na dva řádky.`
       : '',
     'Dodrž limity znaků. Text musí být konkrétní k této příležitosti, ne obecný.',
   ].filter(Boolean).join('\n');
@@ -134,6 +142,13 @@ export async function generateAdCopy({ occasion, template, generateTextFn, confi
       copy[f] = cap ? clampChars(v, cap) : v;
     }
     dedupeHighlight(copy);
+    // Safety net for narrow-headline templates: keep headline + highlight within the 2-line budget so
+    // it can't wrap into the support/CTA even if the model ignored the length instruction.
+    const budget = TIGHT_HEADLINE[template.id];
+    if (budget && copy.headline && copy.headlineHi) {
+      const room = budget - copy.headlineHi.length - 1;
+      if (copy.headline.length > room) copy.headline = clampChars(copy.headline, Math.max(10, room));
+    }
     return { copy, source: 'ai' };
   } catch (err) {
     return { copy: { ...seed }, source: 'seed', error: err.message };

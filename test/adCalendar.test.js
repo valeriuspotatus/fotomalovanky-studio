@@ -48,6 +48,18 @@ test('generateAdCopy clamps AI fields and falls back to seed copy on bad output'
   assert.equal(bad.copy.headline, template && 'Vzpomínka, která se dá'); // from SEED_COPY.promena
 });
 
+test('emotivni-darek headline+highlight is capped to the 2-line budget (no support overlap)', async () => {
+  const template = TEMPLATES['emotivni-darek'];
+  const res = await generateAdCopy({
+    occasion: OCCASION,
+    template,
+    generateTextFn: async () => JSON.stringify({ headline: 'Zapomeňte na lapače prachu. Darujte', headlineHi: 'společné vzpomínky', support: 'x', cta: 'y' }),
+  });
+  const combined = `${res.copy.headline} ${res.copy.headlineHi}`.length;
+  assert.ok(combined <= 34, `combined headline within budget (got ${combined})`);
+  assert.ok(res.copy.headlineHi === 'společné vzpomínky', 'highlight kept intact');
+});
+
 // ---- buildAssets (stubbed image + line-art) --------------------------------
 
 test('buildAssets makes one scene image, reuses it, and line-arts only the coloring slot', async () => {
