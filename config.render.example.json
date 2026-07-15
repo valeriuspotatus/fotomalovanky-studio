@@ -1,0 +1,61 @@
+{
+  "__comment": "CLOUD config for Render. Paste your real values (copy the token URLs + API key + Shopify token straight from your LOCAL config.json), then add this whole file as a Render Secret File named config.json (mounted at /etc/secrets/config.json). See docs/RENDER.md. Differences from local: mail is OFF (Proton Bridge is PC-only), every data dir lives under the mounted /data disk, and the image model is the working gemini-3.1-flash-image.",
+  "generator": {
+    "baseUrl": "COPY_FROM_LOCAL_config.json (the token-scoped generator URL)",
+    "mode": "api",
+    "variant": "2509_1.5",
+    "diffusionSteps": 8,
+    "maxDiffusionSteps": 12
+  },
+  "builder": {
+    "baseUrl": "COPY_FROM_LOCAL_config.json (the print builder URL)",
+    "pdf": { "mode": "gallery", "coverCount": 2, "coverVariant": "pencils" }
+  },
+  "paths": {
+    "inbox": "/data/inbox",
+    "outbox": "/data/outbox"
+  },
+  "studio": { "firstLiveOrder": null },
+  "whatsapp": {
+    "enabled": true,
+    "recipient": "COPY_FROM_LOCAL_config.json (Jirka's number or the Objednávky group id)",
+    "sessionDir": "/data/whatsapp-session"
+  },
+  "mail": { "enabled": false },
+  "ai": {
+    "enabled": true,
+    "apiKey": "COPY_FROM_LOCAL_config.json (Google Gemini API key)",
+    "model": "gemini-3.1-flash-image",
+    "describeModel": "gemini-flash-lite-latest",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+    "timeoutMs": 60000,
+    "imageTimeoutMs": 180000,
+    "maxRetries": 5
+  },
+  "shopify": {
+    "enabled": true,
+    "storeDomain": "aqi8it-7n.myshopify.com",
+    "accessToken": "COPY_FROM_LOCAL_config.json OR leave out and set the FMA_SHOPIFY_TOKEN env var instead",
+    "apiVersion": "2026-07",
+    "requirePaid": false,
+    "photoHostAllowlist": ["cdn.tigren.com"],
+    "estSpendPerOrder": 0.3,
+    "autoFetchMinutes": 10,
+    "dataDir": "/data/autopilot"
+  },
+  "blog": {
+    "enabled": false,
+    "dataDir": "/data/blog"
+  },
+  "creatives": {
+    "dataDir": "/data/creatives"
+  },
+  "delivery": {
+    "format": "gallery",
+    "formatMap": {
+      "🖼️ Galerie (vaše fotka vedle omalovánky)": "gallery",
+      "📄 Celostránková omalovánka (plná stránka pro vybarvování)": "fullpage"
+    }
+  },
+  "retentionDays": 30
+}

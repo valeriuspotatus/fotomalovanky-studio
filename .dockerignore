@@ -1,0 +1,8 @@
+# Whitelist: ignore EVERYTHING, then add back only what the app needs at runtime. This guarantees no
+# secrets (config.json/.env), customer data (inbox/outbox, the local reference archives), scratch, or
+# node_modules can ever be baked into the image, no matter what sits in the build context.
+*
+!src
+!package.json
+!package-lock.json
+!config.example.json

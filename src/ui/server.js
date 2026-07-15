@@ -4,6 +4,7 @@ import { readFileSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSy
 import { join, dirname, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { timingSafeEqual } from 'node:crypto';
 import sharp from 'sharp';
 import { loadConfig } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
@@ -612,6 +613,16 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+
+    // Unauthenticated liveness probe for a cloud host's health check — must answer before the gate.
+    if (url.pathname === '/healthz') return json(res, 200, { ok: true });
+    // Optional password gate for public hosting (Render has no built-in auth). Active only when both
+    // STUDIO_USER + STUDIO_PASS are set, so local runs are unchanged. HTTPS at the host makes Basic
+    // Auth safe enough for one operator; without it the whole customer-book/WhatsApp panel is open.
+    if (!checkAuth(req)) {
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Fotomalovanky"', 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('Přihlášení vyžadováno.');
+    }
 
     try {
       // Home is the studio dashboard; the review grid moved to /review. Both are served from the
@@ -1352,10 +1363,39 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
 
 // CLI: node src/ui/server.js [inbox] [outbox] [--port 4173] [--no-open]
 // This is what the double-click launcher runs: the operator's whole tool is this page.
+/** Optional HTTP Basic Auth gate for public hosting. Returns true when the request is allowed: either
+ *  no gate is configured (STUDIO_USER/STUDIO_PASS unset → local runs unchanged) or the request carries
+ *  matching credentials. Timing-safe compare so the check can't be probed by response timing. */
+export function checkAuth(req) {
+  const user = process.env.STUDIO_USER;
+  const pass = process.env.STUDIO_PASS;
+  if (!user || !pass) return true; // no gate configured — local/dev
+  const m = /^Basic (.+)$/.exec(req.headers.authorization || '');
+  if (!m) return false;
+  let decoded;
+  try {
+    decoded = Buffer.from(m[1], 'base64').toString('utf8');
+  } catch {
+    return false;
+  }
+  const i = decoded.indexOf(':');
+  if (i < 0) return false;
+  return safeEqual(decoded.slice(0, i), user) && safeEqual(decoded.slice(i + 1), pass);
+}
+
+/** Constant-time string compare (length-guarded — timingSafeEqual throws on length mismatch). */
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const argv = process.argv.slice(2);
   const portFlag = argv.indexOf('--port');
-  const port = portFlag >= 0 ? Number(argv[portFlag + 1]) : 4173;
+  // Cloud hosts (Render) inject $PORT and require binding 0.0.0.0; local defaults stay 127.0.0.1:4173.
+  const port = portFlag >= 0 ? Number(argv[portFlag + 1]) : Number(process.env.PORT) || 4173;
+  const host = process.env.HOST || '127.0.0.1';
   const [inboxRoot, outboxRoot] = argv.filter((a) => !a.startsWith('--') && a !== String(port));
 
   let config;
@@ -1386,8 +1426,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error(`\nCould not start: ${why}\n`);
     process.exit(1);
   });
-  server.listen(port, '127.0.0.1', () => {
-    const url = `http://127.0.0.1:${port}/`;
+  server.listen(port, host, () => {
+    const url = `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}/`;
     console.log(`\n  Fotomalovánky is running.\n\n  ${url}\n\n  Leave this window open. Close it (or press Ctrl-C) to stop.\n`);
     if (!argv.includes('--no-open')) {
       openExternally(url).then((opened) => {
