@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateOccasionAds, buildAssets, pickTemplates, readIndex } from '../src/creatives/adCalendar.js';
 import { generateAdCopy, clampChars, parseJsonLoose, dedupeHighlight } from '../src/creatives/adCopy.js';
-import { TEMPLATES } from '../src/creatives/studio/templates.js';
+import { TEMPLATES, SEED_COPY } from '../src/creatives/studio/templates.js';
 import { occasionKey } from '../src/creatives/calendar.js';
 
 const OCCASION = { m: 2, d: 14, name: 'Sv. Valentýn', persona: 'Páry', angle: 'Rande s pastelkami.', tone: 'brand' };
@@ -45,7 +45,7 @@ test('generateAdCopy clamps AI fields and falls back to seed copy on bad output'
 
   const bad = await generateAdCopy({ occasion: OCCASION, template, generateTextFn: async () => 'garbage, no json' });
   assert.equal(bad.source, 'seed');
-  assert.equal(bad.copy.headline, template && 'Vzpomínka, která se dá'); // from SEED_COPY.promena
+  assert.equal(bad.copy.headline, SEED_COPY.promena.headline); // falls back to the seed headline
 });
 
 test('emotivni-darek headline+highlight is capped to the 2-line budget (no support overlap)', async () => {

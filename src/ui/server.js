@@ -20,7 +20,7 @@ import { summarizeInbox } from '../proton/mailbox.js';
 import { templateList, unfilledPlaceholders } from '../proton/templates.js';
 import { createWhatsAppClient, WhatsAppError, deliveryCaption } from '../whatsapp/whatsappClient.js';
 import { renderCreativePng, CreativeRenderError } from '../creatives/renderCreative.js';
-import { generateMarketingImage, describeImage, AiImageError } from '../creatives/aiImage.js';
+import { generateMarketingImage, describeImage, generateText, AiImageError } from '../creatives/aiImage.js';
 import { generateAdImages, describeAndGenerate, AdImageError, toDataUri } from '../creatives/adImages.js';
 import { STUDIO_FORMATS, DEFAULT_FORMATS } from '../creatives/studio/formats.js';
 import { THEMES } from '../creatives/studio/brandKit.js';
@@ -29,7 +29,12 @@ import { renderStudioHtml } from '../creatives/studio/renderStudioHtml.js';
 import { validateConcept, creativeFilename, COPY_FIELDS } from '../creatives/studio/templateModel.js';
 import { MARKETING_CAL, occasionKey } from '../creatives/calendar.js';
 import { readIndex as readCreativesIndex } from '../creatives/adCalendar.js';
+import { suggestTopics } from '../blog/topics.js';
+import { generatePost, recomputePost } from '../blog/draft.js';
+import { listPosts, readPost, savePost, deletePost } from '../blog/store.js';
+import { createContentClient } from '../shopify/content.js';
 import { ingestOrders, IngestError } from '../ingest.js';
+import { selectAutoRunOrders } from '../autoRun.js';
 import {
   reviewState,
   approve,
@@ -445,7 +450,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     if (autopilot.running) throw new ReviewError('Fetching orders is in progress — wait for it to finish before changing anything.');
   };
 
-  function startRun({ inbox: requested, force, buildPdfs = true }) {
+  function startRun({ inbox: requested, force, buildPdfs = true, only = null, silent = false }) {
     if (run.active) throw new ReviewError('A run is already going.');
     if (autopilot.running) throw new ReviewError('Fetching orders is in progress — wait for it to finish.');
     if (inFlight.size) throw new ReviewError('A photo is still being regenerated — wait for it to finish.');
@@ -459,7 +464,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       ingestOrders(candidate);
     }
 
-    if (selected?.length === 0) throw new ReviewError('Tick at least one order to run.');
+    // `only` lets the inbox auto-runner target specific new orders without disturbing the operator's
+    // manual tick selection; the manual path still runs `selected`.
+    const runOnly = only ?? selected;
+    if (runOnly?.length === 0) throw new ReviewError('Tick at least one order to run.');
 
     run.active = true;
     run.stopping = false;
@@ -483,7 +491,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       intake,
       force: Boolean(force),
       buildPdfs: buildPdfs !== false,
-      only: selected,
+      only: runOnly,
       memoryRoot,
       signal: runController.signal,
       onEvent: (e) => {
@@ -513,7 +521,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         // Show it to them. One order opens its own folder; a batch opens the one that holds
         // them all, rather than throwing a window per order at the screen.
         const built = result.orders.filter((o) => o.pdfPath);
-        if (!revealFinished || !built.length) return;
+        if (!revealFinished || silent || !built.length) return;
         reveal(built.length === 1 ? built[0].orderDir : outbox);
       })
       .catch((err) => {
@@ -902,6 +910,106 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, { id, before: toDataUri(pair.before), after: toDataUri(pair.after), prompt: pair.prompt ?? (prompt ?? null) });
       }
 
+      // ---- Blog Creator (SEO Czech posts -> Shopify draft) ------------------------------------
+      // The AI text seam for the blog (topics + drafts). Undefined when AI is off, so the topic engine
+      // degrades to calendar-only and draft generation reports a clear "AI off" error instead of 500ing.
+      const blogTextFn = config.ai?.enabled ? (a) => generateText({ config: config.ai, model: 'gemini-flash-latest', ...a }) : undefined;
+      const blogDir = config.blog?.dataDir;
+
+      // GET /api/blog/topics — the ranked topic list: calendar occasions + (if AI on) hot SEO suggestions.
+      if (req.method === 'GET' && url.pathname === '/api/blog/topics') {
+        if (!config.blog?.enabled) return json(res, 200, { enabled: false, aiEnabled: Boolean(config.ai?.enabled), topics: [] });
+        const { topics, aiUsed } = await suggestTopics({ generateTextFn: blogTextFn, config: config.ai });
+        return json(res, 200, { enabled: true, aiEnabled: Boolean(config.ai?.enabled), aiUsed, topics });
+      }
+
+      // POST /api/blog/draft { topic } — generate a full SEO draft from a topic, save it as `koncept`,
+      // return the post. Never publishes; the model failing degrades to an editable skeleton.
+      if (req.method === 'POST' && url.pathname === '/api/blog/draft') {
+        if (!config.blog?.enabled) return json(res, 503, { error: 'Blog není zapnutý (blog.enabled).', code: 'not-configured' });
+        if (!config.ai?.enabled) return json(res, 503, { error: 'AI není zapnutá (ai.enabled) — bez ní nelze psát článek.', code: 'ai-off' });
+        const { topic } = await readJson(req, 64 * 1024);
+        if (!topic || !topic.title) return json(res, 400, { error: 'Chybí téma článku.' });
+        const post = await generatePost({
+          topic,
+          generateTextFn: blogTextFn,
+          config: config.ai,
+          wordCountMin: config.blog.wordCountMin,
+          wordCountMax: config.blog.wordCountMax,
+        });
+        return json(res, 200, { post: savePost(blogDir, post) });
+      }
+
+      // GET /api/blog/posts        — list saved drafts (summaries)
+      // GET /api/blog/posts?id=... — one full draft
+      if (req.method === 'GET' && url.pathname === '/api/blog/posts') {
+        if (!config.blog?.enabled) return json(res, 200, { enabled: false, posts: [] });
+        const id = url.searchParams.get('id');
+        if (id) {
+          const post = readPost(blogDir, id);
+          return post ? json(res, 200, { post }) : json(res, 404, { error: 'Koncept nenalezen.' });
+        }
+        return json(res, 200, { enabled: true, posts: listPosts(blogDir) });
+      }
+
+      // POST /api/blog/posts { post } — save David's edits. Re-derives plainText from the (edited) body
+      // HTML and re-runs QC so warnings track what he actually wrote. The id (store key) stays stable.
+      if (req.method === 'POST' && url.pathname === '/api/blog/posts') {
+        if (!config.blog?.enabled) return json(res, 503, { error: 'Blog není zapnutý.', code: 'not-configured' });
+        const { post } = await readJson(req, 1024 * 1024);
+        if (!post || !post.id) return json(res, 400, { error: 'Chybí koncept k uložení.' });
+        const existing = readPost(blogDir, post.id);
+        if (!existing) return json(res, 404, { error: 'Koncept nenalezen.' });
+        // Never let an edit flip a Shopify-sent post's server-owned fields; keep them from the stored copy.
+        const merged = recomputePost({ ...existing, ...post, id: existing.id, status: existing.status, shopifyArticleId: existing.shopifyArticleId }, { wordCountMin: config.blog.wordCountMin });
+        return json(res, 200, { post: savePost(blogDir, merged) });
+      }
+
+      // DELETE /api/blog/posts?id=... — remove a local draft.
+      if (req.method === 'DELETE' && url.pathname === '/api/blog/posts') {
+        if (!config.blog?.enabled) return json(res, 503, { error: 'Blog není zapnutý.', code: 'not-configured' });
+        const id = url.searchParams.get('id');
+        if (!id) return json(res, 400, { error: 'Chybí id konceptu.' });
+        deletePost(blogDir, id);
+        return json(res, 200, { ok: true });
+      }
+
+      // GET /api/blog/blogs — the store's Shopify blogs, so David can pick where the article lands.
+      if (req.method === 'GET' && url.pathname === '/api/blog/blogs') {
+        if (!config.shopify?.storeDomain || !config.shopify?.contentToken) {
+          return json(res, 503, { error: 'Shopify content token není nastaven (write_content).', code: 'not-configured' });
+        }
+        const client = createContentClient({ storeDomain: config.shopify.storeDomain, contentToken: config.shopify.contentToken, apiVersion: config.shopify.apiVersion });
+        try {
+          return json(res, 200, { blogs: await client.listBlogs(), selected: config.blog?.blogId ?? null });
+        } catch (err) {
+          return json(res, 502, { error: err.message, code: err.code ?? 'unknown' });
+        }
+      }
+
+      // POST /api/blog/publish { id, blogId? } — create the draft in Shopify as an UNPUBLISHED article and
+      // move the local status to `odesláno`. David reviews + publishes from Shopify admin. Never goes live here.
+      if (req.method === 'POST' && url.pathname === '/api/blog/publish') {
+        if (!config.blog?.enabled) return json(res, 503, { error: 'Blog není zapnutý.', code: 'not-configured' });
+        if (!config.shopify?.storeDomain || !config.shopify?.contentToken) {
+          return json(res, 503, { error: 'Chybí Shopify content token s oprávněním write_content.', code: 'not-configured' });
+        }
+        const { id, blogId } = await readJson(req, 8192);
+        const post = readPost(blogDir, id);
+        if (!post) return json(res, 404, { error: 'Koncept nenalezen.' });
+        const target = (typeof blogId === 'string' && blogId.trim()) || config.blog?.blogId;
+        if (!target) return json(res, 400, { error: 'Vyberte cílový blog.', code: 'no-blog' });
+        const client = createContentClient({ storeDomain: config.shopify.storeDomain, contentToken: config.shopify.contentToken, apiVersion: config.shopify.apiVersion });
+        try {
+          const article = await client.createArticleDraft({ blogId: target, post, author: config.blog.author });
+          const updated = savePost(blogDir, { ...post, status: 'odeslano', shopifyArticleId: article.id, shopifyHandle: article.handle, publishedBlogId: target });
+          return json(res, 200, { post: updated, article });
+        } catch (err) {
+          const status = err.code === 'handle-taken' ? 409 : err.code === 'scope' || err.code === 'auth' ? 502 : err.code === 'bad-input' || err.code === 'no-blog' ? 400 : 502;
+          return json(res, status, { error: err.message, code: err.code ?? 'unknown' });
+        }
+      }
+
       // POST /api/_scan { path } — what orders are in that folder? Spends nothing, starts nothing.
       // Pointing at a folder is how the operator finds out what is in it.
       if (req.method === 'POST' && url.pathname === '/api/_scan') {
@@ -1204,12 +1312,38 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     log(`auto-fetch: polling Shopify for new orders every ${autoFetchMin} min`);
   }
 
+  // Auto-run: the Chrome extension drops a new order folder into the inbox, and nothing else triggers
+  // generation for it (the Shopify autopilot only runs orders IT fetched). So poll the inbox and start
+  // the pipeline the moment a folder is COMPLETE and settled — no manual "Spustit". Complete means
+  // objednavka.json has landed (so the dedication is present) AND all expected photos are on disk AND the
+  // folder has been quiet for SETTLE_MS (the download finished). An order whose outbox dir already holds a
+  // state.json is skipped (already processed); the run-lock keeps this off a manual or autopilot run.
+  function autoRunInbox() {
+    if (run.active || autopilot.running || inFlight.size) return; // busy — catch it next tick
+    let ready;
+    try { ready = selectAutoRunOrders({ inbox, outbox }); } catch { return; } // missing folder — nothing to do
+    if (!ready.length) return;
+    try {
+      startRun({ only: ready, buildPdfs: true, silent: true }); // full pipeline → PDF; update the board, never pop a desktop window
+      log(`auto-run: started ${ready.length} new order(s): ${ready.join(', ')}`);
+    } catch { /* a run started between the check and the call — next tick retries */ }
+  }
+  const autoRunSec = config.autoRunSeconds ?? 15; // seconds between inbox sweeps; 0 disables auto-run
+  let autoRunTimer = null;
+  if (autoRunSec > 0) {
+    autoRunTimer = setInterval(autoRunInbox, Math.max(3, autoRunSec) * 1_000);
+    autoRunTimer.unref?.();
+    setTimeout(autoRunInbox, 6_000).unref?.(); // sweep soon after boot, not a full interval later
+    log(`auto-run: watching inbox for new orders every ${autoRunSec}s`);
+  }
+
   // Graceful stop: close the WhatsApp session's Chromium cleanly + stop the auto-fetch timer. Without the
   // clean WhatsApp close, killing the server (Ctrl-C, a restart) tears the browser down mid-flush and
   // whatsapp-web.js's NEXT restore hangs in 'connecting' forever — the recurring "re-scan the QR after
   // every restart" pain. Best-effort.
   async function shutdown() {
     if (autoFetchTimer) clearInterval(autoFetchTimer);
+    if (autoRunTimer) clearInterval(autoRunTimer);
     try { await wa?.close?.(); } catch { /* best-effort */ }
   }
 

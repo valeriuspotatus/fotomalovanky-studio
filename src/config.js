@@ -50,6 +50,15 @@ export function defaultCreativesDir(env = process.env, platform = process.platfo
   return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'fotomalovanky', 'creatives');
 }
 
+/** A per-user data directory OUTSIDE the repo tree for the blog drafts (blog-index.json + posts/). Not
+ *  PII, but working content — kept out of the tree like the creatives store. Defaults to the OS per-user
+ *  data dir; overridable with an absolute path in config.json (blog.dataDir). */
+export function defaultBlogDir(env = process.env, platform = process.platform, home = homedir()) {
+  if (platform === 'win32') return join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'fotomalovanky', 'blog');
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'fotomalovanky', 'blog');
+  return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'fotomalovanky', 'blog');
+}
+
 /** The product/variant -> build-mode map (U9), dropping anything malformed and rejecting a typoed
  *  mode rather than silently building the wrong layout. */
 function normalizeFormatMap(raw) {
@@ -220,6 +229,20 @@ export function validateConfig(cfg) {
       ? shopRaw.accessToken.trim()
       : null;
   const accessToken = cfgToken || envToken;
+  // The blog writes articles as Shopify drafts, which needs the `write_content` scope — a wider
+  // credential than the read-only orders token. Cleanest is one custom app with both scopes (reuse
+  // `accessToken`); if David keeps the orders token narrow, a separate content token can live in
+  // shopify.contentToken or the FMA_SHOPIFY_CONTENT_TOKEN env var. Resolve the dedicated one first,
+  // fall back to the orders token, so a single-token setup just works.
+  const envContentToken =
+    typeof process.env.FMA_SHOPIFY_CONTENT_TOKEN === 'string' && process.env.FMA_SHOPIFY_CONTENT_TOKEN.trim()
+      ? process.env.FMA_SHOPIFY_CONTENT_TOKEN.trim()
+      : null;
+  const cfgContentToken =
+    typeof shopRaw.contentToken === 'string' && shopRaw.contentToken.trim() && !PLACEHOLDER.test(shopRaw.contentToken)
+      ? shopRaw.contentToken.trim()
+      : null;
+  const contentToken = cfgContentToken || envContentToken || accessToken;
   if (shopEnabled && !storeDomain) {
     throw new ConfigError('shopify.storeDomain is required when shopify.enabled is true (e.g. aqi8it-7n.myshopify.com).');
   }
@@ -280,6 +303,34 @@ export function validateConfig(cfg) {
         `creatives.dataDir (${creativesDir}) resolves inside the project tree. It holds generated ad PNGs and must never be committable — use an absolute path outside the repo, or omit it to use the safe default.`,
       );
     }
+  }
+
+  // The Blog Creator: writes SEO Czech posts and pushes each to Shopify as an UNPUBLISHED draft.
+  // Disabled by default so the tool runs with no blog config; the tab shows a "not configured" state
+  // until on. `dataDir` holds the local drafts (working content, no PII) and is guarded outside the
+  // repo like the others. Publishing needs a Shopify content token (resolved above) with write_content
+  // — when blog.enabled but no store/token is usable, that's a clear error, not a silent 403 at publish.
+  const blogRaw = cfg.blog && typeof cfg.blog === 'object' && !Array.isArray(cfg.blog) ? cfg.blog : {};
+  const blogEnabled = blogRaw.enabled === true;
+  let blogDir = defaultBlogDir();
+  if (typeof blogRaw.dataDir === 'string' && blogRaw.dataDir.trim()) {
+    blogDir = resolve(blogRaw.dataDir.trim());
+    const rel = relative(process.cwd(), blogDir);
+    const outsideRepo = isAbsolute(rel) || rel === '..' || rel.startsWith('..' + sep);
+    if (!outsideRepo) {
+      throw new ConfigError(
+        `blog.dataDir (${blogDir}) resolves inside the project tree. Keep drafts out of the repo — use an absolute path outside it, or omit it to use the safe default.`,
+      );
+    }
+  }
+  const blogAuthor = typeof blogRaw.author === 'string' && blogRaw.author.trim() ? blogRaw.author.trim() : 'Fotomalovánky';
+  const blogId = typeof blogRaw.blogId === 'string' && blogRaw.blogId.trim() ? blogRaw.blogId.trim() : null;
+  const wordCountMin = Number.isInteger(blogRaw.wordCountMin) && blogRaw.wordCountMin > 0 ? blogRaw.wordCountMin : 800;
+  const wordCountMax = Number.isInteger(blogRaw.wordCountMax) && blogRaw.wordCountMax >= wordCountMin ? blogRaw.wordCountMax : 1500;
+  if (blogEnabled && (!storeDomain || !contentToken)) {
+    throw new ConfigError(
+      'blog.enabled needs Shopify configured with a content token — set shopify.storeDomain and a write_content token (shopify.contentToken / FMA_SHOPIFY_CONTENT_TOKEN, or the orders token if it has the scope).',
+    );
   }
 
   // Board display: the first REAL order number. Older ids are test orders and are hidden from the
@@ -370,6 +421,7 @@ export function validateConfig(cfg) {
       enabled: shopEnabled,
       storeDomain,
       accessToken,
+      contentToken,
       apiVersion,
       photoKeyMatch,
       dedicationKeyMatch,
@@ -380,6 +432,9 @@ export function validateConfig(cfg) {
       autoFetchMinutes,
       dataDir,
     },
+    // The Blog Creator. `enabled` false means the tab shows a "not configured" state and nothing
+    // publishes. `dataDir` is absolute, outside the repo. Publishing reuses shopify.contentToken.
+    blog: { enabled: blogEnabled, dataDir: blogDir, blogId, author: blogAuthor, wordCountMin, wordCountMax },
     // Board display. `firstLiveOrder` hides older test orders; null shows everything.
     studio: { firstLiveOrder },
     retentionDays,
@@ -401,6 +456,8 @@ export function redactForLog(cfg) {
   return {
     ...cfg,
     generator: { ...cfg.generator, baseUrl: mask(cfg.generator.baseUrl) },
-    ...(cfg.shopify ? { shopify: { ...cfg.shopify, accessToken: cfg.shopify.accessToken ? '<redacted>' : null } } : {}),
+    ...(cfg.shopify
+      ? { shopify: { ...cfg.shopify, accessToken: cfg.shopify.accessToken ? '<redacted>' : null, contentToken: cfg.shopify.contentToken ? '<redacted>' : null } }
+      : {}),
   };
 }

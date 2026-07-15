@@ -1,0 +1,81 @@
+# Blog Creator
+
+A **Blog** module (left nav) that writes SEO-optimized Czech blog posts and pushes each one to Shopify
+as an **unpublished draft** for David to review and publish by hand. Nothing ever goes live from here.
+
+## How topics are chosen
+
+`GET /api/blog/topics` returns one ranked list from two sources (`src/blog/topics.js`):
+
+- **Calendar-anchored** — the upcoming `MARKETING_CAL` occasions within an 8-week window, soonest
+  first. Each carries the occasion's `persona`/`angle`/`tone`, so the topics are already on-brand and
+  timely. This half needs no AI, so the picker is never empty.
+- **Hot SEO suggestions** — a Gemini text step seeded with today's date + the upcoming occasions + the
+  niche proposes concrete, high-intent Czech topics, each with a target keyword and a one-line intent.
+  Best-effort: if the model fails, the list degrades to calendar-only.
+
+David can also type a **free-text topic** (+ optional keyword) — same downstream flow.
+
+## The SEO contract (enforced in code, not left to the model)
+
+`src/blog/draft.js` asks the model for **structured JSON** (intro + sections + FAQ), never raw HTML,
+then assembles the body HTML deterministically so the heading hierarchy, lists, FAQ block and shop CTA
+are consistent. Each field is clamped (SEO title ≤ 60, meta ≤ 155, slug slugified) and a bad model
+response falls back to an editable skeleton — a draft always exists.
+
+A non-blocking QC pass (`qcPost`) surfaces warnings: keyword missing from title / first ~100 words,
+title or meta over length, body too short, no internal-link hint, no FAQ, and the brand's **banned
+vocabulary** (AI/algorithm/generování, sleva/akce/výprodej, …). Warnings never block saving.
+
+## Publish flow (draft-only invariant)
+
+`POST /api/blog/publish` → `src/shopify/content.js` `createArticleDraft` → GraphQL `articleCreate`
+with **`isPublished: false`, always**. There is no publish-live path on purpose. David reviews the
+draft in Shopify admin and hits Publish. A taken slug (or any userError) is surfaced clearly so David
+can tweak the handle — it is never silently mangled.
+
+Local drafts live under `config.blog.dataDir` (outside the repo) with a status: `koncept` (local) →
+`odesláno` (pushed to Shopify as a draft) → `publikováno` (David published it).
+
+## Setup — David's one manual step: the `write_content` scope
+
+Writing an article draft needs the Admin API **`write_content`** scope, which the read-only orders
+token does **not** have. Two options:
+
+1. **Simplest — add `write_content` to the existing custom app.** In Shopify admin → Settings → Apps →
+   Develop apps → your app → Configuration → Admin API scopes → add `write_content`, save, then
+   **re-install / regenerate the token** and paste it into `config.json` as `shopify.accessToken` (or
+   the `FMA_SHOPIFY_TOKEN` env var). The blog reuses it automatically.
+2. **Keep the orders token narrow** — set a separate content token in `shopify.contentToken` or the
+   `FMA_SHOPIFY_CONTENT_TOKEN` env var. The content seam prefers it and falls back to the orders token.
+
+Then enable the module:
+
+```json
+"blog": { "enabled": true, "blogId": null, "author": "Fotomalovánky", "wordCountMin": 800, "wordCountMax": 1500 }
+```
+
+`blogId` can stay null — the UI lists the store's blogs (`GET /api/blog/blogs`) and lets David pick the
+target per publish. Until `blog.enabled` + a usable content token are set, the tab shows a
+"not configured" state and publishing is disabled; topic browsing and drafting still work with AI on.
+
+## Not built yet (follow-ups)
+
+- **Hero image upload.** The model suggests a hero prompt + alt text (shown in the editor for David to
+  create/place an image), but generating and *uploading* a hero to Shopify needs a staged upload — the
+  article is currently created text-only. `buildArticleInput` will attach an image only if a real
+  `http(s)` URL is set.
+- **Per-section regenerate** and a richer keyword-density check (P4 polish).
+
+## Files
+
+- `src/blog/topics.js` — topic engine (calendar + AI SEO), pure, injected text fn.
+- `src/blog/draft.js` — draft generation, structured-JSON → HTML, clamps, QC, skeleton fallback.
+- `src/blog/store.js` — file-based CRUD + `blog-index.json` under `config.blog.dataDir`.
+- `src/blog/voice.js` — brand voice + banned vocabulary (shared by topics/draft/QC).
+- `src/shopify/content.js` — the write seam (`listBlogs`, `createArticleDraft`, draft-only).
+- Server: `GET /api/blog/topics`, `POST /api/blog/draft`, `GET|POST|DELETE /api/blog/posts`,
+  `GET /api/blog/blogs`, `POST /api/blog/publish`.
+- UI: the **Blog** view in `src/ui/static/dashboard.html`.
+- Tests: `test/blog.test.js` (topics window/merge/fallback, draft parse/caps/QC/skeleton, store CRUD,
+  content payload incl. the `isPublished:false` invariant + missing-scope error, config).

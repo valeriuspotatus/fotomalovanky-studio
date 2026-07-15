@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Fotomalovánky — generátor</title>
+<link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/components.css">
 <style>
@@ -154,9 +155,8 @@
  #lb .lb-x{background:none;border:0;color:var(--ink-2);font-size:16px;cursor:pointer;padding:2px 6px;line-height:1}
  #lb .lb-x:hover{color:var(--ink)}
  #lb .lb-imgs{display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--border);overflow:auto;flex:1;min-height:0}
- #lb .lb-imgs figure{margin:0;background:#fff;display:flex;flex-direction:column;min-height:0}
- #lb .lb-imgs img{width:100%;height:100%;max-height:82vh;object-fit:contain;display:block;background:#fff;cursor:zoom-in}
- #lb .lb-imgs img.zoom{object-fit:none;object-position:center;cursor:zoom-out;max-height:82vh}
+ #lb .lb-imgs figure{margin:0;background:#fff;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+ #lb .lb-imgs img{width:100%;height:100%;max-height:82vh;object-fit:contain;display:block;background:#fff;cursor:zoom-in;transform-origin:0 0;will-change:transform}
  #lb .lb-imgs figcaption{font-size:11.5px;color:var(--ink-2);text-align:center;padding:4px;background:var(--surface)}
  #lb .lb-imgs .ph{display:grid;place-items:center;min-height:200px;color:var(--ink-3);font-size:13px;background:var(--surface-2)}
  #lb .lb-acts{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--border);flex-wrap:wrap}
@@ -245,7 +245,7 @@
 <dialog id="lb">
   <div class="lb-head">
     <b id="lb-title"></b><span class="lb-pos" id="lb-pos"></span>
-    <span class="lb-hint">← → mezi fotkami · <kbd>A</kbd> schválit · <kbd>B</kbd> špatně · <kbd>R</kbd> přegenerovat · <kbd>Esc</kbd> zavřít</span>
+    <span class="lb-hint">← → mezi fotkami · <kbd>kolečko</kbd> lupa · <kbd>A</kbd> schválit · <kbd>B</kbd> špatně · <kbd>R</kbd> přegenerovat · <kbd>Esc</kbd> zavřít</span>
     <button class="lb-x" id="lb-close" aria-label="Zavřít">✕</button>
   </div>
   <div class="lb-imgs" id="lb-imgs"></div>
@@ -1286,6 +1286,60 @@ async function lbAct(k, action) {
   else renderLightbox();
 }
 
+// Lightbox zoom: the scroll wheel zooms toward the cursor, drag pans when zoomed in, double-click
+// resets. Per-image state lives on the element (img._z), so the two panes zoom independently. Listeners
+// are delegated on the stable #lb-imgs container because the <img>s are re-created on every render.
+(function lightboxZoom() {
+  const wrap = $('#lb-imgs');
+  if (!wrap) return;
+  const z = (img) => img._z || (img._z = { s: 1, tx: 0, ty: 0 });
+  const apply = (img) => {
+    const s = z(img);
+    img.style.transform = s.s === 1 ? '' : `translate(${s.tx}px,${s.ty}px) scale(${s.s})`;
+    img.style.cursor = s.s > 1 ? 'grab' : 'zoom-in';
+  };
+  wrap.addEventListener('wheel', (e) => {
+    const img = e.target.closest('img');
+    if (!img) return;
+    e.preventDefault(); // zoom the photo, don't scroll the dialog
+    const s = z(img);
+    const r = img.parentElement.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top; // cursor within the pane
+    const ns = Math.min(6, Math.max(1, s.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    if (ns === s.s) return;
+    s.tx = mx - (mx - s.tx) * (ns / s.s); // keep the point under the cursor fixed
+    s.ty = my - (my - s.ty) * (ns / s.s);
+    s.s = ns;
+    if (s.s === 1) { s.tx = 0; s.ty = 0; } // back to fit → recentre
+    apply(img);
+  }, { passive: false });
+  let drag = null;
+  wrap.addEventListener('pointerdown', (e) => {
+    const img = e.target.closest('img');
+    if (!img || z(img).s <= 1) return; // only pan when zoomed in
+    drag = { img, x: e.clientX, y: e.clientY };
+    img.style.cursor = 'grabbing';
+    try { img.setPointerCapture(e.pointerId); } catch { /* older browsers */ }
+    e.preventDefault();
+  });
+  wrap.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const s = z(drag.img);
+    s.tx += e.clientX - drag.x; s.ty += e.clientY - drag.y;
+    drag.x = e.clientX; drag.y = e.clientY;
+    apply(drag.img);
+  });
+  const endDrag = () => { if (drag) { apply(drag.img); drag = null; } };
+  wrap.addEventListener('pointerup', endDrag);
+  wrap.addEventListener('pointercancel', endDrag);
+  wrap.addEventListener('dblclick', (e) => {
+    const img = e.target.closest('img');
+    if (!img) return;
+    img._z = { s: 1, tx: 0, ty: 0 };
+    apply(img);
+  });
+})();
+
 // ←/→ move; A/B/R are approve/mark-bad/redo; Esc is the dialog's native close.
 document.addEventListener('keydown', (e) => {
   const dlg = $('#lb');
@@ -1300,10 +1354,8 @@ document.addEventListener('click', (e) => {
   // A grid image opens the pair in the lightbox (N12): original beside coloring, full size.
   const gridImg = e.target.closest('.imgs img');
   if (gridImg) { const t = gridImg.closest('.tile'); if (t) openLightbox(t.dataset.order, t.dataset.base); return; }
-  // Inside the lightbox: a tap on an image toggles 1:1 zoom; the ✕ or the backdrop closes it.
+  // Inside the lightbox: the ✕ or the backdrop closes it. (Image zoom is the scroll wheel, below.)
   if (e.target.closest('#lb-close') || e.target === $('#lb')) { $('#lb').close(); return; }
-  const lbImg = e.target.closest('#lb-imgs img');
-  if (lbImg) { lbImg.classList.toggle('zoom'); return; }
   const lbBtn = e.target.closest('#lb-acts button');
   if (lbBtn) {
     const k = lbKeys[lbIdx];

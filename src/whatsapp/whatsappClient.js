@@ -62,7 +62,9 @@ export function createWhatsAppClient({ recipient, sessionDir, executablePath, cl
       // whatsapp-web.js drives a headless Chromium. puppeteer normally resolves its own pinned build,
       // but that download can be missing/broken; `executablePath` (config.whatsapp.executablePath) lets
       // the operator point at any installed Chrome/Chromium/Brave/Edge instead. Empty → puppeteer default.
-      const puppeteer = { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] };
+      // protocolTimeout (default 180s) caps every CDP call; a slow WhatsApp Web restore can exceed it and
+      // fail with "Runtime.callFunctionOn timed out". Give the restore more room before giving up.
+      const puppeteer = { headless: true, protocolTimeout: 300_000, args: ['--no-sandbox', '--disable-setuid-sandbox'] };
       if (executablePath && String(executablePath).trim()) puppeteer.executablePath = String(executablePath).trim();
       const c = new Client({ authStrategy: auth, puppeteer });
       return { client: c, mediaFromFile: (p) => MessageMedia.fromFilePath(p) };

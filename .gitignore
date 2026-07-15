@@ -58,6 +58,12 @@ workflow.txt
 Revamped generator.txt
 Our callendar/
 
+# David's full Fotomalovánky reference archive + Figma ad exports (dropped 2026-07-14 to ground the
+# creatives rework). Inspiration only, never app code. Fotomalovanky/ holds customer order PDFs/photos
+# and a CV (PII) + licensed stock; both are bulky. Local-only — never commit.
+Fotomalovanky/
+Figma/
+
 # Overnight autopilot: the read_orders token, the poll cursor / handled-set, and the night report all
 # carry a full-store credential or customer PII. They default OUTSIDE the repo (config.shopify.dataDir),
 # but never commit them whatever folder they land in — nor a Shopify order CSV export (also PII).

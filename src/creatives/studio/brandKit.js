@@ -11,13 +11,23 @@ export const BRAND = Object.freeze({
   accent: '#F1543F',
 });
 
-/** Named pastel washes. `accent` tints highlighted words / CTAs sitting on the wash. */
+/** Named pastel washes. `accent` tints highlighted words / CTAs sitting on the wash. `grape` is the
+ *  flagship Proměna ground: a solid brand-violet (per the brand guide's cool/pop palette) with a warm
+ *  amber accent — the look of David's favourite "sourozenci" ad, where the ad's own colour is a flat
+ *  brand hue, not a wash. */
 export const THEMES = Object.freeze({
   rainbow: { bg: 'linear-gradient(120deg,#DDF3E3 0%,#FBF2D6 32%,#FDE4D4 64%,#FBD9E7 100%)', accent: '#22A06B' },
   sunset: { bg: 'linear-gradient(120deg,#FCDDEA 0%,#FDE6D6 50%,#FBEFD4 100%)', accent: '#F1543F' },
   sky: { bg: 'linear-gradient(120deg,#E4F0FB 0%,#EAF6EE 52%,#FBE8F0 100%)', accent: '#3B82F6' },
   cream: { bg: 'linear-gradient(160deg,#FDF6EC 0%,#FBEFE0 100%)', accent: '#F5A623' },
   forest: { bg: 'linear-gradient(150deg,#E7F3E9 0%,#F3F7E4 100%)', accent: '#22A06B' },
+  // Solid brand grounds — the flagship formula (a flat brand hue, not a wash) carried across the
+  // families so the whole calendar reads as one premium set instead of five gradient stock ads.
+  grape: { bg: '#6C5CE7', accent: '#F5A623' }, // Proměna (flagship violet)
+  terracotta: { bg: '#D96A4F', accent: '#F5A623' }, // Emotivní dárek (warm coral)
+  meadow: { bg: '#2E9E6B', accent: '#F7B733' }, // Společné vybarvování (green)
+  sand: { bg: '#F3EADB', accent: '#E0673F' }, // Produktová ukázka (light cream — dark text on ground)
+  denim: { bg: '#3D6E9E', accent: '#F5A623' }, // Reference (calm blue)
 });
 
 export function themeDef(theme) {
@@ -68,6 +78,27 @@ function sparkle(color) {
   return `<svg viewBox="0 0 60 60" fill="${color}" style="width:100%;height:auto"><path d="M30 2c3 16 10 23 26 28-16 5-23 12-26 28-3-16-10-23-26-28 16-5 23-12 26-28z"/></svg>`;
 }
 
+/** A short "washi-tape" strip — the signature amber tape that holds every photo/coloring card in the
+ *  flagship ad. Slightly translucent with soft torn ends and two lighter seams for a paper feel. The
+ *  element's own rotate/position places it over a card's top edge. */
+function tape(color) {
+  return `<svg viewBox="0 0 90 128" style="width:100%;height:auto">
+    <path d="M8 6 L82 12 L79 120 L11 122 Z" fill="${color}" fill-opacity=".9"/>
+    <path d="M8 6 L82 12 L79 120 L11 122 Z" fill="none" stroke="rgba(0,0,0,.07)" stroke-width="2"/>
+    <path d="M10 34 L80 39 M11 96 L79 99" stroke="rgba(255,255,255,.38)" stroke-width="4"/>
+  </svg>`;
+}
+
+/** The fat hand-drawn before→after arrow (photo → omalovánka) — the other signature mark of the
+ *  flagship. Drawn pointing down-right; the element rotates it per format (e.g. straight right in
+ *  landscape). Colour supplied by the template (a warm orange). */
+function arrow(color) {
+  return `<svg viewBox="0 0 200 190" fill="none" style="width:100%;height:auto">
+    <path d="M22 30 C 118 6, 176 44, 150 150" stroke="${color}" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M150 158 L112 132 L164 108" stroke="${color}" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </svg>`;
+}
+
 /** A starburst badge disc (the seasonal "Originální dárek" sticker), text supplied by the renderer. */
 export function starburst() {
   return `<svg viewBox="0 0 120 120" style="position:absolute;inset:0;width:100%;height:100%;filter:drop-shadow(0 6px 12px rgba(150,95,60,.22))"><path fill="#fff" stroke="#2A2622" stroke-width="2.5" d="M60 4l10 14 16-8 3 18 18 3-8 16 14 10-14 10 8 16-18 3-3 18-16-8-10 14-10-14-16 8-3-18-18-3 8-16L4 60l14-10-8-16 18-3 3-18 16 8z"/></svg>`;
@@ -85,6 +116,10 @@ export function decoration(name, color = '#3B82F6') {
       return sun();
     case 'sparkle':
       return sparkle(color);
+    case 'tape':
+      return tape(color);
+    case 'arrow':
+      return arrow(color);
     default:
       return '';
   }

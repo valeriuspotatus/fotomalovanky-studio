@@ -25,47 +25,68 @@ export function pickTemplates(occasion) {
   return ['promena', second];
 }
 
-/** A warm, identity-free marketing-scene prompt for the ad's photo (Gemini text→image). Naming scene
- *  content is fine here — this is Gemini, not the line-art generator's universal-prompt rule. */
-export function scenePrompt(occasion) {
+/** The promena "before": a warm, identity-free MEMORY moment — the kind of photo a customer would
+ *  send. Its "after" is the line-art coloring page, so the transformation itself is the product; no
+ *  book in this frame (a book here would muddy the before→after story). */
+export function momentPrompt(occasion) {
   return [
-    'A warm, softly-lit lifestyle marketing photograph for a brand that turns family photos into',
-    'personalized coloring books. Candid, cozy Czech home or seasonal setting.',
-    `Mood and occasion: ${occasion.name} — ${occasion.angle}`,
-    `Who: ${occasion.persona}, shown only in generic terms with no identifiable faces.`,
-    'Natural light, shallow depth of field, authentic and heart-warming. No text, no logos, no',
-    'watermark, no UI. Photorealistic.',
+    'A warm, candid, editorial-quality lifestyle photograph — a cherished, un-staged family moment of',
+    'the kind a customer would treasure and want turned into a keepsake.',
+    `Occasion and mood: ${occasion.name} — ${occasion.angle}`,
+    `Subject: ${occasion.persona}, shown only in generic terms with NO identifiable faces (candid angle,`,
+    'seen from behind, or soft focus). Cozy Czech home or seasonal outdoor setting, soft natural window',
+    'light, gentle shadows, shallow depth of field, muted tasteful colours, authentic and heart-warming.',
+    'Photorealistic. No text, no logos, no watermark, no illustration, no UI.',
   ].join(' ');
 }
 
-/** A clean product-shot prompt (printed coloring book + crayons) for the product slot. */
+/** A lifestyle scene where the printed personalized coloring book is the HERO — so the ad actually
+ *  shows the product in use. Identity-free, premium, uncluttered (deliberately not "AI slop"). */
+export function scenePrompt(occasion) {
+  return [
+    'A warm, editorial-quality lifestyle photograph for a premium brand that turns family photos into',
+    'personalized printed coloring books. HERO PRODUCT, clearly visible and in sharp focus: a real',
+    'printed coloring book open to a clean black-and-white line-art page, being coloured in with a few',
+    'quality coloured pencils — or resting open on a cozy table mid-colouring.',
+    `Occasion and mood: ${occasion.name} — ${occasion.angle}`,
+    `People (${occasion.persona}) present only as hands or a soft over-the-shoulder view, NO`,
+    'identifiable faces. Natural window light, soft shadows, shallow depth of field, tasteful,',
+    'uncluttered, high-end and authentic. No text, no logos, no watermark, no UI, no illustration overlays.',
+  ].join(' ');
+}
+
+/** A premium product shot of the physical printed personalized coloring book (the product itself). */
 export function productPrompt(occasion) {
   return [
-    'A clean product photograph of a printed personalized coloring book resting on a light wooden',
-    'table, a few coloring pencils and crayons scattered beside it, soft natural daylight, gentle',
-    `shadows, minimalist and premium. Seasonal hint of: ${occasion.name}.`,
-    'The cover shows a friendly black-and-white line drawing. No readable text, no logos, no watermark.',
+    'A premium, magazine-quality product photograph of a printed personalized coloring book resting on',
+    'a light wooden table, open to reveal a clean, friendly black-and-white line-art page, a few quality',
+    `coloured pencils resting neatly beside it. Soft natural daylight, gentle shadows, minimalist and`,
+    `tasteful. A subtle seasonal hint of: ${occasion.name}. No readable text, no logos, no watermark, no clutter.`,
   ].join(' ');
 }
 
 const dataUri = (img) => `data:${img.mimeType || 'image/png'};base64,${img.base64}`;
 
 /** Generate the image assets one concept needs, keyed by slot. `imageFn`/`lineArtFn` are injected.
- *  Generates at most one scene image and one product image per concept (reused across formats). */
+ *  The promena "before" (original) is a bookless memory moment; lifestyle/product slots feature the
+ *  physical coloring book. `original` and `lifestyle` never co-occur in a template, so at most one
+ *  scene image is generated per concept (the buildAssets contract the tests assert). */
 export async function buildAssets({ occasion, template, imageFn, lineArtFn }) {
   const slots = templateSlots(template);
   const assets = {};
-  let scene = null;
-  const needsScene = slots.some((s) => s === 'original' || s === 'lifestyle' || s === 'coloring');
-  if (needsScene) {
-    scene = await imageFn({ prompt: scenePrompt(occasion) });
-    const sceneUri = dataUri(scene);
-    if (slots.includes('original')) assets.original = sceneUri;
-    if (slots.includes('lifestyle')) assets.lifestyle = sceneUri;
+  let sceneForLineArt = null;
+  if (slots.includes('original')) {
+    const img = await imageFn({ prompt: momentPrompt(occasion) });
+    assets.original = dataUri(img);
+    sceneForLineArt = img;
+  }
+  if (slots.includes('lifestyle')) {
+    assets.lifestyle = dataUri(await imageFn({ prompt: scenePrompt(occasion) }));
   }
   if (slots.includes('coloring')) {
     if (typeof lineArtFn !== 'function') throw new Error('coloring slot needs a lineArtFn');
-    assets.coloring = dataUri(await lineArtFn(scene));
+    if (!sceneForLineArt) sceneForLineArt = await imageFn({ prompt: momentPrompt(occasion) });
+    assets.coloring = dataUri(await lineArtFn(sceneForLineArt));
   }
   if (slots.includes('product')) {
     assets.product = dataUri(await imageFn({ prompt: productPrompt(occasion) }));
