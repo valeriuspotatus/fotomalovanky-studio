@@ -37,4 +37,8 @@
 - Open URL → log in → scan WhatsApp QR from the hosted page → run one test order end-to-end → decide WhatsApp's final home based on how the datacenter IP behaves.
 
 ## Status
-- 2026-07-15: plan written. cloudflared was installed while exploring the tunnel option (harmless, can uninstall). Email-blocker investigated + dismissed. Next action: Phase 0 (GitHub) — waiting on David's `gh auth` or a private repo URL; I build Phase 1 in parallel.
+- 2026-07-15: plan written. cloudflared was installed while exploring the tunnel option (harmless, can uninstall). Email-blocker investigated + dismissed.
+- **Phase 0 DONE** — code pushed to the private repo `https://github.com/valeriuspotatus/fotomalovanky-studio` (commit d0905e4 caught up all uncommitted work; secret/PII sweep clean). `gh` 2.96.0 installed but push used Git Credential Manager (browser).
+- **Phase 1 DONE + VALIDATED** (commit 659e385): server reads PORT/HOST from env; env-gated HTTP Basic Auth (STUDIO_USER/STUDIO_PASS) + unauthenticated /healthz; `Dockerfile` (Playwright base) + whitelist `.dockerignore`; `config.render.example.json`; `docs/RENDER.md`; `test/auth.test.js` (556 tests green). Docker image built locally (3.98 GB) and smoke-ran: boots in ~4s, reads mounted secret-file config, binds 0.0.0.0, gate returns 401/200 correctly. Validation image removed after.
+- Also learned: the generator + builder are already `*.onrender.com` services (external HTTP), so the studio on Render just calls them — no PC dependency for line-art/PDF.
+- **NEXT = Phase 2 (David):** follow `docs/RENDER.md` — create the Render web service from the repo (Docker auto-detected), pick a paid ~2 GB instance, add a `/data` persistent disk, set env (STUDIO_USER/PASS, FMA_CONFIG=/etc/secrets/config.json), add the cloud config.json as a Secret File, health check `/healthz`, deploy, then scan the WhatsApp QR from the hosted Objednávky tab. Then Phase 3 bring-up + watch the datacenter-IP WhatsApp risk.
