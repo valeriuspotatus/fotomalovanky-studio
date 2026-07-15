@@ -1,18 +1,21 @@
 # Fotomalovanky studio — always-on container image for Render (or any Docker host).
 #
-# The Playwright base image carries Node 20 + a matching Chromium + every system library that both the
-# PDF builder (the `playwright` dep) and the WhatsApp client (whatsapp-web.js -> puppeteer, launched
-# with --no-sandbox) need. Pinned to the playwright dependency version so the preinstalled browser
-# matches what the app drives.
-FROM mcr.microsoft.com/playwright:v1.48.0-jammy
+# The Playwright base image carries Node 20 + every system library that both the PDF builder (the
+# `playwright` dep) and the WhatsApp client (whatsapp-web.js -> puppeteer, launched with --no-sandbox)
+# need. The tag MUST match the `playwright` version in package-lock.json — a mismatch means the bundled
+# browser isn't the build the app drives, and the builder fails with "Executable doesn't exist".
+FROM mcr.microsoft.com/playwright:v1.61.1-jammy
 
 WORKDIR /app
 
 # Install deps first so this layer caches unless the lockfile changes. whatsapp-web.js pulls puppeteer,
-# which downloads its own Chromium during install; the base image already carries Playwright's browser
-# for the builder.
+# which downloads its own Chromium during install.
 COPY package.json package-lock.json ./
 RUN npm ci
+# Belt-and-suspenders: install the exact Chromium the INSTALLED playwright wants, so the builder's
+# browser can never drift out of sync with the npm package even if the base tag lags. Fast no-op when
+# the base image already carries the matching build.
+RUN npx playwright install chromium
 
 # App source only — .dockerignore whitelists src + manifests, so no secrets, customer data, node_modules,
 # or bulky local reference dirs can enter the image.
