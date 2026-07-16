@@ -86,6 +86,11 @@ reference/
 docs/*.docx
 docs/*.xlsx
 
+# The migration extraction's secrets companion — the live Gemini key, Shopify token, Bridge
+# password and generator URL token, in plaintext, so PROJECT_EXTRACTION.md itself can stay
+# committable. This file must never enter git: pushing main also auto-deploys to Render.
+PROJECT_EXTRACTION.secrets.md
+
 # Node
 node_modules/
 npm-debug.log*
