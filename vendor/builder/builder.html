@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fotomalovánky – A4 Gallery Builder</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="brand">
+                <svg class="logo" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="32" height="32" rx="8" fill="#1a1a2e"/>
+                    <path d="M8 12C8 10.8954 8.89543 10 10 10H22C23.1046 10 24 10.8954 24 12V20C24 21.1046 23.1046 22 22 22H10C8.89543 22 8 21.1046 8 20V12Z" stroke="#f8f8f2" stroke-width="1.5"/>
+                    <circle cx="12" cy="14" r="2" fill="#ff79c6"/>
+                    <path d="M8 18L12 15L15 17L20 13L24 17V20C24 21.1046 23.1046 22 22 22H10C8.89543 22 8 21.1046 8 20V18Z" fill="#50fa7b" fill-opacity="0.6"/>
+                </svg>
+                <div>
+                    <h1>Fotomalovánky</h1>
+                    <p class="tagline">A4 Gallery Builder – Photo + Coloring Side by Side</p>
+                </div>
+            </div>
+            <div class="controls">
+                <label class="folder-btn">
+                    <span>📁 Load Order Folder</span>
+                    <input type="file" id="folderInput" webkitdirectory directory multiple accept="image/*,.svg">
+                </label>
+                <div class="mode-toggle">
+                    <button class="mode-btn active" data-mode="gallery">Gallery</button>
+                    <button class="mode-btn" data-mode="fullpage">Full Page</button>
+                </div>
+                <div class="rotation-controls" id="rotationControls">
+                    <label>🔄 Rotation:</label>
+                    <input type="number" id="rotationMin" value="-8" min="-45" max="0" step="1">
+                    <span>to</span>
+                    <input type="number" id="rotationMax" value="8" min="0" max="45" step="1">
+                    <span>°</span>
+                    <button id="randomizeBtn" class="randomize-btn" title="Generate new layout">🎲</button>
+                </div>
+                <div class="pdf-toggle" id="pdfToggle">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="printPdfMode" checked>
+                        <span class="toggle-text">Print PDF</span>
+                    </label>
+                </div>
+                <button id="printBtn" class="print-btn" disabled>
+                    <span>🖨️ Print / PDF</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <section class="title-config" id="titleConfig">
+        <div class="config-row">
+            <label for="titleInput">📝 Title (dedication):</label>
+            <textarea id="titleInput" rows="2" placeholder="e.g. for Kevin, pro Adélku...&#10;(press Enter for new line)"></textarea>
+        </div>
+        <div class="config-row">
+            <label>🖼️ Cover layout:</label>
+            <div class="cover-variant-toggle">
+                <button type="button" class="cover-variant-btn active" data-cover-variant="classic">Classic</button>
+                <button type="button" class="cover-variant-btn" data-cover-variant="pencils">Pencils</button>
+            </div>
+            <p class="cover-variant-hint" id="coverVariantHint">Coloring images arranged in a grid (max 8).</p>
+        </div>
+        <div class="config-row">
+            <div class="config-row-header">
+                <label>🎨 Select cover images:</label>
+                <button type="button" id="addAllCoverBtn" class="add-all-btn">Add all images</button>
+            </div>
+            <div id="coverSelection" class="cover-grid"></div>
+        </div>
+        <div class="config-row cover-scale-row" id="coverScaleRow">
+            <label for="coverScale">📐 Cover image size:</label>
+            <div class="scale-control">
+                <input type="range" id="coverScale" min="50" max="200" value="100" step="1">
+                <span id="coverScaleValue">100%</span>
+            </div>
+        </div>
+    </section>
+    
+    <main>
+        <section id="status" class="status">
+            <p>Select an order folder containing photos (.jpg, .jpeg) and their _bw.svg coloring versions.</p>
+        </section>
+
+        <section id="pagesContainer" class="pages-container">
+            <div class="empty-state" id="emptyState">
+                <div class="empty-icon">🎨</div>
+                <p>No pages yet. Load a folder to start building your gallery.</p>
+            </div>
+        </section>
+    </main>
+
+    <script src="/collage-layout/collage-layout.js"></script>
+    <script src="/cover-layout.js"></script>
+    <script src="/app.js"></script>
+    <script src="/tuning.js"></script>
+</body>
+</html>
+

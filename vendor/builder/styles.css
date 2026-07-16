@@ -1,0 +1,1446 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Fotomalovánky A4 Gallery Builder
+   Clean, print-optimized layout for photo + coloring book pairs
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+    /* A4 dimensions */
+    --a4-width: 210mm;
+    --a4-height: 297mm;
+    --page-margin: 10mm;
+    --printable-width: calc(var(--a4-width) - 2 * var(--page-margin));
+    --printable-height: calc(var(--a4-height) - 2 * var(--page-margin));
+    
+    /* Gallery layout */
+    --gap: 6mm;
+    --svg-border: 1mm;
+    
+    /* Theme - Deep midnight aesthetic */
+    --bg-primary: #0f0f1a;
+    --bg-secondary: #1a1a2e;
+    --bg-card: #16213e;
+    --text-primary: #f8f8f2;
+    --text-muted: #8b8b9e;
+    --accent: #ff79c6;
+    --accent-secondary: #50fa7b;
+    --border: rgba(248, 248, 242, 0.1);
+    
+    /* Typography */
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    color-scheme: dark;
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    min-height: 100vh;
+    background: var(--bg-primary);
+    background-image: 
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(255, 121, 198, 0.15), transparent),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(80, 250, 123, 0.1), transparent);
+    color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Header
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.header {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.header-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 1rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.logo {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+}
+
+.brand h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, var(--text-primary), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.tagline {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.controls {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.folder-btn, .print-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+}
+
+.folder-btn {
+    background: linear-gradient(135deg, var(--accent), #bd93f9);
+    color: var(--bg-primary);
+    position: relative;
+    overflow: hidden;
+}
+
+.folder-btn input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.folder-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(255, 121, 198, 0.3);
+}
+
+.print-btn {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+}
+
+.print-btn:not(:disabled):hover {
+    background: var(--accent-secondary);
+    color: var(--bg-primary);
+    border-color: var(--accent-secondary);
+}
+
+.print-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Mode toggle */
+.mode-toggle {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.mode-btn {
+    padding: 0.75rem 1rem;
+    border: none;
+    background: var(--bg-card);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.mode-btn:hover {
+    color: var(--text-primary);
+}
+
+.mode-btn.active {
+    background: var(--accent);
+    color: var(--bg-primary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Main Content
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.status {
+    background: var(--bg-card);
+    border: 1px dashed var(--border);
+    border-radius: 16px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 2rem;
+    color: var(--text-muted);
+}
+
+.status.success {
+    border-color: var(--accent-secondary);
+    color: var(--accent-secondary);
+}
+
+.pages-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3rem;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: var(--text-muted);
+}
+
+.empty-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    opacity: 0.6;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   A4 Page
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.a4-page {
+    width: var(--a4-width);
+    height: var(--a4-height);
+    background: white;
+    box-shadow: 
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 20px 40px rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+    /* Ensure rotated images don't overflow the page */
+    contain: paint;
+}
+
+.page-content {
+    /* Center within the A4 page */
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    
+    /* Default to full printable area - JS may override for rotation */
+    width: var(--printable-width);
+    height: var(--printable-height);
+    
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Gallery layout container */
+.gallery-pair {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--gap);
+}
+
+/* Side-by-side layout (portrait images, row direction) */
+.gallery-pair.side-by-side {
+    flex-direction: row;
+}
+
+/* Stacked layout (landscape images, column direction) */
+.gallery-pair.stacked {
+    flex-direction: column;
+}
+
+/* Individual image containers */
+.image-slot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.image-slot img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* Coloring SVG gets a 1mm black border */
+.image-slot.coloring {
+    border: var(--svg-border) solid #000;
+    background: white;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Full Page Mode - Single coloring page
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.full-page-content {
+    position: absolute;
+    top: var(--page-margin);
+    left: var(--page-margin);
+    right: var(--page-margin);
+    bottom: var(--page-margin);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.full-coloring {
+    border: var(--svg-border) solid #000;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.full-coloring img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Photo Grid (Pinterest-style with random rotations)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.photo-grid-content {
+    position: absolute;
+    top: 22mm;
+    left: 22mm;
+    right: 22mm;
+    bottom: 35mm; /* Leave room for logo */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.photo-grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    align-content: center;
+}
+
+.photo-grid-item {
+    overflow: hidden;
+    border-radius: 3mm;
+    background: white;
+    /*box-shadow: 0 1mm 3mm rgba(0, 0, 0, 0.1);*/
+    transition: transform 0.1s ease;
+}
+
+.photo-grid-item img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border-radius: 3mm;
+    object-fit: cover;
+}
+
+/* Grid label */
+.grid-label {
+    position: absolute;
+    bottom: 3mm;
+    left: var(--page-margin);
+    right: var(--page-margin);
+    text-align: center;
+    font-size: 10pt;
+    color: #666;
+    font-family: 'DM Sans', sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Title Configuration Section
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.title-config {
+    max-width: 1400px;
+    margin: 0 auto 2rem;
+    padding: 0 2rem;
+}
+
+.config-row {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.config-row label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text-muted);
+}
+
+.config-row-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.config-row-header label {
+    margin-bottom: 0;
+}
+
+.add-all-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.add-all-btn:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-primary);
+}
+
+.config-row input[type="text"],
+.config-row textarea {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.config-row input[type="text"]:focus,
+.config-row textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(255, 121, 198, 0.2);
+}
+
+/* Cover layout variant toggle */
+.cover-variant-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.cover-variant-btn {
+    padding: 0.6rem 1.25rem;
+    border: none;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.cover-variant-btn:hover {
+    color: var(--text-primary);
+}
+
+.cover-variant-btn.active {
+    background: var(--accent);
+    color: var(--bg-primary);
+}
+
+.cover-variant-hint {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.cover-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    min-height: 80px;
+}
+
+.cover-grid-item {
+    width: 80px;
+    height: 80px;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 3px solid transparent;
+    transition: all 0.2s ease;
+    background: var(--bg-secondary);
+}
+
+.cover-grid-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* Coloring SVGs may have transparent backgrounds - keep them visible
+       on the dark UI by always rendering thumbnails on white */
+    background: white;
+}
+
+.cover-grid-item:hover {
+    border-color: var(--text-muted);
+}
+
+.cover-grid-item.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(255, 121, 198, 0.3);
+}
+
+.cover-grid-empty {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    padding: 1rem;
+}
+
+/* Cover scale control */
+.cover-scale-row {
+    display: none;
+}
+
+.cover-scale-row.visible {
+    display: block;
+}
+
+.scale-control {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.scale-control input[type="range"] {
+    flex: 1;
+    max-width: 300px;
+    height: 8px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    outline: none;
+}
+
+.scale-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.scale-control input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+}
+
+.scale-control input[type="range"]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+}
+
+.scale-control span {
+    min-width: 50px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Title/Cover Page
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.title-page-content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--page-margin);
+    background-image: url('./bg-border.svg');
+    background-repeat: no-repeat;
+    background-position: center center;
+    background-size: 91%;
+}
+
+.title-logo {
+    width: 100mm;
+    max-width: 370px;
+    margin-top: 12mm;
+    margin-bottom: 7mm;
+}
+
+.title-dedication {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 24pt;
+    font-weight: 600;
+    color: #333;
+    padding: 10px 25px;
+    border: 3px solid #000;
+    border-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect x='0' y='0' width='20' height='20' fill='none' stroke='black' stroke-width='3' stroke-dasharray='5,5'/%3E%3C/svg%3E") 20;
+    border-image-slice: 1;
+    border-image-repeat: round;
+    background: rgba(255, 255, 255, 0.6);
+    transform: rotate(-2deg);
+    margin-bottom: 3mm;
+    letter-spacing: 1px;
+    text-align: center;
+    line-height: 1.4;
+    max-width: 80%;
+}
+
+.title-images-container {
+    flex: 1;
+    width: calc(100% - 16mm);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 6mm;
+    padding: 3mm 0;
+    margin-bottom: 20mm;
+}
+
+.title-images-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8mm;
+}
+
+.title-cover-image {
+    border: 1mm solid #000;
+    border-radius: 2mm;
+    background: white;
+    /*box-shadow: 0 2mm 4mm rgba(0, 0, 0, 0.1);*/
+}
+
+.title-cover-image img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Title/Cover Page - Pencils variant
+   (crayon border, crayons around the edges, photo + coloring pairs
+   on colored scribble backgrounds)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.title-page-content.title-page-pencils {
+    background-image: url('./cover-border.svg');
+    background-size: 96% 97%;
+}
+
+/* Crayon decorations — position/size/rotation stamped inline from
+   cover-layout.js (COVER_LAYOUT.pencils) */
+.cover-pencil {
+    position: absolute;
+    z-index: 3;
+    pointer-events: none;
+}
+
+/* Photo + coloring pairs */
+.pencil-pairs-container {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 10mm;
+    padding: 3mm 0;
+    margin-bottom: 18mm;
+}
+
+.pencil-pair {
+    display: flex;
+    align-items: flex-start;
+}
+
+/* Items are positioned (anchor for the corner-anchored stains) but keep
+   z-index auto so they do NOT create stacking contexts: stains (z 0),
+   frames (z 1/2), and pencils (z 3) all resolve in the same ancestor
+   context, keeping every stain beneath every photo/lineart while the
+   coloring frame still overlaps the photo. */
+.pencil-pair-item {
+    position: relative;
+    flex-shrink: 0;
+}
+
+/* Scribble stains — corner/width/offset (absolute mm) stamped inline from
+   cover-layout.js (COVER_LAYOUT.stains); height stays auto (intrinsic
+   aspect via aspect-ratio), so the artwork never deforms */
+.pencil-scribble {
+    position: absolute;
+    z-index: 0;
+}
+
+.pencil-frame {
+    position: relative;
+    z-index: 1; /* photo above all stains */
+    width: 100%;
+    height: 100%;
+}
+
+.pencil-frame img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.pencil-pair-svg .pencil-frame {
+    z-index: 2; /* coloring overlaps the photo */
+    border: 0.6mm solid #000;
+    background: white;
+}
+
+.pencil-pair-svg .pencil-frame img {
+    object-fit: contain;
+}
+
+.title-footer {
+    position: absolute;
+    bottom: 18mm;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 11pt;
+    color: #666;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.title-footer img {
+    height: 1.2em;
+    vertical-align: middle;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Last Page (Gallery mode) - Border + Logo
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.last-page-content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    padding: var(--page-margin);
+    padding-bottom: 40px;
+    background-image: url('./bg-border.svg');
+    background-repeat: no-repeat;
+    background-position: center center;
+    background-size: 91%;
+}
+
+.last-page-logo {
+    max-width: 350px;
+    height: 110px;
+    margin-bottom: 30px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Photo Grid Page with Branding (Full Page mode)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.photo-grid-page-branded .photo-grid-content {
+    top: 22mm;
+    left: 22mm;
+    right: 22mm;
+    bottom: 35mm; /* Make room for logo */
+}
+
+.photo-grid-branding {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    background-image: url('./bg-border.svg');
+    background-repeat: no-repeat;
+    background-position: center center;
+    background-size: 91%;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+}
+
+.photo-grid-logo {
+    position: absolute;
+    bottom: 64px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 200px;
+    max-height: 80px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Collage Page (Full Page mode - using CollageLayout library)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.collage-page {
+    position: relative;
+    contain: paint;
+}
+
+.collage-branding {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    background-image: url('./bg-border.svg');
+    background-repeat: no-repeat;
+    background-position: center center;
+    background-size: 91%;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+}
+
+.collage-content {
+    position: absolute;
+    /* Inner area inside the decorative border */
+    top: 16mm;
+    left: 16mm;
+    width: 178mm;
+    height: 246mm;
+    overflow: visible;
+}
+
+.collage-item {
+    border-radius: 2mm;
+    overflow: hidden;
+    background: white;
+    /*box-shadow: 0 1mm 4mm rgba(0, 0, 0, 0.12);*/
+}
+
+.collage-item img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    border-radius: 2mm;
+}
+
+.collage-logo {
+    position: absolute;
+    bottom: 64px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 200px;
+    max-height: 80px;
+}
+
+/* Hide title config, rotation controls, and pdf toggle initially */
+.title-config.hidden,
+.rotation-controls.hidden,
+.pdf-toggle.hidden {
+    display: none;
+}
+
+/* Rotation controls */
+.rotation-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.rotation-controls label {
+    font-weight: 600;
+}
+
+.rotation-controls input[type="number"] {
+    width: 50px;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    text-align: center;
+}
+
+.rotation-controls input[type="number"]:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.randomize-btn {
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-left: 0.25rem;
+}
+
+.randomize-btn:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    transform: scale(1.1);
+}
+
+/* PDF toggle */
+.pdf-toggle {
+    display: flex;
+    align-items: center;
+}
+
+.pdf-toggle .toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    transition: all 0.2s ease;
+}
+
+.pdf-toggle .toggle-label:hover {
+    border-color: var(--accent);
+}
+
+.pdf-toggle input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.pdf-toggle input[type="checkbox"]:checked + .toggle-text {
+    color: var(--accent);
+}
+
+/* Empty page (for print PDF layout) */
+.empty-page {
+    background: white;
+}
+
+/* Page label (hidden in print) */
+.page-label {
+    position: absolute;
+    bottom: 2mm;
+    right: var(--page-margin);
+    font-size: 8pt;
+    color: #999;
+    font-family: 'DM Sans', sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Print Styles
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 0;
+    }
+    
+    * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+    }
+    
+    html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: white !important;
+    }
+    
+    .header,
+    .status,
+    .empty-state,
+    .page-label,
+    .grid-label,
+    .title-config,
+    .rotation-controls,
+    .pdf-toggle,
+    .tuning-layer,
+    .tuning-panel {
+        display: none !important;
+    }
+    
+    main {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    
+    .pages-container {
+        display: block !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    /* Each page must be an isolated block */
+    .a4-page {
+        width: 210mm !important;
+        height: 297mm !important;
+        min-height: 297mm !important;
+        max-height: 297mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        overflow: hidden !important;
+        position: relative !important;
+        display: block !important;
+        
+        /* Modern page break */
+        break-after: page !important;
+        break-inside: avoid !important;
+        
+        /* Legacy page break */
+        page-break-after: always !important;
+        page-break-inside: avoid !important;
+        
+        /* Force isolation - this is key for transforms */
+        contain: strict !important;
+        isolation: isolate !important;
+    }
+    
+    .a4-page:last-child {
+        break-after: auto !important;
+        page-break-after: auto !important;
+    }
+    
+    /* Ensure all content containers clip properly */
+    .page-content,
+    .full-page-content,
+    .title-page-content,
+    .last-page-content,
+    .photo-grid-content {
+        contain: layout !important;
+    }
+    
+    /* Force backgrounds to print */
+    .title-page-content,
+    .last-page-content,
+    .photo-grid-branding,
+    .collage-branding {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+    
+    /* Collage content should contain layout for print */
+    .collage-content {
+        contain: layout !important;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Screen Preview Shadow Effect
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media screen {
+    .a4-page {
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    
+    .a4-page:hover {
+        transform: translateY(-4px);
+        box-shadow: 
+            0 8px 12px rgba(0, 0, 0, 0.15),
+            0 30px 60px rgba(0, 0, 0, 0.25);
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tuning Overlay (tuning.js) — hidden operator tool, dev-grade chrome.
+   Fixed layer aligned to the cover page rect; hidden in the print block.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.tuning-layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 999;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.tuning-selection {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px dashed #2196f3;
+    cursor: move;
+}
+
+.tuning-handle {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    box-sizing: border-box;
+    background: #fff;
+    border: 1px solid #2196f3;
+}
+
+.tuning-handle-nw { left: -5px; top: -5px; cursor: nwse-resize; }
+.tuning-handle-ne { right: -5px; top: -5px; cursor: nesw-resize; }
+.tuning-handle-sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
+.tuning-handle-se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+
+.tuning-rotate-stem {
+    position: absolute;
+    left: 50%;
+    top: -20px;
+    width: 1px;
+    height: 20px;
+    background: #2196f3;
+    pointer-events: none;
+}
+
+.tuning-rotate-handle {
+    position: absolute;
+    left: 50%;
+    top: -32px;
+    width: 12px;
+    height: 12px;
+    margin-left: -6px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    background: #fff;
+    border: 1px solid #2196f3;
+    cursor: grab;
+}
+
+/* Rotation is pencils-only — hide the rotate chrome for other targets */
+.tuning-selection.tuning-no-rotate .tuning-rotate-stem,
+.tuning-selection.tuning-no-rotate .tuning-rotate-handle {
+    display: none;
+}
+
+.tuning-readout {
+    position: absolute;
+    transform: translateX(-50%);
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: rgba(33, 33, 33, 0.85);
+    color: #fff;
+    font: 11px/1.5 ui-monospace, Menlo, monospace;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* Slim value panel — fixed right, sibling of the layer, dev-grade chrome.
+   display flipped to flex by tuning.js while the overlay is open. */
+.tuning-panel {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 1000;
+    width: 230px;
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    border-radius: 6px;
+    background: rgba(33, 33, 33, 0.92);
+    color: #eee;
+    font: 11px/1.5 ui-monospace, Menlo, monospace;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.tuning-panel-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+}
+
+.tuning-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tuning-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64b5f6;
+}
+
+.tuning-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tuning-sel-heading {
+    font-weight: 700;
+    color: #fff;
+}
+
+.tuning-placeholder {
+    margin: 0;
+    color: #999;
+    font-style: italic;
+}
+
+.tuning-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tuning-row > span {
+    flex: 1;
+    min-width: 0;
+    color: #bbb;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tuning-row input[type="number"] {
+    width: 58px;
+    padding: 2px 4px;
+    box-sizing: border-box;
+    border: 1px solid #555;
+    border-radius: 3px;
+    background: #1c1c1c;
+    color: #fff;
+    font: inherit;
+}
+
+.tuning-row input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    accent-color: #2196f3;
+}
+
+.tuning-row input[type="checkbox"] {
+    accent-color: #2196f3;
+}
+
+/* Slider rows: label on its own line, slider + number beneath */
+.tuning-slider-row {
+    flex-wrap: wrap;
+}
+
+.tuning-slider-row > span {
+    flex: 1 0 100%;
+}
+
+/* Segmented data-attribute buttons, tuning-chrome take on the app's
+   .cover-variant-btn convention */
+.tuning-variant-toggle {
+    display: inline-flex;
+    border: 1px solid #555;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.tuning-variant-btn {
+    padding: 3px 10px;
+    border: none;
+    background: #1c1c1c;
+    color: #bbb;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.tuning-variant-btn:hover {
+    color: #fff;
+}
+
+.tuning-variant-btn.active {
+    background: #2196f3;
+    color: #fff;
+}
+
+.tuning-variant-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.tuning-btn-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.tuning-btn-grid .tuning-variant-btn {
+    border: 1px solid #555;
+    border-radius: 4px;
+}
+
+/* Alternatives: snapshot slots — big load button (letter) + save sub-button.
+   Empty slots read muted/dashed and their load button is disabled (inert);
+   .active marks the slot the session layout currently matches. */
+.tuning-slot-grid {
+    display: flex;
+    gap: 4px;
+}
+
+.tuning-slot {
+    flex: 1;
+    display: flex;
+    border: 1px solid #555;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.tuning-slot-load {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 0;
+    border: none;
+    background: #1c1c1c;
+    color: #bbb;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.tuning-slot-load:hover:not(:disabled) {
+    color: #fff;
+}
+
+.tuning-slot-load:disabled {
+    color: #666;
+    cursor: default;
+}
+
+.tuning-slot-save {
+    padding: 4px 5px;
+    border: none;
+    border-left: 1px solid #555;
+    background: #1c1c1c;
+    color: #bbb;
+    font: inherit;
+    font-size: 10px;
+    cursor: pointer;
+}
+
+.tuning-slot-save:hover {
+    background: #333;
+}
+
+.tuning-slot-empty {
+    border-style: dashed;
+}
+
+.tuning-slot.active {
+    border-color: #2196f3;
+}
+
+.tuning-slot.active .tuning-slot-load {
+    background: #2196f3;
+    color: #fff;
+}
+
+.tuning-hint {
+    margin: 0;
+    color: #999;
+    font-size: 10px;
+}
+
+/* Import/export status line; display flipped to block by showStatus(),
+   auto-cleared after ~4s */
+.tuning-status {
+    display: none;
+    font-size: 10px;
+}
+
+.tuning-status-error {
+    color: #ef5350;
+}
+
+.tuning-status-ok {
+    color: #81c784;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Loading Animation
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.loading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-muted);
+}
+
+.loading::after {
+    content: '';
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
