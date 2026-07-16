@@ -615,7 +615,13 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
 
     // Unauthenticated liveness probe for a cloud host's health check — must answer before the gate.
-    if (url.pathname === '/healthz') return json(res, 200, { ok: true });
+    // Reports the deployed commit so "is my fix actually live?" is answerable from outside, without
+    // the Render dashboard. Without it, polling /healthz cannot tell a new build from the old one —
+    // Render keeps the previous instance serving until the new one is healthy, so {ok:true} means
+    // "something is up", never "your push is live". RENDER_GIT_COMMIT is injected by Render; null
+    // locally. It is the commit only, no repo/branch/env — nothing worth gating behind auth, and this
+    // route must stay unauthenticated or the host's health check kills the instance.
+    if (url.pathname === '/healthz') return json(res, 200, { ok: true, commit: process.env.RENDER_GIT_COMMIT ?? null });
     // Optional password gate for public hosting (Render has no built-in auth). Active only when both
     // STUDIO_USER + STUDIO_PASS are set, so local runs are unchanged. HTTPS at the host makes Basic
     // Auth safe enough for one operator; without it the whole customer-book/WhatsApp panel is open.
