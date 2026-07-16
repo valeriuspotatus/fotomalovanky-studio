@@ -6,9 +6,10 @@
 //
 // Builds a throwaway inbox/outbox holding one order in each board state, serves the real dashboard
 // against it, and asserts the things only a browser can prove: that Objednávky renders the queue
-// oldest-first from /api/studio (no static analytics), that a held order surfaces under Potřebuje
+// newest-first from /api/studio (no static analytics), that a held order surfaces under Potřebuje
 // vás with its draft email and a copy button, that the marketing tabs still render their static
-// content, and that the Generátor tile opens /review.
+// content, that the board's Generovat / Vytvořit PDF buttons run one order via /api/_run, and
+// that the Generátor tile opens /review.
 
 import { mkdirSync, writeFileSync, rmSync, mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -59,6 +60,9 @@ function fixture() {
   }); // held -> Potřebuje vás
   seedOrder(root, '1522', { photos: ['a'], statuses: { a: STATES.OK }, pdf: true }); // ready-to-send
   seedOrder(root, '1521', { photos: ['a', 'b'], statuses: { a: STATES.OK, b: STATES.FLAGGED } }); // pending-review
+  // Every photo approved but no book on disk yet => APPROVED, the N1 split's other half. The fixture
+  // had no order in this state, so nothing covered the "Vytvořit PDF" CTA or the #kpi-ready binding.
+  seedOrder(root, '1524', { photos: ['a'], statuses: { a: STATES.OK } }); // approved — awaiting the PDF build
   return { root, inbox: join(root, 'inbox'), outbox: join(root, 'outbox') };
 }
 
@@ -73,6 +77,9 @@ const config = {
   generator: { baseUrl: `https://fotomalovanky-app.onrender.com/${TOKEN}/`, mode: 'api', variant: '2509_1.5' },
   builder: { baseUrl: 'https://example.test' },
   paths: { inbox: fx.inbox, outbox: fx.outbox },
+  // /api/creatives/calendar reads config.creatives.dataDir unguarded — without this the tab's fetch
+  // 500s and only shows up as a console error, which the "no page errors" check then trips over.
+  creatives: { dataDir: join(fx.root, 'creatives') },
 };
 const { server } = createReviewServer({ config, inboxRoot: fx.inbox, outboxRoot: fx.outbox, memoryRoot: fx.root, driver: { generate: async () => {} } });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -89,12 +96,14 @@ page.on('console', (m) => {
 try {
   await page.goto(`${origin}/`);
   await page.waitForSelector('#v-home.on .kpis .kpi');
-  // The KPI strip is live from /api/studio: the fixture has exactly one ready-to-send order (1522).
+  // The KPI strip is live from /api/studio. #kpi-ready is "Připraveno pro PDF" = counts.approved
+  // (renderHome), NOT ready-to-send — the N1 split rebound it and this smoke was never updated, which
+  // is why it timed out here. The fixture now seeds exactly one approved order (1524).
   await page.waitForFunction(() => document.querySelector('#kpi-ready')?.textContent === '1');
 
   // --- home is the operational dashboard: a 5-KPI strip bound to the board, not the old analytics ---
   check('the home KPI strip shows the board states', (await page.locator('#v-home.on .kpis .kpi').count()) === 5);
-  check('the home KPIs bind live counts (ready-to-send = 1)', (await page.locator('#kpi-ready').textContent()).trim() === '1');
+  check('the home KPIs bind live counts (approved, awaiting PDF = 1)', (await page.locator('#kpi-ready').textContent()).trim() === '1');
   const homeHtml = await page.content();
   check('home is the dashboard, not the old analytics', !homeHtml.includes('217710') && !homeHtml.includes('AOV'));
   check('the studio token never reaches the page', !homeHtml.includes(TOKEN));
@@ -195,16 +204,40 @@ try {
   };
 
   const activeIds = await page.$$eval('#v-orders.on #ordersBody .oid', (ns) => ns.map((n) => n.textContent.trim()));
-  // 1523 is delivered (sent); the active board hides it and lists the rest oldest-first.
-  check('the active board hides sent orders, oldest-first', activeIds.join() === '1479,1521,1522,1600', activeIds.join(' > '));
-  check('a built, undelivered order reads ready-to-send', (await badgeIn(activeIds, '1522')) === 'připraveno');
+  // 1523 is delivered (sent); the active board hides it and lists the rest NEWEST-first (renderOrders'
+  // byNewest — "the one you just made is right there"). This smoke asserted oldest-first, from before
+  // that change; Potřebuje vás is the view that stayed oldest-first.
+  check('the active board hides sent orders, newest-first', activeIds.join() === '1600,1524,1522,1521,1479', activeIds.join(' > '));
+  check('a built, undelivered order reads ready-to-send', (await badgeIn(activeIds, '1522')) === 'připraveno k odeslání');
   check('a flagged order reads pending-review', (await badgeIn(activeIds, '1521')) === 'ke kontrole');
   check('an ungenerated order reads queued', (await badgeIn(activeIds, '1600')) === 've frontě');
+  check('an all-approved order with no book reads approved', (await badgeIn(activeIds, '1524')) === 'schváleno');
+
+  // --- the board drives the generator itself: the two states that used to dead-end at /review ---
+  // /api/_run is intercepted, not served: startRun's `only` path is unit-covered, and a real run here
+  // would reach for RunPod. What this proves is the wiring — that the right button sends the right
+  // order, and never a bulk run nobody asked for.
+  const runCalls = [];
+  await page.route('**/api/_run', (r) => {
+    runCalls.push(JSON.parse(r.request().postData() || '{}'));
+    r.fulfill({ status: 202, contentType: 'application/json', body: '{"started":true}' });
+  });
+  const rowFor = (id) => page.locator('#v-orders.on #ordersBody tr', { has: page.locator('.oid', { hasText: id }) });
+  check('a queued order offers Generovat on the board', (await rowFor('1600').locator('.act-generate').count()) === 1);
+  check('an approved order offers Vytvořit PDF on the board', (await rowFor('1524').locator('.act-buildpdf').count()) === 1);
+  check('no board action dead-ends at /review any more', (await page.locator('#v-orders.on #ordersBody a[href="/review"]').count()) === 0);
+
+  await rowFor('1600').locator('.act-generate').click();
+  await page.waitForFunction(() => true);
+  check('Generovat runs only that order, generate-only', JSON.stringify(runCalls[0]) === '{"only":["1600"],"buildPdfs":false}', JSON.stringify(runCalls[0]));
+  await rowFor('1524').locator('.act-buildpdf').click();
+  check('Vytvořit PDF runs only that order, with the build', JSON.stringify(runCalls[1]) === '{"only":["1524"],"buildPdfs":true}', JSON.stringify(runCalls[1]));
+  await page.unroute('**/api/_run');
 
   // The "show done" toggle counts and reveals the sent orders.
   check('a toggle counts the sent orders', (await page.locator('#doneToggle #toggleDone').textContent()).includes('(1)'));
   await page.locator('#doneToggle #toggleDone').click();
-  await page.waitForFunction(() => document.querySelectorAll('#v-orders.on #ordersBody .oid').length === 5);
+  await page.waitForFunction(() => document.querySelectorAll('#v-orders.on #ordersBody .oid').length === 6);
   const allIds = await page.$$eval('#v-orders.on #ordersBody .oid', (ns) => ns.map((n) => n.textContent.trim()));
   check('revealing done shows the delivered order as sent', (await badgeIn(allIds, '1523')) === 'odesláno');
 
@@ -212,7 +245,7 @@ try {
 
   // --- mark-as-sent: a ready-to-send order can be marked delivered straight from the board ---
   await page.locator('#doneToggle #toggleDone').click(); // hide done again
-  await page.waitForFunction(() => document.querySelectorAll('#v-orders.on #ordersBody .oid').length === 4);
+  await page.waitForFunction(() => document.querySelectorAll('#v-orders.on #ordersBody .oid').length === 5);
   await page
     .locator('#v-orders.on #ordersBody tr', { has: page.locator('.oid', { hasText: '1522' }) })
     .locator('.act-sent')
@@ -223,17 +256,21 @@ try {
   check('marking a ready order sent removes it from the active board', true);
   check('marking sent writes the delivery marker to the outbox', existsSync(join(fx.outbox, '1522', 'delivered.json')));
 
-  // --- Potřebuje vás: the held order with its draft email + copy action ---
-  await page.evaluate(() => go('todo'));
-  await page.waitForSelector('#v-todo.on .item');
-  check('exactly the held order surfaces under Potřebuje vás', (await page.locator('#v-todo.on .item').count()) === 1);
-  check('the held card carries its order number', (await page.locator('#v-todo.on .item h3, #v-todo.on .item .k').first().textContent()).includes('1479'));
-  const mail = await page.locator('#v-todo.on .item .mail').inputValue();
-  check('the drafted Czech email is shown to copy', mail.includes('babicka@example.cz'));
-
-  await page.locator('#v-todo.on .item .copy').click();
-  await page.waitForFunction(() => document.querySelector('#v-todo.on .item .copy')?.classList.contains('ok'));
-  check('the copy button confirms it copied', (await page.locator('#v-todo.on .item .copy').textContent()).includes('Zkopírováno'));
+  // --- held orders still surface, but not where this smoke used to look ---
+  // The standalone "Potřebuje vás" page is gone: the dashboard's views are home/orders/creatives/
+  // calendar/mail/settings/blog, so go('todo') was a no-op and #v-todo.on .item never appeared. Held
+  // orders now show as the home "Potřebuje pozornost" KPI and a board chip — assert them there.
+  //
+  // ⚠ DROPPED WITH THE VIEW: the drafted-email textarea and its copy button. /api/studio still returns
+  // `needsYou` carrying that draft, so the data outlived the UI. If the feature moved rather than went,
+  // its coverage should move with it — right now nothing tests that David can get the email out.
+  await page.evaluate(() => go('orders'));
+  await page.waitForSelector('#v-orders.on #ordersBody .oid');
+  const heldIds = await page.$$eval('#v-orders.on #ordersBody .oid', (ns) => ns.map((n) => n.textContent.trim()));
+  check('a held order surfaces on the board as potřebuje vás', (await badgeIn(heldIds, '1479')) === 'potřebuje vás');
+  await page.evaluate(() => go('home'));
+  await page.waitForSelector('#v-home.on .kpis .kpi');
+  check('the held order is counted on the home KPI strip', (await page.locator('#kpi-held').textContent()).trim() === '1');
 
   check('no page errors while the board is live', errors.length === 0, errors.join('; '));
 
