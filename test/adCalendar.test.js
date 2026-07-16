@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateOccasionAds, buildAssets, pickTemplates, readIndex } from '../src/creatives/adCalendar.js';
-import { generateAdCopy, clampChars, parseJsonLoose, dedupeHighlight } from '../src/creatives/adCopy.js';
+import { generateAdCopy, clampChars, parseJsonLoose, dedupeHighlight, buildCopyPrompt } from '../src/creatives/adCopy.js';
+import { bannedHits } from '../src/brandVoice.js';
 import { TEMPLATES, SEED_COPY } from '../src/creatives/studio/templates.js';
 import { occasionKey } from '../src/creatives/calendar.js';
 
@@ -46,6 +47,32 @@ test('generateAdCopy clamps AI fields and falls back to seed copy on bad output'
   const bad = await generateAdCopy({ occasion: OCCASION, template, generateTextFn: async () => 'garbage, no json' });
   assert.equal(bad.source, 'seed');
   assert.equal(bad.copy.headline, SEED_COPY.promena.headline); // falls back to the seed headline
+});
+
+test('generateAdCopy swaps an off-brand field for its seed and reports it', async () => {
+  const template = TEMPLATES['emotivni-darek']; // headline, headlineHi, support, cta
+  const seed = SEED_COPY['emotivni-darek'];
+  const res = await generateAdCopy({
+    occasion: OCCASION,
+    template,
+    // The brand guide's two cardinal sins: naming the machinery, and inventing a discount.
+    generateTextFn: async () =>
+      JSON.stringify({ headline: 'Omalovánka od AI', headlineHi: 'vzpomínky', support: 'Sleva 20 % na vše', cta: 'Objednat' }),
+  });
+  assert.equal(res.copy.headline, seed.headline, 'AI headline replaced by the seed');
+  assert.equal(res.copy.support, seed.support, 'invented discount replaced by the seed');
+  assert.equal(res.copy.headlineHi, 'vzpomínky', 'a clean field is kept');
+  assert.equal(res.copy.cta, 'Objednat', 'a clean field is kept');
+  assert.deepEqual(res.blocked, ['headline: ai', 'support: sleva']);
+});
+
+test('the ad prompt and the seed copy are themselves on-brand', () => {
+  // A seed that broke the rules would be un-fixable: it IS the fallback.
+  for (const [id, seed] of Object.entries(SEED_COPY)) {
+    const hits = bannedHits(Object.values(seed).join(' '));
+    assert.deepEqual(hits, [], `seed copy for ${id} must be clean, got: ${hits.join(', ')}`);
+  }
+  assert.match(buildCopyPrompt({ occasion: OCCASION, template: TEMPLATES.promena }), /NIKDY nezmiňuj umělou inteligenci/);
 });
 
 test('emotivni-darek headline+highlight is capped to the 2-line budget (no support overlap)', async () => {

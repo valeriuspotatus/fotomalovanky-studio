@@ -9,7 +9,7 @@
 
 import { slugify } from '../creatives/studio/templateModel.js';
 import { parseJsonLoose, clampChars } from '../creatives/adCopy.js';
-import { BLOG_VOICE, bannedHits, fold } from './voice.js';
+import { BLOG_VOICE, bannedHits, fold } from '../brandVoice.js';
 
 export const SEO_TITLE_MAX = 60;
 export const META_MAX = 155;

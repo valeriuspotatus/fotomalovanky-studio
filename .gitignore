@@ -81,6 +81,11 @@ tools/run-autopilot-hidden.vbs
 scratch/
 reference/
 
+# David's business docs dropped into docs/ for reference — pricing, ad copy, GTM, marketing
+# strategy. Not app code, and the GTM sheet holds plaintext social-media passwords. Local only.
+docs/*.docx
+docs/*.xlsx
+
 # Node
 node_modules/
 npm-debug.log*

@@ -8,7 +8,7 @@
 
 import { MARKETING_CAL, occasionKey } from '../creatives/calendar.js';
 import { parseJsonLoose } from '../creatives/adCopy.js';
-import { BLOG_VOICE } from './voice.js';
+import { BLOG_VOICE } from '../brandVoice.js';
 
 const NICHE = 'personalizované omalovánky a tištěné omalovánkové knihy z vlastních fotek (Fotomalovánky.cz)';
 

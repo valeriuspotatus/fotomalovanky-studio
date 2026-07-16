@@ -7,13 +7,7 @@
 // never fabricate a customer review. adCalendar.js excludes it from the auto mix.
 
 import { templateFields, templateFieldLimits, SEED_COPY } from './studio/templates.js';
-
-/** Fotomalovánky brand voice — warm, personal, Czech, a little playful; never salesy-shouty. */
-const BRAND_VOICE = [
-  'Fotomalovánky.cz proměňuje osobní fotky zákazníků na omalovánky a tištěné omalovánkové knihy na míru.',
-  'Tón značky: vřelý, osobní, česky, s lehkou hravostí. Mluvíme k člověku, ne k davu. Žádné klišé, žádné',
-  'křičení velkými písmeny, žádné vykřičníky navíc. Emoce a vzpomínka jsou důležitější než sleva.',
-].join(' ');
+import { AD_VOICE, bannedHits } from '../brandVoice.js';
 
 /** Max combined `headline` + `headlineHi` chars for templates whose headline box is narrow and sits
  *  right above the support/CTA — a longer headline wraps to 3 lines and overlaps them. `emotivni-darek`
@@ -35,7 +29,7 @@ export function buildCopyPrompt({ occasion, template }) {
     .map((f) => `  "${f}": ${fieldHint(f)}${copyCap(f, limits) ? ` (max ${copyCap(f, limits)} znaků)` : ''}`)
     .join('\n');
   return [
-    BRAND_VOICE,
+    AD_VOICE,
     '',
     `Příležitost: ${occasion.name} (${occasion.m}/${occasion.d}).`,
     `Cílová skupina: ${occasion.persona}.`,
@@ -120,7 +114,8 @@ export function parseJsonLoose(raw) {
 
 /**
  * Generate copy for one (occasion, template). Returns { copy, source } where source is 'ai' or 'seed'
- * (fallback). Never throws — a failure yields the seed copy so the ad still renders.
+ * (fallback), plus `blocked` listing any field whose AI text broke the brand vocabulary and was swapped
+ * for its seed. Never throws — a failure yields the seed copy so the ad still renders.
  * @param {object} o
  * @param {object} o.occasion        a MARKETING_CAL entry { m, d, name, persona, angle, tone }
  * @param {object} o.template        a TEMPLATES entry
@@ -136,10 +131,17 @@ export async function generateAdCopy({ occasion, template, generateTextFn, confi
     const parsed = parseJsonLoose(raw);
     if (!parsed) throw new Error('model did not return JSON');
     const copy = {};
+    const blocked = [];
     for (const f of fields) {
-      const v = typeof parsed[f] === 'string' && parsed[f].trim() ? parsed[f].trim() : seed[f] ?? '';
+      const v = typeof parsed[f] === 'string' ? parsed[f].trim() : '';
+      // An off-brand word is treated exactly like a missing field: fall back to the seed. The blog can
+      // afford a soft QC warning because David edits every post, but nobody reviews a calendar ad before
+      // it renders onto the canvas — so "AI"/"sleva" must not survive this function.
+      const hits = v ? bannedHits(v) : [];
+      if (hits.length) blocked.push(`${f}: ${hits.join(', ')}`);
+      const use = v && !hits.length ? v : seed[f] ?? '';
       const cap = copyCap(f, limits);
-      copy[f] = cap ? clampChars(v, cap) : v;
+      copy[f] = cap ? clampChars(use, cap) : use;
     }
     dedupeHighlight(copy);
     // Safety net for narrow-headline templates: keep headline + highlight within the 2-line budget so
@@ -149,7 +151,7 @@ export async function generateAdCopy({ occasion, template, generateTextFn, confi
       const room = budget - copy.headlineHi.length - 1;
       if (copy.headline.length > room) copy.headline = clampChars(copy.headline, Math.max(10, room));
     }
-    return { copy, source: 'ai' };
+    return blocked.length ? { copy, source: 'ai', blocked } : { copy, source: 'ai' };
   } catch (err) {
     return { copy: { ...seed }, source: 'seed', error: err.message };
   }
