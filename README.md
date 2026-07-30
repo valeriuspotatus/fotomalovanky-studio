@@ -105,13 +105,18 @@ saved as `<outbox>/<order>/<order> Final.pdf`. It ends with a run report:
 
 ```
 Run report
-  1510  done    …\1510\1510 Final.pdf
-  1523  held    2 photo(s) waiting for you in the review grid
-  1499  FAILED  1 photo(s) failed to generate: img0003 — generator seam (poll): …
+  1510    done    …\1510\1510 Final.pdf
+  1523    held    2 photo(s) waiting for you in the review grid
+  1534-1  done    …\1534-1\1534-1 Final.pdf
+  1534-2  held    2 photo(s) waiting for you in the review grid
+  1499    FAILED  1 photo(s) failed to generate: img0003 — generator seam (poll): …
 
-1 done, 1 waiting for you, 1 failed.
+2 done, 2 waiting for you, 1 failed.
 Review them:  npm run review -- <inbox>     then run this again.
 ```
+
+`1534-1` and `1534-2` are the two books of order 1534 — one customer, one checkout, one
+parcel. Each is generated, held and built on its own.
 
 **The review gate is a wall, not a step.** An order is printed only when *every* photo is
 clean or explicitly approved. A single flagged photo holds back its own order's PDF and
@@ -155,6 +160,15 @@ order becomes `<outbox>/<order>/` holding the builder triple per photo plus a
 **The order number comes from the photo names** (`1523_img0001_-_…`), not the folder
 name — folder names get hand-edited, and one real sample folder is named *1522* while
 holding eight *1523* photos. If the two disagree, the run says so.
+
+**One purchase can hold more than one book.** A customer who buys the product twice in
+one checkout gets one job per book, each with its own photos, dedication and PDF. Those
+carry a position suffix — `1234-1`, `1234-2` — in the folder name, the photo names and
+the run report. A suffix is not an error and not the folder/filename mismatch above; it
+means "book 1 of 2 in that parcel". An ordinary single-book order is unsuffixed, exactly
+as before. The split reads Shopify's line items, so it only happens on orders the tool
+fetched itself — a folder pulled by hand has no line-item information and arrives as one
+merged job.
 
 The run is **resumable and idempotent**: `state.json` is written after every photo, so
 an interrupted batch picks up exactly where it stopped. Re-running regenerates only
