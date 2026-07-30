@@ -14,7 +14,7 @@ import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.js';
 import { runPipeline, ORDER_STATUS, formatEvent } from './orchestrator.js';
 import { createAdminClient } from './shopify/adminClient.js';
-import { extractOrder } from './shopify/orders.js';
+import { extractJobs } from './shopify/orders.js';
 import { materializeOrder } from './shopify/materialize.js';
 import { loadState, saveState, isHandled, markHandled } from './autopilotState.js';
 import { writeReport, reportPath } from './autopilotReport.js';
@@ -64,9 +64,10 @@ export async function runAutopilot({
   // One paged poll of the whole window (every payment state), so non-paid photo orders are visible in
   // the report rather than vanishing. Extraction is by key substring — no `type` field on the public API.
   const nodes = await client.listOrders({ query: `updated_at:>=${windowFrom}` });
+  // flatMap, not map: one order node can hold more than one book, and each becomes its own job with
+  // its own id, folder and PDF. Everything downstream of here still works one job at a time.
   const orders = nodes
-    .map((n) => extractOrder(n, { photoKeyMatch: sh.photoKeyMatch, dedicationKeyMatch: sh.dedicationKeyMatch, layoutKeyMatch: sh.layoutKeyMatch }))
-    .filter(Boolean);
+    .flatMap((n) => extractJobs(n, { photoKeyMatch: sh.photoKeyMatch, dedicationKeyMatch: sh.dedicationKeyMatch, layoutKeyMatch: sh.layoutKeyMatch }));
 
   const photoOrders = orders.filter((o) => o.photos.length > 0);
   // With requirePaid:false (David's setting) an order is generated on arrival regardless of payment —
@@ -75,7 +76,12 @@ export async function runAutopilot({
   const requirePaid = sh.requirePaid !== false;
   const eligible = requirePaid ? photoOrders.filter(isPaid) : photoOrders;
   const nonPaidPhotoSeen = photoOrders.filter((o) => !isPaid(o)).length;
-  const toProcess = eligible.filter((o) => !isHandled(state, o.orderId));
+  // Also check the bare purchase number, not just the job id. A multi-book purchase completed
+  // BEFORE books were split was recorded under its plain order number ("1234"); it now extracts as
+  // "1234-1" and "1234-2", neither of which is in the handled map. Inside the polling window that
+  // would look like new work and regenerate a book already printed and packed — unattended,
+  // overnight. For a single-book order the two ids are the same and this is one check.
+  const toProcess = eligible.filter((o) => !isHandled(state, o.orderId) && !isHandled(state, o.purchase.orderId));
   const skippedResolved = eligible.length - toProcess.length;
   onEvent({ type: 'poll-done', seen: orders.length, paidPhoto: eligible.length, nonPaidPhotoSeen, toProcess: toProcess.length, skippedResolved, requirePaid });
 

@@ -336,3 +336,99 @@ test('the no-send invariant is structural — autopilot imports no delivery/What
     );
   }
 });
+
+// --- one purchase, several books ---------------------------------------------------------------
+
+/** An order node holding two books: the same product added twice, a photo set uploaded to each. */
+function twoBookNode(name, { updatedAt = '2026-07-12T01:00:00Z' } = {}) {
+  const book = (prefix) => ({
+    node: {
+      title: 'Fotomalovánky',
+      variantTitle: '🖨️ Tištěné omalovánky / 2',
+      quantity: 1,
+      customAttributes: [
+        { key: 'Fotka (2)-1', value: `https://cdn.tigren.com/media/${prefix}1.jpg` },
+        { key: 'Fotka (2)-2', value: `https://cdn.tigren.com/media/${prefix}2.jpg` },
+        { key: 'Věnování', value: `Pro ${prefix}` },
+      ],
+    },
+  });
+  return { name, email: 'a@b.cz', updatedAt, displayFinancialStatus: 'PAID', lineItems: { edges: [book('a'), book('b')] } };
+}
+
+test('a two-book purchase materializes as two jobs, each with its own folder', async () => {
+  const { dataDir, inbox, cleanup } = dirs();
+  try {
+    const materialize = spyMaterialize();
+    await runAutopilot({
+      config: makeConfig(dataDir, inbox),
+      now: NOW,
+      createClient: clientWith([twoBookNode('#1700')]),
+      materialize,
+      runPipelineFn: spyPipeline({}),
+    });
+    assert.deepEqual(materialize.calls, ['1700-1', '1700-2'], 'one node yields two jobs — the poll flat-maps rather than maps');
+  } finally {
+    cleanup();
+  }
+});
+
+test('the two books of one purchase are handled independently, not as one entry', async () => {
+  const { dataDir, inbox, cleanup } = dirs();
+  try {
+    await runAutopilot({
+      config: makeConfig(dataDir, inbox),
+      now: NOW,
+      createClient: clientWith([twoBookNode('#1700')]),
+      materialize: spyMaterialize(),
+      runPipelineFn: spyPipeline({ '1700-1': ORDER_STATUS.DONE, '1700-2': ORDER_STATUS.HELD }),
+    });
+    const state = loadState(dataDir);
+    assert.ok(isHandled(state, '1700-1'), 'the finished book is terminal');
+    assert.equal(isHandled(state, '1700-2'), false, 'its held sibling stays re-pollable on its own');
+  } finally {
+    cleanup();
+  }
+});
+
+test('a purchase completed before books were split is not re-run under its new suffixed ids', async () => {
+  const { dataDir, inbox, cleanup } = dirs();
+  try {
+    // What the handled map looks like on the machine this change deploys to: the purchase finished
+    // as ONE merged job, recorded under its bare order number.
+    const seeded = loadState(dataDir);
+    markHandled(seeded, '1700', { status: 'ready', at: 'before the split shipped' });
+    saveState(dataDir, seeded);
+
+    const materialize = spyMaterialize();
+    const pipeline = spyPipeline({});
+    await runAutopilot({
+      config: makeConfig(dataDir, inbox),
+      now: NOW,
+      createClient: clientWith([twoBookNode('#1700')]),
+      materialize,
+      runPipelineFn: pipeline,
+    });
+    assert.deepEqual(materialize.calls, [], 'nothing is re-materialized');
+    assert.deepEqual(pipeline.calls, [], 'and nothing is regenerated — the book may already be printed and packed');
+  } finally {
+    cleanup();
+  }
+});
+
+test('an unhandled purchase still processes both books — the cutover guard is not a blanket skip', async () => {
+  const { dataDir, inbox, cleanup } = dirs();
+  try {
+    const materialize = spyMaterialize();
+    await runAutopilot({
+      config: makeConfig(dataDir, inbox),
+      now: NOW,
+      createClient: clientWith([twoBookNode('#1701')]),
+      materialize,
+      runPipelineFn: spyPipeline({}),
+    });
+    assert.deepEqual(materialize.calls, ['1701-1', '1701-2']);
+  } finally {
+    cleanup();
+  }
+});
