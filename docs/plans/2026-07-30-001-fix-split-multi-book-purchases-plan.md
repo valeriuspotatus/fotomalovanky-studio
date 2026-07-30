@@ -187,6 +187,10 @@ This plan owns the purchase-to-job split and its count gate. The breakdown below
 - OQ2. What a purchase mixing different products — a printed book and a digital one, say — should produce. The split rule applies per line item regardless, but the two jobs may need different downstream treatment.
 - OQ3. Whether a held job should block its sibling from being **built**. F2 assumes the complete book proceeds independently, which is the working assumption. Cheap to change later. The send-and-print side of this question is settled by KD6 and owned by R17.
 
+**Resolve before the rest of R14 ships**
+
+- OQ4. The Czech wording for a message covering two books. R14's remaining half needs a body that names which book each problem belongs to, and `src/emailDrafts.js` reserves customer-facing wording for the operator: "The Czech is provisional. The operator is the native speaker and brand voice; the final wording (gender agreement, tone) is their pass." The mechanism is settled — compose after the run loop, when every book's verdict is known, and write one draft per purchase — but it should not ship with agent-written copy.
+
 ### Sources / Research
 
 - `src/shopify/orders.js` — `customerAttributes()` flattens across line items; `extractOrder` derives photos, dedication and layout from the flattened set; `expectedPhotosFrom` returns on the first matching variant.
@@ -470,7 +474,7 @@ No migration, deploy gate, or release validation applies — the change adds no 
 - U4: the suffixed id resolves through the filename path, and the bare Chrome-extension case still resolves.
 - U5: a short job is held by the existing gate; its complete sibling proceeds.
 - U6: linkage and copy count render on the board, and absent on single-book purchases.
-- U7: one draft per purchase, naming the affected book, with no suffixed id in customer-facing text.
+- U7: no suffixed id in customer-facing text — done. One draft per purchase naming the affected book — held on OQ4.
 - U8: both documentation passages describe the suffix, and the manual-pull limitation is written down.
 - U9: both screens show the same brand mark.
 - U10: a seeded pre-split handled entry stops both sibling jobs from reprocessing.
