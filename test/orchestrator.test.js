@@ -914,3 +914,30 @@ test('an operator override on one book does not lift the hold on its sibling', a
     f.cleanup();
   }
 });
+
+test("a held book's email quotes the customer's order number, never our internal suffix", async () => {
+  const f = fixture({ '1234-2': ['a'] });
+  try {
+    writeFileSync(
+      join(f.inbox, '1234-2', 'objednavka.json'),
+      JSON.stringify({ order: '1234-2', expectedPhotos: 8, purchase: { orderId: '1234', position: 2, of: 2 }, copies: 1, customer: { surname: 'Nováková', email: 'n@example.cz' } }),
+    );
+    await run(f, { intake: holdIntake() });
+    const draft = readFileSync(join(f.outbox, '1234-2', 'draft-email.txt'), 'utf8');
+    assert.match(draft, /objednávku 1234\b/, "the customer's receipt says 1234");
+    assert.ok(!draft.includes('1234-2'), 'the internal book id never reaches the customer');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a single-book order still quotes its own number, unchanged', async () => {
+  const f = fixture({ '1510': ['a'] });
+  try {
+    writeFileSync(join(f.inbox, '1510', 'objednavka.json'), JSON.stringify({ order: '1510', expectedPhotos: 8, customer: { surname: 'Nováková', email: 'n@example.cz' } }));
+    await run(f, { intake: holdIntake() });
+    assert.match(readFileSync(join(f.outbox, '1510', 'draft-email.txt'), 'utf8'), /objednávku 1510\b/);
+  } finally {
+    f.cleanup();
+  }
+});

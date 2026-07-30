@@ -130,12 +130,16 @@ function resolveExpected(order) {
 }
 
 /** The copy-paste email for a held order, or null when the hold has no email case. Reads the
- *  customer from the shop record for the greeting and address; both are optional. */
+ *  customer from the shop record for the greeting and address; both are optional.
+ *
+ *  The order number in the email is the customer's, not ours. A book of a multi-book purchase is
+ *  "1234-2" internally, but the customer's receipt says 1234 and always will — quoting the suffix
+ *  at them would be quoting an id they have never seen. */
 function draftEmailFor(result, order) {
   if (!result.emailCase) return null;
   const info = (order.dir && readOrderInfo(order.dir)) || {};
   return renderEmail(result.emailCase, {
-    order: order.orderId,
+    order: info.purchase?.orderId ?? order.orderId,
     surname: info.customer?.surname ?? '',
     email: info.customer?.email ?? '',
     expected: result.expected,
