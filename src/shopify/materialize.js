@@ -31,9 +31,14 @@ function photoName(orderId, index, label, ext) {
   return `${orderId}_img${nnnn}_-_${safeLabel}.${ext}`;
 }
 
-/** Materialize one order into `<inboxRoot>/<orderId>/`. Downloads every photo through the
- *  SSRF-guarded fetcher; a photo that cannot be fetched marks the whole order incomplete rather
- *  than leaving a half folder that would mislead intake. Returns a result describing what landed. */
+/** Materialize one job into `<inboxRoot>/<orderId>/`, where orderId is the job's id — the bare
+ *  order number for a single-book purchase, suffixed "-1"/"-2" when the purchase holds several.
+ *  Each book therefore gets its own folder, its own photos and its own sidecar, with no further
+ *  work here: the folder name and the photo filenames already follow `order.orderId`.
+ *
+ *  Downloads every photo through the SSRF-guarded fetcher; a photo that cannot be fetched marks
+ *  this job incomplete — not its sibling — rather than leaving a half folder that would mislead
+ *  intake. Returns a result describing what landed. */
 export async function materializeOrder(order, {
   inboxRoot,
   allowlist = [],
@@ -69,8 +74,14 @@ export async function materializeOrder(order, {
   if (order.layout) products.push({ title: 'Rozvržení', variant: order.layout, qty: null });
   for (const p of order.products) products.push(p);
 
+  // `purchase` and `copies` are what tell the rest of the tool that this book has siblings, and how
+  // many times to print it. Written here because nothing downstream re-reads Shopify — the board,
+  // the dispatch warning and the per-purchase email all derive from this sidecar. An order object
+  // built by hand (a manual pull, a test) has neither, and reads as a lone single-copy book.
   const sidecar = {
     order: order.orderId,
+    purchase: order.purchase ?? { orderId: order.orderId, position: 1, of: 1 },
+    copies: order.copies ?? 1,
     dedication: order.dedication,
     expectedPhotos: expectedPhotosFrom(order.products),
     customer: { surname: '', email: order.email },
