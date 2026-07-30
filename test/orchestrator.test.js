@@ -850,3 +850,67 @@ test('a held order says so in the run log', async () => {
     f.cleanup();
   }
 });
+
+// --- one purchase, several books ---------------------------------------------------------------
+
+test('each book is gated on its own expected count, and a short one is held before any GPU spend', async () => {
+  const f = fixture({ '1234-1': ['a', 'b'], '1234-2': ['c'] });
+  try {
+    // Sidecars exactly as materializeOrder writes them: one per book, each with its own count.
+    const sidecar = (id, position, expectedPhotos) =>
+      writeFileSync(join(f.inbox, id, 'objednavka.json'), JSON.stringify({ order: id, expectedPhotos, purchase: { orderId: '1234', position, of: 2 }, copies: 1 }));
+    sidecar('1234-1', 1, 2); // two photos, two expected — complete
+    sidecar('1234-2', 2, 4); // one photo, four expected — short
+
+    const seen = [];
+    const intake = async ({ order, expected }) => {
+      seen.push({ orderId: order.orderId, expected });
+      const uploaded = order.photos.length;
+      if (expected != null && uploaded < expected) {
+        return {
+          verdict: 'hold',
+          emailCase: 'missing',
+          expected,
+          uploaded,
+          unique: uploaded,
+          findings: [{ check: 'count', verdict: 'hold', reason: 'missing-photos', expected, uploaded, unique: uploaded, missing: expected - uploaded }],
+        };
+      }
+      return { verdict: 'ok', findings: [], expected, uploaded, unique: uploaded, emailCase: null };
+    };
+
+    const generator = new StubGenerator();
+    const { orders } = await run(f, { intake, generator });
+
+    assert.deepEqual(
+      seen,
+      [{ orderId: '1234-1', expected: 2 }, { orderId: '1234-2', expected: 4 }],
+      "each book's own count reaches the gate — the first line item no longer sets it for both",
+    );
+    const status = Object.fromEntries(orders.map((o) => [o.orderId, o.status]));
+    assert.equal(status['1234-1'], ORDER_STATUS.DONE, 'the complete book proceeds independently');
+    assert.equal(status['1234-2'], ORDER_STATUS.HELD, 'its short sibling is held');
+    assert.deepEqual(generator.calls.sort(), ['a', 'b'], 'nothing was generated for the held book — the gate fires before the spend');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('an operator override on one book does not lift the hold on its sibling', async () => {
+  const f = fixture({ '1234-1': ['a'], '1234-2': ['b'] });
+  try {
+    for (const [id, position] of [['1234-1', 1], ['1234-2', 2]]) {
+      writeFileSync(join(f.inbox, id, 'objednavka.json'), JSON.stringify({ order: id, expectedPhotos: 5, purchase: { orderId: '1234', position, of: 2 }, copies: 1 }));
+    }
+    // Override only the first book, the way the operator would from its own card.
+    mkdirSync(join(f.outbox, '1234-1'), { recursive: true });
+    overrideIntake(join(f.outbox, '1234-1'));
+
+    const { orders } = await run(f, { intake: holdIntake() });
+    const status = Object.fromEntries(orders.map((o) => [o.orderId, o.status]));
+    assert.equal(status['1234-1'], ORDER_STATUS.DONE, 'the overridden book builds');
+    assert.equal(status['1234-2'], ORDER_STATUS.HELD, 'its sibling is untouched by that override');
+  } finally {
+    f.cleanup();
+  }
+});

@@ -332,7 +332,7 @@ U1 is the only unit that must land before the rest are meaningful, because it de
 - **Requirements:** R12, R13. Covers KTD2.
 - **Dependencies:** U3.
 - **Files:** `src/orchestrator.js`, `test/orchestrator.test.js`
-- **Approach:** `resolveExpected` (`src/orchestrator.js:126-130`) must resolve the job's own expected count from the job's own sidecar. Everything after that already works: `assessIntake` folds the count finding into a verdict, the pre-generation gate at `:201-237` holds on `verdict === 'hold'` unless overridden or forced, and the board derives `held` from the persisted intake. Do not add a status, a surface, or a second gate.
+- **Approach:** no code change. `resolveExpected` (`src/orchestrator.js:126-130`) already reads `expectedPhotos` from the job's own sidecar, so making that sidecar per-job in U3 is what makes this correct — the whole gate then works unchanged: `assessIntake` folds the count finding into a verdict, the pre-generation gate at `:201-237` holds on `verdict === 'hold'` unless overridden or forced, and the board derives `held` from the persisted intake. The unit is its tests: prove the per-job count reaches the gate and that a short book is held while its complete sibling builds.
 - **Test scenarios:**
   - Covers AE6. Two jobs from one purchase, the first with eight of eight photos and the second with six of eight: the first proceeds to generation, the second is held with `reason: 'missing-photos'`.
   - The held job's shortfall reports against its own expected count, not its sibling's.
