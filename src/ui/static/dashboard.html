@@ -704,6 +704,10 @@
       // tab and check it before sending. Leads the actions — it's the "look before you send" step.
       if(["ready-to-send","sent","printed"].includes(o.status))
         act=`<a class="btn btn-secondary sm" href="/api/${esc(o.orderId)}/pdf" target="_blank" rel="noopener">Zobrazit PDF</a>`+act;
+      // Everything the order produced, in one file — originals, SVGs and the book. Offered on every
+      // row regardless of status: the outbox lives on the server, so when the tool is hosted this is
+      // the only way to get an order's files off the box, built or not.
+      act+=`<a class="btn btn-secondary sm" href="/api/${esc(o.orderId)}/zip" title="Stáhnout originály, SVG a hotové PDF v jednom .zip">Stáhnout ZIP</a>`;
       // Always offer a way to remove a finished/unwanted order from the board (recoverable on disk).
       act+=`<button class="btn btn-ghost sm act-delete" data-delete="${esc(o.orderId)}" title="Odebrat objednávku z nástěnky">Smazat</button>`;
     }

@@ -1,11 +1,12 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { readFileSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join, dirname, resolve, sep } from 'node:path';
+import { join, dirname, resolve, sep, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 import sharp from 'sharp';
+import { ZipArchive } from 'archiver';
 import { loadConfig } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
@@ -1217,6 +1218,44 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           'Cache-Control': 'no-store',
         });
         return res.end(readFileSync(pdfPath));
+      }
+
+      // GET /api/<order>/zip — one order's whole output in a single archive: every photo's original
+      // and its vector .svg, plus the finished "<order> Final.pdf" once the book is built. Addressed
+      // by order id like /pdf above, so no path from the page reaches the filesystem. This route is
+      // the only way to get a finished order off a hosted deployment — the outbox lives on the server,
+      // and nothing else here hands files back whole.
+      if (req.method === 'GET' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'zip') {
+        const order = state().find((o) => o.orderId === parts[1]);
+        if (!order) return json(res, 404, { error: 'Unknown order.' });
+        const files = [];
+        for (const p of order.photos) {
+          if (p.files.original) files.push(p.files.original);
+          if (p.files.svg) files.push(p.files.svg);
+        }
+        const pdfPath = pdfPathFor(order.orderDir, order.orderId);
+        if (existsSync(pdfPath)) files.push(pdfPath);
+        if (!files.length) return json(res, 404, { error: 'Objednávka nemá žádné soubory ke stažení.' });
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="${order.orderId.replace(/[^\w.-]/g, '_')}.zip"`,
+          'Cache-Control': 'no-store',
+        });
+        // Streamed, not buffered: a sixteen-photo book runs to tens of megabytes, and the hosted box
+        // should not hold one in memory to send it. Level 6 rather than 9 because the bulk of the
+        // bytes are JPEG and PDF, which do not compress — only the SVGs gain, and not enough to pay
+        // for the slower squeeze on a small instance.
+        const archive = new ZipArchive({ zlib: { level: 6 } });
+        // The 200 and its headers are already gone, so a mid-stream failure can no longer become an
+        // error response. Destroy the socket instead: a truncated transfer is a visibly broken
+        // download, where quietly ending the stream would look like a complete archive missing files.
+        archive.on('error', (err) => {
+          log(`ZIP ${order.orderId} selhal: ${err.message}`);
+          res.destroy();
+        });
+        archive.pipe(res);
+        for (const f of files) archive.file(f, { name: basename(f) });
+        return archive.finalize();
       }
 
       // POST /api/<order>/delete — remove an order from the board for good. Writes a hidden marker so it

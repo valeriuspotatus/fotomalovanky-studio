@@ -498,3 +498,51 @@ test('a folder holding an archive of orders arrives ticked by nobody', async () 
     rmSync(r, { recursive: true, force: true });
   }
 });
+
+// --- GET /api/<order>/zip -------------------------------------------------------------------
+// The outbox lives on the server when the tool is hosted, so this route is the only way to get an
+// order's files back off it. Entry names are read straight out of the ZIP local file headers, which
+// store them uncompressed — enough to prove the archive holds the right files without a zip reader.
+const zipNames = (buf) => {
+  const names = [];
+  for (let i = 0; i + 30 < buf.length; i++) {
+    if (buf.readUInt32LE(i) !== 0x04034b50) continue; // "PK\x03\x04", a local file header
+    const nameLen = buf.readUInt16LE(i + 26);
+    names.push(buf.subarray(i + 30, i + 30 + nameLen).toString('utf8'));
+  }
+  return names;
+};
+
+test('an order downloads as one zip holding every original and its vector svg', async () => {
+  const res = await get('/api/1510/zip');
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'application/zip');
+  assert.match(res.headers.get('content-disposition'), /attachment; filename="1510\.zip"/);
+
+  const buf = Buffer.from(await res.arrayBuffer());
+  assert.equal(buf.readUInt32LE(0), 0x04034b50, 'the body is a real zip, not an error page');
+  const names = zipNames(buf);
+  for (const base of ['clean', 'bad', 'manual']) {
+    assert.ok(names.includes(`${base}.jpg`), `${base}.jpg is in the archive`);
+    assert.ok(names.includes(`${base}.svg`), `${base}.svg is in the archive`);
+  }
+  assert.ok(!names.some((n) => n.endsWith('.pdf')), 'no book on disk yet, so no pdf in the archive');
+});
+
+test('once the book is built the zip carries it too, under the name the operator knows', async () => {
+  const pdf = join(orderDir, '1510 Final.pdf');
+  writeFileSync(pdf, '%PDF-1.4\nstub\n');
+  try {
+    const names = zipNames(Buffer.from(await (await get('/api/1510/zip')).arrayBuffer()));
+    assert.ok(names.includes('1510 Final.pdf'), 'the built book ships inside the archive');
+    assert.equal(names.filter((n) => n.endsWith('.pdf')).length, 1, 'exactly one pdf, not a duplicate');
+  } finally {
+    rmSync(pdf, { force: true }); // the order's derived status is shared with the tests above
+  }
+});
+
+test('a zip for an unknown order is a clean 404, not a truncated archive', async () => {
+  const res = await get('/api/9999/zip');
+  assert.equal(res.status, 404);
+  assert.equal((await res.json()).error, 'Unknown order.');
+});
