@@ -43,7 +43,8 @@ const state = {
     rotationMax: 8,
     printPdfMode: true,  // When true, adds empty pages for print layout
     coverScale: 100,     // Manual scale for cover images (50-100%)
-    coverVariant: 'classic'  // 'classic' (SVG grid) or 'pencils' (photo + coloring pairs)
+    coverVariant: 'classic',  // 'classic' (SVG grid) or 'pencils' (photo + coloring pairs)
+    language: 'cz'  // 'cz' or 'de' — branding on generated pages; UI-only, resets to CZ on load
 };
 
 /**
@@ -61,6 +62,26 @@ function getCoverSelectionLimit() {
  */
 function currentCoverLayout() {
     return (window.Tuning && window.Tuning.sessionLayout) || COVER_LAYOUT;
+}
+
+/**
+ * Logo asset for the current output language. DE has only a vertical logo,
+ * so DE mode always resolves to it — including on the pencils cover, where
+ * it overrides the horizontal variant option (see createTitlePage).
+ */
+function logoSrc() {
+    return state.language === 'de' ? './logo-de.svg' : './logo.svg';
+}
+
+/**
+ * Effective pencils-cover logo config for the current language. The DE logo
+ * is wider per unit height, so DE scales the stamped width up so the logo
+ * renders at the same HEIGHT as the CZ vertical logo in the tuned layout.
+ */
+function pencilsLogoConfig(layout) {
+    if (state.language !== 'de') return layout.logo;
+    const scale = LOGO_DE_ASPECT_RATIO / layout.logo.aspectRatio.vertical;
+    return { ...layout.logo, width: layout.logo.width * scale };
 }
 
 /** Tuning-overlay sync hook (tuning.js) — no-op when the overlay is absent. */
@@ -102,11 +123,14 @@ const coverScaleRow = document.getElementById('coverScaleRow');
 const addAllCoverBtn = document.getElementById('addAllCoverBtn');
 const coverVariantButtons = document.querySelectorAll('.cover-variant-btn');
 const coverVariantHint = document.getElementById('coverVariantHint');
+const langToggle = document.getElementById('langToggle');
+const langButtons = document.querySelectorAll('.lang-btn');
 
-// Initially hide title config, rotation controls, and pdf toggle
+// Initially hide title config, rotation controls, pdf toggle, and language toggle
 titleConfig.classList.add('hidden');
 rotationControls.classList.add('hidden');
 pdfToggle.classList.add('hidden');
+langToggle.classList.add('hidden');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Event Listeners
@@ -184,6 +208,19 @@ coverVariantButtons.forEach(btn => {
         if (state.pairs.length > 0) {
             generateCoverSelection({ preserveSelection: true });
         }
+
+        renderPages();
+    });
+});
+
+// Output language toggle (CZ vs DE branding on generated pages)
+langButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+        const lang = btn.dataset.lang;
+        if (lang === state.language) return;
+
+        state.language = lang;
+        langButtons.forEach(b => b.classList.toggle('active', b.dataset.lang === lang));
 
         renderPages();
     });
@@ -296,9 +333,10 @@ async function handleFolderSelect(event) {
     updateStatus(`Loaded ${pairs.length} pair${pairs.length !== 1 ? 's' : ''} from "${folderName}"`, true);
     printBtn.disabled = false;
     
-    // Show title config and PDF toggle, generate cover selection grid
+    // Show title config, PDF toggle, and language toggle, generate cover selection grid
     titleConfig.classList.remove('hidden');
     pdfToggle.classList.remove('hidden');
+    langToggle.classList.remove('hidden');
     updateRotationControlsVisibility();
     generateCoverSelection();
     renderPages();
@@ -672,10 +710,17 @@ function adjustPencilCoverFit() {
     const layout = currentCoverLayout();
     const contentH = A4.height - 2 * A4.margin; // printable height, 277mm
 
-    // Logo block: height from config aspect ratio, never measured
-    const logoAR = layout.logo.aspectRatio[layout.logo.variant] || layout.logo.aspectRatio.vertical;
-    const logoH = layout.logo.width / logoAR;
-    let usedMm = layout.logo.marginTop + logoH + layout.logo.marginBottom;
+    // Logo block: height from config aspect ratio, never measured. DE mode
+    // renders the DE logo (always vertical) at a width scaled to match the
+    // CZ logo's height — pencilsLogoConfig carries the scaled width, and the
+    // DE ratio lives outside the tunable layout config (see
+    // LOGO_DE_ASPECT_RATIO in cover-layout.js).
+    const logoCfg = pencilsLogoConfig(layout);
+    const logoAR = state.language === 'de'
+        ? LOGO_DE_ASPECT_RATIO
+        : (layout.logo.aspectRatio[layout.logo.variant] || layout.logo.aspectRatio.vertical);
+    const logoH = logoCfg.width / logoAR;
+    let usedMm = logoCfg.marginTop + logoH + logoCfg.marginBottom;
 
     // Title box: the only measured element (px converted via the page rect)
     const titleBox = content.querySelector('[data-tune-id="title-box"]');
@@ -760,7 +805,7 @@ function createLastPage() {
     content.className = 'last-page-content';
     
     const logo = document.createElement('img');
-    logo.src = './logo.svg';
+    logo.src = logoSrc();
     logo.alt = 'Fotomalovánky';
     logo.className = 'last-page-logo';
     content.appendChild(logo);
@@ -862,16 +907,24 @@ function createTitlePage() {
 
     // Logo
     const logo = document.createElement('img');
-    logo.src = './logo.svg';
+    logo.src = logoSrc();
     logo.alt = 'Fotomalovánky';
     logo.className = 'title-logo';
+    // DE logo is wider per unit height — the class scales the classic cover's
+    // CSS width up so the rendered height matches the CZ logo (the pencils
+    // path does the same via pencilsLogoConfig's inline width, which wins
+    // over this class).
+    if (state.language === 'de') logo.classList.add('logo-de');
     if (isPencils) {
         // Pencils variant: size/margins from the layout config (inline styles
         // override the shared .title-logo CSS, which stays authoritative for
-        // the classic variant)
-        logo.src = layout.logo.variant === 'horizontal' ? './logo-horizontal.svg' : './logo.svg';
+        // the classic variant). DE always uses the vertical DE logo — no
+        // horizontal DE asset exists, so the variant option applies to CZ only.
+        logo.src = state.language === 'de'
+            ? logoSrc()
+            : (layout.logo.variant === 'horizontal' ? './logo-horizontal.svg' : './logo.svg');
         logo.dataset.tuneId = 'logo';
-        stampLogo(logo, layout.logo);
+        stampLogo(logo, pencilsLogoConfig(layout));
     }
     content.appendChild(logo);
 
@@ -936,11 +989,13 @@ function createTitlePage() {
         content.appendChild(imagesContainer);
     }
     
-    // Footer
-    const footer = document.createElement('div');
-    footer.className = 'title-footer';
-    footer.innerHTML = `Vyrobeno s <img src="./icon-heart.svg" alt="❤️"> v <img src="./icon-cz-flag.svg" alt="🇨🇿">`;
-    content.appendChild(footer);
+    // Footer — Czech only; the DE cover bottom stays empty for now
+    if (state.language !== 'de') {
+        const footer = document.createElement('div');
+        footer.className = 'title-footer';
+        footer.innerHTML = `Vyrobeno s <img src="./icon-heart.svg" alt="❤️"> v <img src="./icon-cz-flag.svg" alt="🇨🇿">`;
+        content.appendChild(footer);
+    }
     
     page.appendChild(content);
     return page;
@@ -1598,7 +1653,7 @@ function createCollagePage(photos) {
     
     // Add small logo at bottom
     const logo = document.createElement('img');
-    logo.src = './logo.svg';
+    logo.src = logoSrc();
     logo.alt = 'Fotomalovánky';
     logo.className = 'collage-logo';
     page.appendChild(logo);
@@ -1812,9 +1867,10 @@ async function loadFromSession(sessionId) {
     updateStatus(`Loaded ${pairs.length} pair${pairs.length !== 1 ? 's' : ''} from session`, true);
     printBtn.disabled = false;
 
-    // Show title config and PDF toggle, generate cover selection grid
+    // Show title config, PDF toggle, and language toggle, generate cover selection grid
     titleConfig.classList.remove('hidden');
     pdfToggle.classList.remove('hidden');
+    langToggle.classList.remove('hidden');
     updateRotationControlsVisibility();
     generateCoverSelection();
     renderPages();

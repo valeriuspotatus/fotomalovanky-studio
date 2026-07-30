@@ -70,6 +70,10 @@
     "formatMap": {
       "🖼️ Galerie (vaše fotka vedle omalovánky)": "gallery",
       "📄 Celostránková omalovánka (plná stránka pro vybarvování)": "fullpage"
+    },
+    "language": "cz",
+    "languageMap": {
+      "PLACEHOLDER — replace with the German product or variant title from Shopify": "de"
     }
   },
   "intake": {

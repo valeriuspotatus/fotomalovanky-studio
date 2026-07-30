@@ -93,3 +93,26 @@ export function resolveFormat(orderInfo, config = {}) {
   }
   return { mode: fallback, mapped: false };
 }
+
+/** The language the generated pages should be branded in, derived from the product/variant the shop
+ *  sold — the same `objednavka.json` the format check reads, keyed the same way.
+ *
+ *  In the builder, "de" swaps the cover/last/collage logo for the German mark and drops the Czech
+ *  "Vyrobeno s ❤️ v ČR" footer. It is a property of what the customer bought, not of where the
+ *  parcel goes, so it maps off the product exactly as the print format does.
+ *
+ *  `mapped: false` means "no product matched, so this is the configured default" — a flag for the
+ *  operator, never a silent guess. The value is NOT validated here: an unknown language reaches the
+ *  builder driver, which refuses it loudly rather than letting a German order quietly ship Czech. */
+export function resolveLanguage(orderInfo, config = {}) {
+  const map = config?.delivery?.languageMap ?? {};
+  const fallback = config?.delivery?.language ?? config?.builder?.pdf?.language ?? 'cz';
+  for (const p of orderInfo?.products ?? []) {
+    for (const key of [p.variant, p.title]) {
+      if (key && Object.prototype.hasOwnProperty.call(map, key)) {
+        return { language: map[key], mapped: true };
+      }
+    }
+  }
+  return { language: fallback, mapped: false };
+}

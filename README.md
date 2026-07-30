@@ -141,6 +141,37 @@ thumbnails on the title page — the operator's books use **4**. It selects the 
 the order; choosing *which* four still needs the builder page by hand. (`addAllCovers: true` is
 the old spelling of `coverCount: 8`.)
 
+### Czech or German books
+
+The builder brands the generated pages in one of two languages. In **DE** it prints the German logo
+(`logo-de.svg`) instead of the Czech one and drops the "Vyrobeno s ❤️ v 🇨🇿" title-page footer.
+
+Which one an order gets is a property of **what the customer bought**, so it maps off the
+product/variant exactly as the print format does — `delivery.languageMap`, keyed by variant title
+(preferred) or product title, with `delivery.language` as the default for anything unmapped:
+
+```json
+"delivery": {
+  "language": "cz",
+  "languageMap": { "<the German product or variant title, exactly as Shopify spells it>": "de" }
+}
+```
+
+> **No German product exists in the shop yet.** The plumbing is finished and tested, but the map has
+> nothing real to key on, so **every order resolves to Czech today** — which is the correct and safe
+> behaviour, not a bug. When the German product is created, add its exact title here and orders of it
+> build in German from that moment. Nothing else needs changing.
+
+A mixed batch is fine: each order resolves on its own, and no config edit is needed between a Czech
+book and a German one.
+
+Two deliberate safety choices. An order that maps to **cz**, or maps to nothing at all, leaves the
+builder's language control untouched — Czech is its own default, so every existing order builds
+exactly as before, even against a builder deploy that has no language toggle. A **de** order does
+reach for the control, and a missing one fails that order loudly: printing the Czech logo onto a
+German customer's book is not something to discover after it ships. A typo in the map (`"german"`)
+fails the same way rather than silently falling back.
+
 ## Run generation only (no PDF)
 
 ```bash
