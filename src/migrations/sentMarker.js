@@ -34,6 +34,8 @@
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { loadConfig } from '../config.js';
 import { printedMarkerPath, sentMarkerPath } from '../studio.js';
 
 /** A migration-seam failure, phrased for the operator. Carries `seam` like the other drivers, so a
@@ -52,6 +54,14 @@ export const SKIP_REASONS = Object.freeze({
   ALREADY_SENT: 'already carries a dispatch marker — left untouched',
   NOT_PRINTED: 'no printed marker — the order is still awaiting print',
   UNREADABLE: 'the printed marker could not be read — skipped rather than guessed at',
+  /** The printed marker was there when the plan was built and gone when the write came round: the
+   *  operator (or Jirka) pressed "Vrátit" on that order in between. Both roles can reach `unprinted`,
+   *  so this is a race a live studio really runs, not a theoretical one. */
+  UNPRINTED_MEANWHILE: 'the printed marker was removed while the migration ran — nothing left to date from',
+  /** The write itself failed (a permission, a full disk). Recorded per order so the loop finishes and
+   *  the operator still gets the list of what WAS written — an exception halfway through would leave
+   *  markers on disk that no report ever named. */
+  WRITE_FAILED: 'the dispatch marker could not be written',
 });
 
 /** One order folder's decision, read-only. `null` when the entry is not an order folder at all. */
@@ -129,28 +139,52 @@ export function backfillSentMarkers({ outboxRoot, apply = false, now = () => new
         plan.skipped.push({ orderId: item.orderId, orderDir: item.orderDir, action: 'skip', reason: SKIP_REASONS.ALREADY_SENT });
         continue;
       }
-      writeFileSync(
-        sentPath,
-        JSON.stringify(
-          {
-            at: item.at,
-            by: item.printedBy,
-            // Load-bearing, not an audit note: deriveOrderStatus reads this and refuses to treat the
-            // order as dispatched, so a book that was printed but possibly never posted stays in the
-            // operator's worklist. Retention still measures its window from this marker's date.
-            backfilled: true,
-            backfilledFrom: 'printed.json',
-            backfilledAt: now().toISOString(),
-          },
-          null,
-          2,
-        ),
-      );
-      // THE CLOCK. Without this the file's mtime is now, and retention — which reads the mtime and
-      // not the `at` above — would restart this order's window at day zero (R17).
-      const printedStat = statSync(printedMarkerPath(item.orderDir));
-      utimesSync(sentPath, printedStat.atime, printedStat.mtime);
-      written.push(item.orderId);
+      // NOTHING IS WRITTEN THAT CANNOT BE DATED. The clock this migration exists to preserve comes
+      // from the printed marker, and `unprinted` (reachable by both roles) can delete that marker
+      // between the plan and this line. Checked BEFORE the write, because a write that lands and
+      // then fails to be re-dated is the worst of the three outcomes: the marker is on disk with
+      // today's mtime and the order's retention window has silently restarted at zero (R17).
+      if (!existsSync(printedMarkerPath(item.orderDir))) {
+        plan.skipped.push({ orderId: item.orderId, orderDir: item.orderDir, action: 'skip', reason: SKIP_REASONS.UNPRINTED_MEANWHILE });
+        continue;
+      }
+      try {
+        writeFileSync(
+          sentPath,
+          JSON.stringify(
+            {
+              at: item.at,
+              by: item.printedBy,
+              // Load-bearing, not an audit note: deriveOrderStatus reads this and refuses to treat the
+              // order as dispatched, so a book that was printed but possibly never posted stays in the
+              // operator's worklist. Retention still measures its window from this marker's date.
+              backfilled: true,
+              backfilledFrom: 'printed.json',
+              backfilledAt: now().toISOString(),
+            },
+            null,
+            2,
+          ),
+        );
+        // THE CLOCK. Without this the file's mtime is now, and retention — which reads the mtime and
+        // not the `at` above — would restart this order's window at day zero (R17).
+        //
+        // From the PLAN's captured mtime, not from a fresh statSync of the printed marker. Re-statting
+        // here is a second chance to lose the race above: the marker can vanish after the write has
+        // landed, and then the stat throws with today's mtime already on disk, aborting the loop and
+        // leaving the rest of the outbox unprocessed with no record of what was written.
+        const stamp = new Date(item.mtimeMs);
+        utimesSync(sentPath, stamp, stamp);
+        written.push(item.orderId);
+      } catch (err) {
+        // One order's disk failure is not the other four hundred orders' problem.
+        plan.skipped.push({
+          orderId: item.orderId,
+          orderDir: item.orderDir,
+          action: 'skip',
+          reason: `${SKIP_REASONS.WRITE_FAILED}: ${err.message}`,
+        });
+      }
     }
   }
   return {
@@ -161,4 +195,77 @@ export function backfillSentMarkers({ outboxRoot, apply = false, now = () => new
     written,
     counts: { planned: plan.planned.length, skipped: plan.skipped.length, written: written.length },
   };
+}
+
+// ---- the way it actually gets run -------------------------------------------
+//
+//   npm run migrate-sent-markers            what it would write, and nothing else
+//   npm run migrate-sent-markers -- --yes   write the markers
+//
+// A dry run by default, like `npm run purge`, and for the same reason: it writes into live customer
+// order folders on the mounted disk.
+//
+// This exists because the migration previously had exactly ONE entry point — a POST route with no
+// button behind it — and every R17 claim (the historical backlog keeps the eligibility date it
+// already had) rests on the migration having been RUN. A cutover step nobody can perform is a plan,
+// not a migration. See docs/RENDER.md, "After it's up".
+
+/** `--yes` is the only flag: the outbox comes from config.json like every other tool here. */
+export function parseArgs(argv) {
+  return { yes: argv.includes('--yes') };
+}
+
+/** The operator-facing report, for both postures. Exported so a test reads the same text the
+ *  operator does. */
+export function formatBackfillReport(result) {
+  const lines = [];
+  if (result.planned.length) {
+    lines.push(
+      result.applied
+        ? `Wrote a dispatch marker for ${result.written.length} order(s), dated from their printed marker:`
+        : `Would write a dispatch marker for ${result.planned.length} order(s), dated from their printed marker:`,
+    );
+    for (const item of result.planned) {
+      const done = !result.applied || result.written.includes(item.orderId);
+      lines.push(`  ${item.orderId}  printed ${new Date(item.mtimeMs).toISOString().slice(0, 10)}${done ? '' : '  (NOT written — see below)'}`);
+    }
+  } else {
+    lines.push('Nothing to backfill: every printed order already carries a dispatch marker.');
+  }
+
+  if (result.skipped.length) {
+    lines.push('');
+    lines.push('Left alone:');
+    for (const item of result.skipped) lines.push(`  ${item.orderId}  ${item.reason}`);
+  }
+
+  lines.push('');
+  lines.push(
+    'The marker carries the PRINT date, not today: retention measures its window from the file\'s mtime, ' +
+      'so this is what stops the whole backlog restarting its retention window at zero (R17).',
+  );
+  if (!result.applied && result.planned.length) {
+    lines.push('');
+    lines.push('Nothing has been written. Run it again with --yes to go ahead.');
+  }
+  return lines.join('\n');
+}
+
+/** The CLI body, with its seams injected so a test can run the real thing over a fixture outbox
+ *  without a config file or a subprocess. */
+export function runSentMarkerBackfillCli({ argv = [], outboxRoot, log = console.log } = {}) {
+  const { yes } = parseArgs(argv);
+  const result = backfillSentMarkers({ outboxRoot, apply: yes });
+  log(`\n${formatBackfillReport(result)}\n`);
+  return result;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  try {
+    const config = loadConfig();
+    runSentMarkerBackfillCli({ argv: process.argv.slice(2), outboxRoot: config.paths.outbox });
+  } catch (err) {
+    console.error(`\n${err.message}\n`);
+    process.exit(1);
+  }
 }

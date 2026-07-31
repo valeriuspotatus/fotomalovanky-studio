@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, utimesSync, 
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { inspectOutbox, purgeOriginals, inspectAutopilotData, purgeAutopilotData, PURGE_BATCH_CAP, STALLED_WINDOW_MULTIPLE } from '../src/retention.js';
+import { markSent, unmarkPrinted, unmarkSent, readSentMarker } from '../src/studio.js';
 import { parseArgs, report } from '../src/purge.js';
 import { createReviewServer } from '../src/ui/server.js';
 import { hashPassword, ROLE_ENV_VARS } from '../src/auth/credentials.js';
@@ -197,6 +198,112 @@ test('a BACKFILLED dispatch marker is honoured on its original date, and counted
     purgeOriginals({ outboxRoot: f.outbox, days: 30, now: NOW, dryRun: false });
     assert.deepEqual(jpgs(old), [], 'the historical order is purged on the schedule it always had');
     assert.equal(jpgs(join(f.outbox, '1402')).length, 2, 'a backfilled marker inside the window still protects its photos');
+  } finally {
+    f.cleanup();
+  }
+});
+
+// ---- the two ways the clock and the gate were losable (the markers move under retention) --------
+
+test('confirming a BACKFILLED dispatch keeps the date the migration preserved — the backlog does not restart at zero', () => {
+  const f = fixture();
+  try {
+    // The whole of R17 in one sequence. The migration dated this marker from the print, 100 days ago.
+    // The board shows the order as `printed` with ONE button — "Označit odeslané" — so working the
+    // historical backlog means passing every one of those orders through markSent. A plain write
+    // stamps today's mtime, retention reads the mtime, and the entire backlog's retention window
+    // starts again from zero: the migration undone by the operator doing what the board asked.
+    const dir = order(f.outbox, '1400', { sentDaysAgo: 100, backfilled: true });
+    const before = statSync(join(dir, 'sent.json')).mtimeMs;
+
+    markSent(dir, { role: 'operator', username: 'David', implicit: false });
+
+    const marker = JSON.parse(readFileSync(join(dir, 'sent.json'), 'utf8'));
+    assert.equal(marker.by, 'David', 'the confirmation records who confirmed it');
+    assert.equal(marker.byRole, 'operator');
+    assert.equal(marker.backfilled, undefined, 'and it is no longer a backfill — somebody has now said so');
+    assert.equal(readSentMarker(dir).backfilled, false, 'so the board treats the order as dispatched and retires it');
+
+    assert.equal(statSync(join(dir, 'sent.json')).mtimeMs, before, 'but the FILE keeps its date: the book left when it left');
+    const [inspected] = inspectOutbox({ outboxRoot: f.outbox, days: 30, now: NOW });
+    assert.equal(inspected.ageDays, 100, 'so retention still measures 100 days, not 0');
+    assert.equal(inspected.skip, null, 'and the order is eligible today rather than in another 100 days');
+    assert.equal(inspected.backfilled, false, 'counted as a real dispatch now, which it is');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('an ordinary dispatch confirmed again IS re-dated — only a backfill carries its old clock', () => {
+  const f = fixture();
+  try {
+    // The other half of the rule, so the exception cannot quietly become "markSent never re-dates".
+    // Re-confirming a real dispatch is the operator correcting the record, and the new date is right.
+    const dir = order(f.outbox, '1400', { sentDaysAgo: 100 });
+    markSent(dir, { role: 'operator', username: 'David', implicit: false });
+
+    // A minute past the write, so a filesystem that rounds mtimes up cannot make "just now" negative.
+    const [inspected] = inspectOutbox({ outboxRoot: f.outbox, days: 30, now: Date.now() + 60_000 });
+    assert.equal(inspected.ageDays, 0, 'dispatched today, because that is when it was confirmed');
+    assert.match(inspected.skip, /keeping for 30/, 'and the window starts now');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('UNDOING A PRINT stops the dispatch marker counting: the photographs of a book back in the queue are not purged', () => {
+  const f = fixture();
+  try {
+    // The migration gives every historically-printed order a backfilled sent.json dated months ago.
+    // "Vrátit" on a bad print (both roles can reach it) removes ONLY printed.json — and then the
+    // board correctly re-queues the book for Jirka while a gate that asked `existsSync(sent.json)`
+    // alone would call the same order eligible and delete the photographs it will be reprinted from.
+    const dir = order(f.outbox, '1400', { sentDaysAgo: 100, backfilled: true });
+    assert.equal(inspectOutbox({ outboxRoot: f.outbox, days: 30, now: NOW })[0].skip, null, 'eligible while it is printed AND dispatched');
+
+    unmarkPrinted(dir);
+
+    const [inspected] = inspectOutbox({ outboxRoot: f.outbox, days: 30, now: NOW });
+    assert.match(inspected.skip, /dispatched but not printed/, 'the pair of markers is contradictory, so it is not a dispatch');
+    assert.equal(inspected.ageDays, null, 'and no clock is reported for a dispatch that cannot have happened');
+
+    const result = purgeOriginals({ outboxRoot: f.outbox, days: 30, now: NOW, dryRun: false });
+    assert.deepEqual(result.orders, [], 'a confirmed purge takes nothing');
+    assert.equal(result.eligibility.total, 0);
+    assert.equal(jpgs(dir).length, 2, 'the customer\'s photographs are still there for the reprint');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a hand-deleted printed marker is the same invariant, and re-printing restores eligibility', () => {
+  const f = fixture();
+  try {
+    // The invariant lives in inspectOutbox rather than in unmarkPrinted precisely so it also covers
+    // the routes nobody wrote: a marker deleted by hand on the mounted disk, a half-restored backup.
+    const dir = order(f.outbox, '1400', { sentDaysAgo: 100 });
+    rmSync(join(dir, 'printed.json'), { force: true });
+    assert.match(inspectOutbox({ outboxRoot: f.outbox, days: 30, now: NOW })[0].skip, /dispatched but not printed/);
+
+    // And it is not a trap door: put the print back and the order is eligible again on its own date.
+    writeFileSync(join(dir, 'printed.json'), JSON.stringify({ at: '2026-03-01T00:00:00.000Z', by: 'Jirka', byRole: 'printer' }));
+    const [again] = inspectOutbox({ outboxRoot: f.outbox, days: 30, now: NOW });
+    assert.equal(again.skip, null, 'printed and dispatched again');
+    assert.equal(again.ageDays, 100, 'on the dispatch date it always had');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('undoing the DISPATCH still leaves a printed book alone — and the stalled backstop still sees it', () => {
+  const f = fixture();
+  try {
+    const dir = order(f.outbox, '1400', { sentDaysAgo: 400, printedDaysAgo: 400 });
+    unmarkSent(dir);
+
+    const result = purgeOriginals({ outboxRoot: f.outbox, days: 30, now: NOW, dryRun: false });
+    assert.equal(jpgs(dir).length, 2, 'no dispatch marker, no purge');
+    assert.deepEqual(result.stalled.map((o) => o.orderId), ['1400'], 'and it is surfaced as printed-but-never-dispatched');
   } finally {
     f.cleanup();
   }
@@ -407,10 +514,11 @@ const SERVER_CONFIG = {
   retentionDays: 30,
 };
 
-/** An ungated local studio over a fixture outbox — one implicit operator, no sign-in (KTD11). */
-async function localStudio(outbox) {
+/** An ungated local studio over a fixture outbox — one implicit operator, no sign-in (KTD11).
+ *  `dataDir` wires the autopilot's report/state folder, which purges on the same clock. */
+async function localStudio(outbox, { dataDir = null } = {}) {
   const { server } = createReviewServer({
-    config: SERVER_CONFIG,
+    config: dataDir ? { ...SERVER_CONFIG, shopify: { dataDir } } : SERVER_CONFIG,
     inboxRoot: join(outbox, '..', 'inbox'),
     outboxRoot: outbox,
     memoryRoot: outbox,
@@ -481,6 +589,61 @@ test('the purge route needs a separate confirmation, and then takes only the pho
     assert.ok(existsSync(join(dir, '1400 Final.pdf')), 'and so does the built book');
   } finally {
     s?.close();
+    f.cleanup();
+  }
+});
+
+test('over HTTP: undo the print, then confirm a purge — the photographs of the re-queued book survive', async () => {
+  const f = fixture();
+  let s;
+  try {
+    // The two routes an operator can genuinely press in this order on a Tuesday morning: "Vrátit" on
+    // an order whose print went wrong, then the úklid panel's Smazat. Before the invariant, the
+    // second one deleted the photographs the first one had just put back in the print queue.
+    const dir = order(f.outbox, '1400', { sentDaysAgo: 100, backfilled: true });
+    s = await localStudio(f.outbox);
+
+    const undo = await s.post('/api/1400/unprinted');
+    assert.equal(undo.status, 200, 'the print is undone');
+    assert.equal(existsSync(join(dir, 'printed.json')), false, 'and the marker really is gone, not merely reported gone');
+
+    const report = await (await s.get('/api/purge/report')).json();
+    assert.deepEqual(report.orders, [], 'the report offers nothing');
+    assert.ok(report.skipped.some((o) => o.orderId === '1400' && /dispatched but not printed/.test(o.skip)), 'and says why, by name');
+
+    const purged = await s.post('/api/purge/confirm', { confirm: true });
+    assert.equal(purged.status, 200);
+    assert.equal((await purged.json()).photos, 0, 'the confirmation deletes nothing');
+    assert.equal(jpgs(dir).length, 2, 'the customer\'s photographs are on disk for the reprint');
+  } finally {
+    s?.close();
+    f.cleanup();
+  }
+});
+
+test('the REPORT names the autopilot files the confirmation will clear — the two routes describe one act', async () => {
+  const f = fixture();
+  const a = autopilotDir({ reportDaysAgo: 400, stateDaysAgo: 400 });
+  let s;
+  try {
+    // The confirm route always cleared the night report and handled-set as well, and the report route
+    // said nothing about them — so the panel's stated contract ("this is exactly what confirming
+    // does") was false for two files carrying order numbers. The fixture had no shopify block, which
+    // is why nothing noticed.
+    order(f.outbox, '1400', { sentDaysAgo: 100 });
+    s = await localStudio(f.outbox, { dataDir: a.dir });
+
+    const report = await (await s.get('/api/purge/report')).json();
+    assert.deepEqual(report.autopilotFiles.sort(), ['autopilot-state.json', 'overnight-report.json'], 'the report names them');
+    assert.ok(existsSync(a.rp) && existsSync(a.sp), 'and, being a report, deletes neither');
+
+    const confirmed = await (await s.post('/api/purge/confirm', { confirm: true })).json();
+    assert.deepEqual(confirmed.autopilotFiles.sort(), ['autopilot-state.json', 'overnight-report.json'], 'the confirmation clears exactly what was named');
+    assert.equal(existsSync(a.rp), false, 'the night report is gone');
+    assert.equal(existsSync(a.sp), false, 'and so is the handled-set');
+  } finally {
+    s?.close();
+    a.cleanup();
     f.cleanup();
   }
 });

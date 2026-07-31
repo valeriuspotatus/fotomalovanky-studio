@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, utimesSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { backfillSentMarkers, planSentMarkerBackfill, SentMarkerMigrationError, SKIP_REASONS } from '../src/migrations/sentMarker.js';
+import { backfillSentMarkers, planSentMarkerBackfill, runSentMarkerBackfillCli, SentMarkerMigrationError, SKIP_REASONS } from '../src/migrations/sentMarker.js';
 import { createReviewServer } from '../src/ui/server.js';
 import { hashPassword, ROLE_ENV_VARS } from '../src/auth/credentials.js';
 import { SIGN_IN_PATH } from '../src/auth/sessions.js';
@@ -226,6 +226,113 @@ test('a second run changes nothing — the whole fixture is idempotent', () => {
   } finally {
     f.cleanup();
   }
+});
+
+// ---- the race with `unprinted`, which both roles can reach --------------------
+
+test('a printed marker deleted between the plan and the write leaves NO marker, and the rest still run', () => {
+  const f = fixture();
+  try {
+    // The race, driven for real: `now()` is called while the first order's marker is being built, so
+    // deleting the second order's printed.json there is exactly "somebody pressed Vrátit mid-run".
+    // It used to be caught by a statSync AFTER the write had landed — which threw, aborting the loop
+    // with a marker already on disk carrying today's mtime (retention restarted at zero for that
+    // order) and no report of what had been written for the rest.
+    const first = f.order('1600', { printed: JSON.stringify({ at: '2026-03-01T00:00:00.000Z' }), printedDaysAgo: 120 });
+    const second = f.order('1601', { printed: JSON.stringify({ at: '2026-03-02T00:00:00.000Z' }), printedDaysAgo: 110 });
+    const third = f.order('1602', { printed: JSON.stringify({ at: '2026-03-03T00:00:00.000Z' }), printedDaysAgo: 100 });
+
+    let calls = 0;
+    const result = backfillSentMarkers({
+      outboxRoot: f.outbox,
+      apply: true,
+      now: () => {
+        if (++calls === 1) rmSync(join(second, 'printed.json'), { force: true });
+        return new Date(NOW);
+      },
+    });
+
+    assert.deepEqual(result.written, ['1600', '1602'], 'the run completes and says exactly which orders were written');
+    assert.equal(existsSync(join(second, 'sent.json')), false, 'the order whose print was undone gets NO dispatch marker');
+    assert.equal(
+      result.skipped.find((s) => s.orderId === '1601').reason,
+      SKIP_REASONS.UNPRINTED_MEANWHILE,
+      'and the operator is told why, by order number',
+    );
+    assert.equal(mtime(third, 'sent.json'), mtime(third, 'printed.json'), 'the orders after it are still dated from their print');
+    assert.equal(mtime(first, 'sent.json'), mtime(first, 'printed.json'));
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the clock comes from the PLAN, so a printed marker re-dated mid-run cannot move it', () => {
+  const f = fixture();
+  try {
+    // Same race, the other way round: the marker still exists at the write, but its mtime has moved
+    // (a reprint, a touch, a restore). Re-statting it here would silently hand this order a newer
+    // retention date than the report promised. The plan captured `mtimeMs`; that is what is used.
+    const dir = f.order('1610', { printed: JSON.stringify({ at: '2026-03-01T00:00:00.000Z' }), printedDaysAgo: 120 });
+    const planned = mtime(dir, 'printed.json');
+    const today = new Date(NOW);
+
+    backfillSentMarkers({
+      outboxRoot: f.outbox,
+      apply: true,
+      now: () => {
+        utimesSync(join(dir, 'printed.json'), today, today); // reprinted while the migration runs
+        return today;
+      },
+    });
+
+    assert.equal(mtime(dir, 'sent.json'), planned, 'the marker carries the date the report showed');
+    assert.notEqual(mtime(dir, 'sent.json'), mtime(dir, 'printed.json'), 'not whatever the printed marker says by now');
+  } finally {
+    f.cleanup();
+  }
+});
+
+// ---- the way an operator actually runs it (there was no way at all) ----------
+
+test('npm run migrate-sent-markers: a dry run by default, --yes writes, and the report says which', () => {
+  const f = fixture();
+  try {
+    // The migration's only entry point used to be a POST route with no button, no script and no line
+    // in docs/RENDER.md — and every R17 claim rests on it having been RUN. This is that entry point.
+    const dir = f.order('1700', { printed: JSON.stringify({ at: '2026-03-01T00:00:00.000Z', by: 'Jirka' }), printedDaysAgo: 120 });
+    f.order('1701', { delivered: true });
+    const before = snapshot(f.outbox);
+
+    const dryLines = [];
+    const dry = runSentMarkerBackfillCli({ argv: [], outboxRoot: f.outbox, log: (line) => dryLines.push(line) });
+    assert.equal(dry.applied, false, 'reporting is the default posture, like npm run purge');
+    assert.deepEqual(snapshot(f.outbox), before, 'and a dry run is provably a dry run');
+    const dryText = dryLines.join('\n');
+    assert.match(dryText, /Would write a dispatch marker for 1 order/, 'it says what it would do');
+    assert.match(dryText, /1700/, 'naming the order');
+    assert.match(dryText, /Run it again with --yes/, 'and how to go ahead');
+
+    const wetLines = [];
+    const wet = runSentMarkerBackfillCli({ argv: ['--yes'], outboxRoot: f.outbox, log: (line) => wetLines.push(line) });
+    assert.deepEqual(wet.written, ['1700'], '--yes is what writes');
+    assert.equal(mtime(dir, 'sent.json'), mtime(dir, 'printed.json'), 'with the clock the whole migration exists to preserve');
+    assert.match(wetLines.join('\n'), /Wrote a dispatch marker for 1 order/, 'and reports what it did');
+    assert.equal(existsSync(join(f.outbox, '1701', 'sent.json')), false, 'the delivery-only order is still left alone');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the script and the cutover step exist where an operator would look for them', () => {
+  // A migration nobody can run is a plan, not a migration. These two are the ways it is reachable:
+  // the npm script (mirroring `purge`), and the deploy document that tells the operator to run it.
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(pkg.scripts['migrate-sent-markers'], 'node src/migrations/sentMarker.js', 'npm run migrate-sent-markers exists');
+  assert.ok(pkg.scripts.purge, 'and it sits beside the purge script it is modelled on');
+
+  const render = readFileSync(new URL('../docs/RENDER.md', import.meta.url), 'utf8');
+  assert.match(render, /npm run migrate-sent-markers/, 'the deploy guide names the command');
+  assert.match(render, /npm run migrate-sent-markers -- --yes/, 'including the flag that actually writes');
 });
 
 test('a missing outbox is refused at the migration seam rather than silently doing nothing', () => {

@@ -81,6 +81,33 @@ to run without them on a public bind:
 
 ---
 
+## 8. Cutover: backfill the dispatch markers (ONCE, right after the first deploy)
+
+The lifecycle changed: `sent` used to mean "handed to Jirka" and now means "posted to the customer",
+with its own marker file. Orders printed **before** this change have no dispatch marker, so nothing
+would ever clean up their photographs — the automatic clean-up only ever touches a dispatched book.
+
+This one-off run writes a dispatch marker for every already-printed order and **dates it from the
+print**, so those orders keep the clean-up date they always had instead of starting again from today.
+
+In the Render **Shell** (service → Shell), from the app folder:
+
+```
+npm run migrate-sent-markers            # says what it would write, writes nothing
+npm run migrate-sent-markers -- --yes   # writes the markers
+```
+
+Run the first one, read the list, then run the second. It is safe to run twice: an order that already
+has a dispatch marker is never touched, and the marker's date is never changed.
+
+Those orders come back onto your board as "vytištěno" with **Označit odeslané** — that is deliberate.
+Nothing recorded whether they were actually posted, so you confirm them yourself; confirming does not
+move their clean-up date.
+
+---
+
 ## After it's up
 - **Redeploys** happen automatically when you push to `main`. The `/data` disk (books, orders) survives them.
 - **The Pošta inbox tab** shows "not configured" in the cloud — that's expected (mail stays on your PC).
+- **Deleting old customer photos** is the same shape, from the same Shell: `npm run purge`, then
+  `npm run purge -- --yes` (or the Nastavení → úklid panel in the app).

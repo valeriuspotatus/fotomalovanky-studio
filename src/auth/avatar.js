@@ -60,6 +60,27 @@ export const AVATAR_MAX_PIXELS = 40_000_000;
  *  this admits roughly a 1.5 MB photo. Enforced by readJson while it reads (see the header note). */
 export const AVATAR_BODY_LIMIT = 2 * 1024 * 1024;
 
+/** The same cap expressed in DECODED bytes, which is the only thing `decodeImagePayload` can measure.
+ *  It used to compare decoded length against AVATAR_BODY_LIMIT — a request-sized cap against an
+ *  image-sized number — so the branch could never trip: base64 inflates by 4/3, and anything whose
+ *  decoded form exceeded 2 MB had already been refused mid-stream by the reader. Deriving it from
+ *  the body limit keeps the two in step if either is ever changed. */
+export const AVATAR_MAX_BYTES = Math.floor((AVATAR_BODY_LIMIT * 3) / 4);
+
+/** The one message for "too big", shared with the route so the reader's mid-stream refusal and this
+ *  module's own say the same thing to the same person. */
+export const AVATAR_TOO_LARGE_MESSAGE = 'Obrázek je příliš velký (max 1,5 MB).';
+
+/** The container formats a profile photo may arrive in. An allowlist, checked against what libvips
+ *  DECODED — not against a declared type — for the same reason everything else here is: the claim is
+ *  the uploader's, the decode is ours.
+ *
+ *  SVG is the one that matters. sharp will happily rasterise it, which means librsvg parses attacker
+ *  markup server-side: XML entity expansion, and an external-reference surface that has no business
+ *  being reachable from a profile page. A raster allowlist closes that whole class without needing to
+ *  know what this year's librsvg can be talked into. */
+export const AVATAR_INPUT_FORMATS = Object.freeze(['png', 'jpeg', 'webp']);
+
 /** The only file names this module writes, and the only ones the route will serve. Built from ROLES
  *  so a third role cannot silently widen it. */
 export const AVATAR_NAME_RE = new RegExp(`^(?:${ROLES.join('|')})-[0-9a-f]{16}\\${AVATAR_EXT}$`);
@@ -114,8 +135,8 @@ export function decodeImagePayload(raw) {
   const base64 = raw.trim().replace(/^data:[^;,]*;base64,/i, '').replace(/\s+/g, '');
   const bytes = Buffer.from(base64, 'base64');
   if (!bytes.length) throw new AvatarError('Obrázek se nepodařilo přečíst.', 'bad-image');
-  if (bytes.length > AVATAR_BODY_LIMIT) {
-    throw new AvatarError('Obrázek je příliš velký (max 1,5 MB).', 'too-large');
+  if (bytes.length > AVATAR_MAX_BYTES) {
+    throw new AvatarError(AVATAR_TOO_LARGE_MESSAGE, 'too-large');
   }
   return bytes;
 }
@@ -128,7 +149,15 @@ export function decodeImagePayload(raw) {
  */
 export async function reencodeAvatar(bytes) {
   try {
-    return await sharp(bytes, { limitInputPixels: AVATAR_MAX_PIXELS, animated: false })
+    const image = sharp(bytes, { limitInputPixels: AVATAR_MAX_PIXELS, animated: false });
+    // WHAT IT IS, before anything decodes it in earnest. `metadata()` reads the header only, and the
+    // format it reports is libvips' own verdict — the allowlist is applied to that, never to a
+    // declared type. An SVG reaching `.resize()` would be handed to librsvg (see AVATAR_INPUT_FORMATS).
+    const { format } = await image.metadata();
+    if (!AVATAR_INPUT_FORMATS.includes(format)) {
+      throw new AvatarError(`Nahrajte prosím fotku ve formátu PNG, JPEG nebo WebP (tohle je ${format ?? 'neznámý formát'}).`, 'bad-format');
+    }
+    return await image
       // Apply the orientation tag, then let the re-encode drop it with the rest of the metadata.
       // Without this a phone portrait comes out on its side once EXIF is gone.
       .rotate()
@@ -137,6 +166,9 @@ export async function reencodeAvatar(bytes) {
       .webp({ quality: 82 })
       .toBuffer();
   } catch (err) {
+    // The refusal above is already the right answer for the right reason; don't relabel it as
+    // "we couldn't read this" on the way out.
+    if (err instanceof AvatarError) throw err;
     throw new AvatarError(`Tenhle soubor není obrázek, který bychom uměli přečíst (${err.message}).`, 'bad-image');
   }
 }

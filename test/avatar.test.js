@@ -134,8 +134,15 @@ test('a payload over the cap is refused while it is being read, not after it is 
     // the cap is applied by the reader, it never gets that far and answers "too large" instead.
     const oversized = `{"image":"${'A'.repeat(AVATAR_BODY_LIMIT + 512 * 1024)}`;
     const res = await f.profile(cookie, oversized, true);
-    assert.equal(res.status, 409, 'the oversized upload is refused');
-    assert.match((await res.json()).error, /too large/i, 'and refused BY THE READER — not parsed first, then measured');
+    // 413, not the blanket 409 every other refusal in this dispatcher answers: "your photo is too
+    // big" is a different thing from "the studio refused that", and the person uploading a 4 MB phone
+    // photo is the one who has to be able to tell them apart. The 413 branch beside it in avatar.js
+    // could never fire on its own (it compared decoded bytes against the REQUEST cap), so this
+    // reader-side refusal is the only path that reaches the operator — it has to carry the status.
+    assert.equal(res.status, 413, 'the oversized upload is refused as too large, with the status that says so');
+    const refusal = await res.json();
+    assert.equal(refusal.code, 'too-large', 'and with the code the page keys its message off');
+    assert.match(refusal.error, /příliš velký/i, 'phrased for the person who chose the file, not for a log');
 
     assert.equal(f.storedFile('printer'), null, 'nothing was stored');
     assert.ok(!existsSync(avatarsDir(f.dataDir)) || readdirSync(avatarsDir(f.dataDir)).length === 0, 'and no file was written');
@@ -160,6 +167,37 @@ test('a non-image is refused however loudly it claims to be one', async () => {
     const body = await res.json();
     assert.equal(body.code, 'bad-image', 'as an unreadable image, not as a server error');
     assert.equal(f.storedFile('printer'), null, 'and nothing reached the disk');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('an SVG is refused: no uploaded markup is ever handed to librsvg', async () => {
+  const f = await studio();
+  try {
+    const cookie = await f.signIn('Jirka');
+    // sharp will happily rasterise SVG, which means an uploaded document is PARSED server-side by
+    // librsvg — attacker-controlled XML, with an external-reference surface, reachable from a profile
+    // page. The allowlist is checked against what libvips says it decoded, not against the data:
+    // prefix, so announcing it as a PNG changes nothing.
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#c33"/></svg>');
+    assert.equal((await sharp(svg).metadata()).format, 'svg', 'the fixture really is an SVG sharp would otherwise read');
+
+    const res = await f.profile(cookie, { image: dataUri(svg, 'image/png') });
+    assert.equal(res.status, 400, 'refused');
+    const body = await res.json();
+    assert.equal(body.code, 'bad-format', 'as the wrong FORMAT — not as unreadable bytes, which would be untrue');
+    assert.match(body.error, /PNG, JPEG nebo WebP/, 'and the person is told what to upload instead');
+    assert.equal(f.storedFile('printer'), null, 'nothing reached the disk');
+
+    // The allowlist is an allowlist: the three raster formats still go through.
+    for (const [name, buf] of [
+      ['png', await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).png().toBuffer()],
+      ['jpeg', await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).jpeg().toBuffer()],
+      ['webp', await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).webp().toBuffer()],
+    ]) {
+      assert.equal((await f.profile(cookie, { image: dataUri(buf, 'image/png') })).status, 200, `a ${name} upload is still accepted`);
+    }
   } finally {
     f.cleanup();
   }

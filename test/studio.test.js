@@ -588,12 +588,44 @@ test('marking an order printed takes it out of the queue', () => {
   }
 });
 
+/** The page's own source, once, for the tests that RUN pieces of it. */
+const PAGE = readFileSync(new URL('../src/ui/static/dashboard.html', import.meta.url), 'utf8');
+
+/** Lift one `const <name>=<arrow>;` out of the page and make it callable, with its free variables
+ *  passed in. This is how a page-side rule gets asserted on its BEHAVIOUR rather than on the shape
+ *  of its source: a regex saying the line looks right passes just as happily when the rule is wrong,
+ *  and a test that only reads text is the reason the landing rule below was never actually run. */
+function pageFunction(name, deps) {
+  const src = new RegExp(`const ${name}=(\\([^)]*\\)=>[^;]+);`).exec(PAGE);
+  assert.ok(src, `${name} is still defined in dashboard.html as a one-line arrow this test can lift out`);
+  const names = Object.keys(deps);
+  // eslint-disable-next-line no-new-func — lifting the shipped source is the entire point
+  return new Function(...names, `return (${src[1]});`)(...names.map((k) => deps[k]));
+}
+
 test('a printer session lands on the print queue; the operator lands on the board', () => {
-  // The offline half, like the STATUS-label test above: the landing rule lives in the page, and the
-  // browser smoke drives it for real. What must hold here is that the rule exists, that it is keyed
-  // on the role rather than on a hidden nav control, and that an explicit fragment still wins.
-  const page = readFileSync(new URL('../src/ui/static/dashboard.html', import.meta.url), 'utf8');
-  assert.match(page, /const landingView=\(\)=>\(location\.hash\?currentView\(\):\(isOperator\(\)\?"home":"queue"\)\)/, 'the printer lands on the queue, the operator on the board');
+  // The page's real landing rule, LIFTED OUT AND RUN — not matched against a regex. The rule decides
+  // the first screen each person sees, and "the source contains this string" would keep passing if
+  // the two branches were swapped tomorrow.
+  const landing = (hash, operator, view = 'settings') =>
+    pageFunction('landingView', { location: { hash }, currentView: () => view, isOperator: () => operator })();
+
+  assert.equal(landing('', false), 'queue', 'a printer with no fragment lands on the print queue');
+  assert.equal(landing('', true), 'home', 'the operator lands on the board');
+  assert.equal(landing('#settings', true, 'settings'), 'settings', 'an explicit fragment still wins for the operator');
+  assert.equal(landing('#queue', false, 'queue'), 'queue', 'and for the printer');
+
+  // A fragment the printer may not have is refused by the guard beside it, not by the landing rule —
+  // so that guard is run here too, with the operator-only list the page actually ships.
+  const OPERATOR_VIEWS = JSON.parse(/const OPERATOR_VIEWS=(\[[^\]]*\]);/.exec(PAGE)[1]);
+  const allowed = (view, operator) =>
+    pageFunction('viewAllowed', { isOperator: () => operator, OPERATOR_VIEWS })(view);
+  assert.equal(allowed('settings', false), false, '#settings typed into the address bar is refused for the printer');
+  assert.equal(allowed('mail', false), false, 'and so is the mailbox');
+  assert.equal(allowed('queue', false), true, 'while the queue is his');
+  assert.equal(allowed('settings', true), true, 'and the operator reaches everything');
+
+  const page = PAGE;
   assert.match(page, /fetchStudio\(\)\.finally\(\(\)=>go\(landingView\(\)\)\)/, 'and the first paint goes through it, after the identity is known');
   assert.match(page, /const views=\[[^\]]*"queue"[^\]]*\]/, 'the queue is a real view the resolver knows');
   assert.match(page, /queue:\{t:"Tisková fronta"/, 'with an operator-facing title');
@@ -604,6 +636,63 @@ test('a printer session lands on the print queue; the operator lands on the boar
   for (const forbidden of ['act-sent', 'act-unsent', 'act-delete', 'act-generate', 'act-buildpdf']) {
     assert.ok(!view.includes(forbidden), `the queue row does not offer ${forbidden}`);
   }
+});
+
+test('the board offers a printer nothing the server would refuse him', () => {
+  // Reflection, never enforcement — the server refuses these routes for a printer whatever the page
+  // renders (see test/reviewServer.test.js). But a button whose only possible outcome is a 403 toast
+  // is a bug in its own right: it tells Jirka the studio is broken, when in fact it is working.
+  //
+  // Enumerated rather than spot-checked, because the one that was wrong (Smazat) sat three lines
+  // under a comment claiming this was already handled.
+  const row = PAGE.slice(PAGE.indexOf('function orderRow('), PAGE.indexOf('function renderHome('));
+  const lineWith = (needle) => {
+    const at = row.indexOf(needle);
+    assert.ok(at >= 0, `the row still renders ${needle}`);
+    return row.slice(row.lastIndexOf('\n', at) + 1, row.indexOf('\n', at));
+  };
+
+  // Every action whose route is operator-only in ROUTE_POLICY.
+  for (const cls of ['act-sent', 'act-unsent', 'act-delete']) {
+    assert.match(lineWith(cls), /isOperator\(\)/, `${cls} is only rendered for the operator — its route is operator-only`);
+  }
+  // And the printer's own actions are NOT gated, or the board would be useless to him.
+  for (const cls of ['act-printed', 'act-unprinted']) {
+    assert.ok(!lineWith(cls).includes('isOperator()'), `${cls} stays available to the printer — printing is his job`);
+  }
+
+  // The home card's "continue" CTA is the same question asked once more: its most-actionable state
+  // is `printed`, whose only action is dispatch. Offering that as a printer's first screen is
+  // offering him a 403.
+  const [, forOperator, forPrinter] = /const priority=isOperator\(\)\?(\[[^\]]*\]):(\[[^\]]*\]);/.exec(PAGE);
+  assert.ok(JSON.parse(forOperator).includes('printed'), 'the operator is shown the book waiting to be posted');
+  assert.ok(!JSON.parse(forPrinter).includes('printed'), 'the printer is not — he cannot post it');
+  assert.ok(JSON.parse(forPrinter).includes('ready-to-print'), 'his card features the book waiting to be printed instead');
+});
+
+test('the purge panel\'s two numbers describe the set they are attached to', () => {
+  // `eligibility` counts the WHOLE eligible set; the table above it lists this run\'s capped batch.
+  // Attached to the batch sentence, the panel read "25 objednávek — z toho 3 + 97", which is not a
+  // rounding error but two different sets in one sentence. The CLI has always named the eligible
+  // total ("Eligible: N — X dispatched, Y backfilled"); the panel says it the same way now.
+  const panel = PAGE.slice(PAGE.indexOf('function renderPurge('), PAGE.indexOf('async function confirmPurge('));
+  const lineWith = (needle) => {
+    const at = panel.indexOf(needle);
+    assert.ok(at >= 0, `the panel still renders ${needle}`);
+    return panel.slice(panel.lastIndexOf('\n', at) + 1, panel.indexOf('\n', at));
+  };
+
+  const origins = lineWith('${e.dispatched}');
+  assert.match(origins, /\$\{e\.total\}/, 'the backfilled/dispatched split is labelled with the eligible TOTAL it counts');
+  assert.ok(!origins.includes('rows.length'), 'and not with the size of this run\'s batch');
+
+  const batch = lineWith('${purgeMb(d.bytes)}');
+  assert.match(batch, /rows\.length/, 'while the "would delete" sentence describes the batch, which is what the table lists');
+  assert.ok(!batch.includes('e.total'), 'the two sentences do not share a number between two different sets');
+
+  // The autopilot files the confirmation clears are named too — the panel is meant to be exactly
+  // what the button does.
+  assert.match(panel, /autopilotFiles/, 'the night report + handled-set are listed before they are deleted');
 });
 
 // ---- overnight rollup (U5): the morning summary from the night report -------

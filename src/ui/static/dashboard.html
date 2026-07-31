@@ -780,8 +780,11 @@
       // row regardless of status: the outbox lives on the server, so when the tool is hosted this is
       // the only way to get an order's files off the box, built or not.
       act+=`<a class="btn btn-secondary sm" href="/api/${esc(o.orderId)}/zip" title="Stáhnout originály, SVG a hotové PDF v jednom .zip">Stáhnout ZIP</a>`;
-      // Always offer a way to remove a finished/unwanted order from the board (recoverable on disk).
-      act+=`<button class="btn btn-ghost sm act-delete" data-delete="${esc(o.orderId)}" title="Odebrat objednávku z nástěnky">Smazat</button>`;
+      // Removing an order from the board is the OPERATOR's (recoverable on disk, but it is his
+      // board). /api/<order>/delete is operator-only in ROUTE_POLICY, so offering it to the printer
+      // would be offering a button whose only outcome is a 403 toast — reflection, never
+      // enforcement, exactly like the dispatch buttons above.
+      if(isOperator())act+=`<button class="btn btn-ghost sm act-delete" data-delete="${esc(o.orderId)}" title="Odebrat objednávku z nástěnky">Smazat</button>`;
     }
     // The permanent under-count warning (N2): shown beside the status chip on every board glance.
     const inc=o.incomplete?`<span class="chip c-danger" title="Operátor potvrdil knihu s méně stranami, než produkt obsahuje."><span class="dot"></span>neúplná ${o.incomplete.pages}/${o.incomplete.expected}</span>`:"";
@@ -820,7 +823,12 @@
     // board never disagree about what to do next (N1).
     // Feature the order being generated right now (the newest work) first, so the card jumps to a fresh
     // order the moment it starts; fall back to the most-actionable finished order when nothing is running.
-    const pick=d.orders.find(o=>o.status==="generating")||d.orders.find(o=>o.status==="printed")||d.orders.find(o=>o.status==="ready-to-print")||d.orders.find(o=>o.status==="approved")||d.orders.find(o=>o.status==="pending-review");
+    // 'printed' is on the OPERATOR's list only: its one action is "Označit odeslané", and dispatch is
+    // refused for the printer on the server (ROUTE_POLICY). Featuring it for Jirka would put a CTA he
+    // cannot complete at the top of his first screen — same reflection rule as the row buttons.
+    const priority=isOperator()?["generating","printed","ready-to-print","approved","pending-review"]:["generating","ready-to-print","approved","pending-review"];
+    let pick=null;
+    for(const st of priority){pick=d.orders.find(o=>o.status===st);if(pick)break;}
     let c1;
     if(pick){
       // href, label + a one-word progress note keyed to the state.
@@ -1260,11 +1268,21 @@
         }</tbody></table></div>`;
       // Backfilled vs genuine, spelled out: the first purge on this box is almost all history, and
       // an operator who cannot see that reads a big batch as a bug and never confirms it.
-      html+=`<div class="set-note">Z toho ${e.dispatched} ručně odeslaných a ${e.backfilled} historických (dopočítaných z dřívějšího tisku při změně životního cyklu).</div>`;
+      //
+      // The two numbers describe THE SAME SET as the sentence they belong to. `eligibility` counts
+      // every eligible order while the table above lists only this run's capped batch, so naming the
+      // eligible total explicitly is what stops the panel reading "25 objednávek — z toho 3 + 97".
+      // The CLI has always phrased it this way ("Eligible: N — X dispatched, Y backfilled").
+      html+=`<div class="set-note">Podmínky pro smazání splňuje celkem ${e.total} ${e.total===1?"objednávka":"objednávek"} — ${e.dispatched} ručně odeslaných a ${e.backfilled} historických (dopočítaných z dřívějšího tisku při změně životního cyklu).</div>`;
       if((d.deferred||[]).length)
         html+=`<div class="set-note">Jeden běh smaže nejvýš ${d.cap} objednávek — dalších ${d.deferred.length} zůstane na příště.</div>`;
       html+=`<div class="set-folder"><button class="btn" id="purgeGoBtn">Smazat fotky (${rows.length})</button></div>`;
     }
+    // The night report + handled-set go on the same clock and in the same confirmation. Listed here
+    // because the panel is supposed to be exactly what the button does — they used to be deleted
+    // without ever having been named.
+    if((d.autopilotFiles||[]).length)
+      html+=`<div class="set-note">Smažou se i zastaralé soubory noční služby: ${d.autopilotFiles.map(esc).join(", ")}.</div>`;
     if((d.stalled||[]).length){
       // The backstop (U11): printed, never dispatched. These never become eligible on their own.
       html+=`<div class="set-note"><b>Vytištěné, ale nikdy neodeslané</b> — samy se nikdy nesmažou, rozhodněte o nich:<br>${

@@ -155,6 +155,93 @@ test('the global cap bounds in-flight derivations, and the excess is refused rat
   assert.equal(throttle.stats().peakInFlight, 2, 'as the throttle itself observed');
 });
 
+test('a burst of concurrent attempts is ABSORBED, not refused: two real people are never locked out from outside', async () => {
+  // The lockout KTD5 refused to build, achieved by anyone who can open ten sockets. Two derivations
+  // run at a time and each takes the better part of a second in production, so with the old
+  // four-deep queue a handful of concurrent requests kept it permanently full and every later
+  // attempt — David's and Jirka's included — was refused on arrival with a 429.
+  const throttle = createSignInThrottle({ floorMs: 0, maxWaitMs: 5_000 });
+
+  const attempts = Array.from({ length: 10 }, (_, i) =>
+    throttle.run(`guess-${i}`, async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      return false;
+    }).then(() => 'answered', (err) => (err instanceof SignInBusyError ? 'refused' : `error:${err.message}`)),
+  );
+  // The legitimate attempt, arriving in the middle of the burst rather than ahead of it.
+  await new Promise((r) => setTimeout(r, 2));
+  const david = throttle.run('David', async () => true).then(
+    (ok) => (ok ? 'signed-in' : 'wrong-password'),
+    (err) => (err instanceof SignInBusyError ? 'refused' : `error:${err.message}`),
+  );
+
+  const results = await Promise.all(attempts);
+  assert.equal(await david, 'signed-in', 'the real person waits his turn and gets in — he is not turned away');
+  assert.deepEqual([...new Set(results)], ['answered'], 'and the burst itself is queued and answered rather than refused');
+  assert.equal(throttle.stats().refused, 0, 'nothing was refused at all');
+  assert.ok(throttle.stats().peakInFlight <= 2, 'while the memory cap held throughout');
+});
+
+test('a waiter is never parked for ever: the queue is bounded in TIME as well as in depth', async () => {
+  // The deadline is what lets the queue be deep. Without it, depth alone would just hold more
+  // sockets open for longer — and a slot-holder that never finishes would park them for good.
+  const throttle = createSignInThrottle({ floorMs: 0, maxConcurrent: 1, maxQueue: 8, maxWaitMs: 40 });
+  // The deadline timer is unref'd on purpose — waiting for a password must never be the reason a
+  // process stays up — so this test has to hold the loop open itself, the way a live socket does.
+  const keepalive = setInterval(() => {}, 5);
+  try {
+    let release;
+    const parked = new Promise((r) => (release = r));
+    const holder = throttle.run('holder', async () => { await parked; return false; });
+    await new Promise((r) => setTimeout(r, 5));
+
+    const t0 = Date.now();
+    await assert.rejects(throttle.run('waiting', async () => true), SignInBusyError, 'the waiter gives up rather than hanging');
+    assert.ok(Date.now() - t0 >= 35, 'and only after it had a real chance at a slot');
+    assert.equal(throttle.stats().waiting, 0, 'the abandoned ticket leaves the queue behind it');
+
+    release();
+    await holder;
+    // The slot it gave up on is still usable afterwards — a timed-out waiter must not leak one.
+    assert.equal(await throttle.run('after', async () => true), true, 'and the slot was not leaked');
+  } finally {
+    clearInterval(keepalive);
+  }
+});
+
+test('the failure map is BOUNDED: rotating usernames cannot grow it without end', async () => {
+  // The map is keyed on attacker-supplied text and was only ever cleared by a successful sign-in for
+  // that exact key. Rotating the username on every request — the shape this whole module is written
+  // against — grew it for ever, a slow leak on a 2 GB box driven from outside.
+  const throttle = createSignInThrottle({ floorMs: 0, maxTrackedUsernames: 8 });
+  for (let i = 0; i < 200; i++) await throttle.run(`throwaway-${i}`, async () => false);
+
+  assert.ok(throttle.stats().tracked <= 8, `the map is capped (${throttle.stats().tracked} entries after 200 usernames)`);
+  assert.equal(throttle.failureCount('throwaway-199'), 1, 'the newest key is kept — eviction is oldest-first');
+  assert.equal(throttle.failureCount('throwaway-0'), 0, 'and what is dropped is an attacker\'s own backoff, which costs nobody real anything');
+
+  // Eviction is not amnesia for the case the backoff is actually for: keep guessing at ONE name and
+  // the delay still grows, cap or no cap.
+  for (let i = 0; i < 5; i++) await throttle.run('David', async () => false);
+  assert.ok(throttle.delayFor('David') > 0, 'a sustained attack on a real username is still slowed');
+});
+
+test('a username whose backoff has expired is forgotten, and forgetting never shortens a real delay', async () => {
+  let clock = 1_000_000;
+  const throttle = createSignInThrottle({ floorMs: 0, failureTtlMs: 60_000, now: () => clock, sleep: async () => {} });
+
+  for (let i = 0; i < 6; i++) await throttle.run('Mallory', async () => false);
+  assert.ok(throttle.delayFor('Mallory') > 0, 'six wrong passwords buy a delay');
+  assert.equal(throttle.stats().tracked, 1);
+
+  // The TTL is far longer than BACKOFF_MAX_MS, so anyone who waits it out has already served the
+  // longest delay this module can impose — forgetting them costs nothing.
+  clock += 61_000;
+  assert.equal(throttle.delayFor('Mallory'), 0, 'an hour later there is nothing left to serve');
+  assert.equal(throttle.failureCount('Mallory'), 0, 'and the entry is dropped rather than kept for ever');
+  assert.equal(throttle.stats().tracked, 0, 'read-through expiry, so the map does not wait for a sweep');
+});
+
 test('a capped-out refusal is not faster than a real attempt, so the cap is not observable', async () => {
   const throttle = createSignInThrottle({ floorMs: 120, maxConcurrent: 1, maxQueue: 0 });
   let release;

@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, rmSync, statSync, readFileSync } from 'node:fs';
+import { existsSync, writeFileSync, rmSync, statSync, readFileSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { reviewState } from './review.js';
 import { pdfPathFor } from './orchestrator.js';
@@ -89,10 +89,29 @@ export const sentMarkerPath = (orderDir) => join(orderDir, 'sent.json');
  *  `identity` is the resolved request identity of whoever clicked (R9). Omitted → the implicit
  *  operator, which is what an ungated local studio and every non-HTTP caller are. */
 export function markSent(orderDir, identity = null) {
-  writeFileSync(
-    sentMarkerPath(orderDir),
-    JSON.stringify({ at: new Date().toISOString(), ...markerActor(identity) }, null, 2),
-  );
+  const path = sentMarkerPath(orderDir);
+
+  // THE RETENTION CLOCK SURVIVES THE CONFIRMATION (R17, KTD7).
+  //
+  // retention.js measures an order's age from this file's MTIME, and the U10 migration `utimesSync`d
+  // every backfilled marker back to the print date precisely so the historical backlog kept the
+  // eligibility date it already had. But a backfilled order renders as `printed` with exactly one
+  // CTA — "Označit odeslané" — so the moment the operator works that backlog he passes through here.
+  // A plain write would stamp today's mtime on every one of them and restart the whole backlog's
+  // retention window at zero: R17 undone by the operator doing the thing the board asked him to do.
+  //
+  // So when the marker being replaced was backfilled, its mtime is put back afterwards. The file's
+  // CONTENT is the new truth (the operator's name, and no `backfilled` flag — this dispatch is now
+  // confirmed); the file's DATE is the old truth, and it is still true: confirming that a book left
+  // does not change when it left.
+  //
+  // Only for a backfilled marker. Re-confirming an ordinary dispatch is the operator correcting who
+  // or when, and that legitimately re-dates the marker.
+  const previous = readSentMarker(orderDir);
+  const keepClock = previous?.backfilled === true ? statSync(path) : null;
+
+  writeFileSync(path, JSON.stringify({ at: new Date().toISOString(), ...markerActor(identity) }, null, 2));
+  if (keepClock) utimesSync(path, keepClock.atime, keepClock.mtime);
   return ORDER_BOARD_STATES.SENT;
 }
 

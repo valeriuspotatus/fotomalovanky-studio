@@ -16,6 +16,9 @@
 // An order is only ever touched when its book is finished and gone:
 //   - the operator has confirmed it was POSTED TO THE CUSTOMER (a `sent.json` marker): a book that
 //     was merely printed is still on somebody's desk and is never purged,
+//   - and it was PRINTED as well (`printed.json` is still there): a dispatch marker on an order with
+//     no print is a contradiction — nothing can post a book that was never printed — and a
+//     contradiction about a child's photograph is resolved by keeping the file (see inspectOutbox),
 //   - the PDF exists,
 //   - the PDF is newer than state.json, so the book on disk is the one the decisions describe and
 //     not one left stale by a verdict changed afterwards,
@@ -128,15 +131,39 @@ export function inspectOutbox({ outboxRoot, days, now = Date.now(), stalledMulti
 
     // The DISPATCH marker is the gate (R18). A printed book still on the desk keeps its photographs:
     // it may yet need reprinting, and the customer has not had it.
-    if (!existsSync(sentPath)) {
-      order.skip = 'not dispatched to the customer yet';
-      // The backstop. Nothing here deletes; it makes an order that will never become eligible on
-      // its own visible, so it is resolved deliberately instead of accumulating in silence.
-      if (existsSync(printedPath)) {
-        const printedAgeDays = Math.floor((now - statSync(printedPath).mtimeMs) / DAY_MS);
-        if (printedAgeDays >= stalledAfter) {
-          order.stalledDays = printedAgeDays;
-          order.skip = `printed ${printedAgeDays} days ago and never dispatched — decide what happened to it`;
+    //
+    // AND THE PRINT IS PART OF THE GATE, not merely the step before it. A dispatch marker without a
+    // printed marker beside it is not a dispatch: nothing in this lifecycle can post a book that was
+    // never printed, so the pair of markers is contradictory and the safe reading of a contradiction
+    // about a customer's photographs is "do not delete them".
+    //
+    // This is not hypothetical. `unmarkPrinted` (both roles can reach it — a bad print needs redoing)
+    // removes only `printed.json`, and after the U10 migration every historically-printed order also
+    // carries a BACKFILLED `sent.json` dated months ago. Undo the print and the board correctly puts
+    // the book back in Jirka's queue as READY_TO_PRINT, while a gate that asked only `existsSync(
+    // sentPath)` would call the same order eligible and a confirmed purge would delete the
+    // photographs of a book queued for the press. The stalled backstop below cannot catch it either,
+    // because that branch only runs when there is no dispatch marker at all.
+    //
+    // Enforced HERE rather than by making `unmarkPrinted` also drop the dispatch marker, because this
+    // is the invariant itself: it holds for a hand-deleted marker, a half-finished restore from a
+    // backup, and any future writer, none of which pass through `unmarkPrinted`.
+    const printedExists = existsSync(printedPath);
+    if (!existsSync(sentPath) || !printedExists) {
+      if (!printedExists && existsSync(sentPath)) {
+        // Contradictory pair. Reported with its own reason so the operator can see WHICH order is in
+        // this state and put it right, rather than finding it filed under "not dispatched yet".
+        order.skip = 'dispatched but not printed — the print was undone or the marker is gone; not treating it as a dispatch';
+      } else {
+        order.skip = 'not dispatched to the customer yet';
+        // The backstop. Nothing here deletes; it makes an order that will never become eligible on
+        // its own visible, so it is resolved deliberately instead of accumulating in silence.
+        if (printedExists) {
+          const printedAgeDays = Math.floor((now - statSync(printedPath).mtimeMs) / DAY_MS);
+          if (printedAgeDays >= stalledAfter) {
+            order.stalledDays = printedAgeDays;
+            order.skip = `printed ${printedAgeDays} days ago and never dispatched — decide what happened to it`;
+          }
         }
       }
     } else if (!existsSync(pdfPath)) order.skip = 'the book is not on disk';

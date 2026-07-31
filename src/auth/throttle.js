@@ -34,10 +34,39 @@ export const FLOOR_MS = 250;
  *  half the libuv threadpool for the filesystem work the rest of the studio is doing. */
 export const MAX_CONCURRENT_VERIFICATIONS = 2;
 
-/** How many attempts may WAIT for a slot before the rest are refused. Short on purpose: a queue is
- *  memory and held connections, and an unbounded one converts the memory cap into a slower version
- *  of the same outage. */
-export const MAX_QUEUE = 4;
+/** How many attempts may WAIT for a slot before the rest are refused. A queue is memory and held
+ *  connections, so it is bounded — but bounded in TIME as well (maxWaitMs below), which is what lets
+ *  the depth be generous.
+ *
+ *  It was 4, and 4 was a denial of service. Two derivations run at a time and each takes the better
+ *  part of a second, so a handful of concurrent requests keeps a four-deep queue permanently full and
+ *  every subsequent attempt is refused on arrival — including David's and Jirka's. That is exactly
+ *  the hard lockout KTD5 refused to build, handed to anyone outside who can open a few sockets.
+ *  Deeper, plus a deadline, means a burst is ABSORBED and answered in turn instead of turning the
+ *  two real people away.
+ *
+ *  Sized against the deadline rather than pulled out of the air: sixteen waiters, two at a time,
+ *  drain in about eight seconds of scrypt — inside MAX_WAIT_MS, so a queue this deep is a queue that
+ *  is actually served rather than a longer wait for the same 429. */
+export const MAX_QUEUE = 16;
+
+/** How long an attempt may wait for a derivation slot before it is refused. The queue's second
+ *  bound, and the one that keeps the first one honest: without it, depth alone would just hold more
+ *  sockets open for longer. Refusal after the wait is a 429 with Retry-After — "come back", not
+ *  "you are locked out". */
+export const MAX_WAIT_MS = 10_000;
+
+/** How many usernames the backoff map may hold, and how long an entry survives its last failure.
+ *
+ *  The map is keyed on ATTACKER-SUPPLIED text and only ever cleared on a successful sign-in for that
+ *  exact key, so a rotating-username attack grew it without bound — a slow memory leak on a 2 GB box
+ *  driven from outside, in the module whose whole subject is bounding what an attacker can spend.
+ *
+ *  The TTL is far longer than BACKOFF_MAX_MS on purpose: forgetting a username can never shorten a
+ *  delay that had not already elapsed, because anyone who waits fifteen minutes has already served
+ *  the longest backoff this module can impose. */
+export const MAX_TRACKED_USERNAMES = 512;
+export const FAILURE_TTL_MS = 15 * 60_000;
 
 /** Free attempts before a username starts buying delay. Three covers a real typo run. */
 export const FAILURES_BEFORE_BACKOFF = 3;
@@ -84,25 +113,58 @@ export function createSignInThrottle({
   floorMs = FLOOR_MS,
   maxConcurrent = MAX_CONCURRENT_VERIFICATIONS,
   maxQueue = MAX_QUEUE,
+  maxWaitMs = MAX_WAIT_MS,
   failuresBeforeBackoff = FAILURES_BEFORE_BACKOFF,
   backoffBaseMs = BACKOFF_BASE_MS,
   backoffMaxMs = BACKOFF_MAX_MS,
+  maxTrackedUsernames = MAX_TRACKED_USERNAMES,
+  failureTtlMs = FAILURE_TTL_MS,
   sleep = (ms) => sleepMs(ms),
   now = Date.now,
 } = {}) {
-  /** username-key -> consecutive failures. Cleared on success (KTD5). */
+  /** username-key -> { count, at }. Cleared on success (KTD5), and BOUNDED — see below. `at` is the
+   *  last failure, which is what makes an entry expirable rather than immortal. */
   const failures = new Map();
 
   let inFlight = 0;
   let peakInFlight = 0;
   let refused = 0;
-  /** Resolvers of attempts waiting for a slot, oldest first. Bounded by maxQueue. */
+  /** Resolvers of attempts waiting for a slot, oldest first. Bounded by maxQueue and by maxWaitMs. */
   const waiting = [];
+
+  /** The live failure record for a username, or null when there is none or it has aged out.
+   *  Expiry is read-through as well as swept, so a stale entry can never impose a delay even in the
+   *  moment before the sweep runs. */
+  const liveFailure = (key) => {
+    const entry = failures.get(key);
+    if (!entry) return null;
+    if (now() - entry.at > failureTtlMs) {
+      failures.delete(key);
+      return null;
+    }
+    return entry;
+  };
+
+  /** Keep the map bounded: drop everything whose backoff has expired, and if that was not enough,
+   *  evict oldest-first until it fits. Insertion order is Map's own, and a re-failure does not
+   *  reorder a key, so "oldest" is "least recently first seen" — good enough, because the only
+   *  entries that can reach the cap are an attacker's rotating throwaways. Evicting one costs the
+   *  attacker their own backoff and costs a real person nothing. */
+  const boundFailures = () => {
+    for (const [key, entry] of failures) {
+      if (now() - entry.at > failureTtlMs) failures.delete(key);
+    }
+    while (failures.size > maxTrackedUsernames) {
+      const oldest = failures.keys().next();
+      if (oldest.done) break;
+      failures.delete(oldest.value);
+    }
+  };
 
   /** How long this username must wait before its next attempt reaches scrypt. Doubles per failure
    *  past the free allowance, capped — never infinite, never a lock. */
   const delayFor = (username) => {
-    const count = failures.get(keyFor(username)) ?? 0;
+    const count = liveFailure(keyFor(username))?.count ?? 0;
     if (count < failuresBeforeBackoff) return 0;
     const steps = count - failuresBeforeBackoff;
     return Math.min(backoffMaxMs, backoffBaseMs * 2 ** steps);
@@ -110,7 +172,13 @@ export function createSignInThrottle({
 
   /** Take a slot, queue for one, or refuse. Resolves true when the caller holds a slot. New arrivals
    *  queue behind existing waiters even when a slot is free, or a steady stream of new attempts
-   *  would starve the ones already waiting. */
+   *  would starve the ones already waiting.
+   *
+   *  Two bounds, and they answer different failures. `maxQueue` bounds the MEMORY (waiters are held
+   *  sockets). `maxWaitMs` bounds the TIME any one of them can be parked, so a queue can be deep
+   *  enough to absorb a burst — a legitimate attempt arriving during one waits its turn and is
+   *  served, instead of being refused on arrival because a handful of concurrent requests happened
+   *  to be in front of it. */
   const acquire = async () => {
     if (inFlight < maxConcurrent && waiting.length === 0) {
       inFlight += 1;
@@ -121,7 +189,29 @@ export function createSignInThrottle({
       refused += 1;
       return false;
     }
-    await new Promise((resolve) => waiting.push(resolve));
+    const ticket = { resolve: null, done: false };
+    const got = await new Promise((resolve) => {
+      ticket.resolve = resolve;
+      waiting.push(ticket);
+      // The deadline. A real timer rather than the injected `sleep`, because this one must be
+      // CANCELLABLE (the common case is being served long before it fires) and must never be the
+      // reason a process stays alive — so: cleared on wake, unref'd meanwhile. `release` skips a
+      // ticket that has already timed out, so a waiter that gave up never consumes a slot.
+      const timer = setTimeout(() => {
+        if (ticket.done) return;
+        ticket.done = true;
+        const at = waiting.indexOf(ticket);
+        if (at >= 0) waiting.splice(at, 1);
+        resolve(false);
+      }, maxWaitMs);
+      timer.unref?.();
+      ticket.cancelTimer = () => clearTimeout(timer);
+    });
+    ticket.cancelTimer?.();
+    if (!got) {
+      refused += 1;
+      return false;
+    }
     inFlight += 1;
     peakInFlight = Math.max(peakInFlight, inFlight);
     return true;
@@ -129,7 +219,15 @@ export function createSignInThrottle({
 
   const release = () => {
     inFlight -= 1;
-    waiting.shift()?.();
+    // Hand the slot to the oldest waiter that is still there. Tickets that hit their deadline are
+    // skipped rather than woken — waking one would leak a slot nobody is holding.
+    while (waiting.length) {
+      const next = waiting.shift();
+      if (next.done) continue;
+      next.done = true;
+      next.resolve(true);
+      return;
+    }
   };
 
   /**
@@ -164,8 +262,13 @@ export function createSignInThrottle({
     }
 
     const key = keyFor(username);
-    if (ok) failures.delete(key);
-    else failures.set(key, (failures.get(key) ?? 0) + 1);
+    if (ok) {
+      failures.delete(key);
+    } else {
+      const previous = liveFailure(key);
+      failures.set(key, { count: (previous?.count ?? 0) + 1, at: now() });
+      boundFailures(); // the only place the map grows, so the only place it has to be bounded
+    }
 
     await settle();
     return ok;
@@ -175,8 +278,8 @@ export function createSignInThrottle({
     run,
     delayFor,
     /** Consecutive failures recorded for a username — for tests and for the log line. */
-    failureCount: (username) => failures.get(keyFor(username)) ?? 0,
-    stats: () => ({ inFlight, peakInFlight, waiting: waiting.length, refused }),
+    failureCount: (username) => liveFailure(keyFor(username))?.count ?? 0,
+    stats: () => ({ inFlight, peakInFlight, waiting: waiting.length, refused, tracked: failures.size }),
     reset: () => {
       failures.clear();
       peakInFlight = 0;

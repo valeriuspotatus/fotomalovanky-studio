@@ -57,6 +57,7 @@ import { AccountError, readAccount, readAccounts, updateAccount } from '../auth/
 import {
   AVATAR_BODY_LIMIT,
   AVATAR_MIME,
+  AVATAR_TOO_LARGE_MESSAGE,
   AvatarError,
   avatarFilePath,
   removeAvatar,
@@ -146,6 +147,21 @@ function staticAssetPath(pathname) {
   return candidate;
 }
 
+/** The decoded path segments of a request, or null when the path cannot be decoded at all.
+ *
+ *  TOTAL, like staticAssetPath's decode and for the same reason: `decodeURIComponent('%zz')` throws
+ *  a URIError, and the caller of this runs inside an async request listener where a throw is an
+ *  unhandled rejection and the process exits. A malformed path must be a 404, not an outage — it
+ *  cannot name a route either way. */
+export function pathSegments(pathname) {
+  const raw = pathname.split('/').filter(Boolean);
+  try {
+    return raw.map(decodeURIComponent);
+  } catch {
+    return null;
+  }
+}
+
 /** Serve a file from the studio's static tree, and only from there. */
 function serveStatic(pathname, res) {
   const candidate = staticAssetPath(pathname);
@@ -161,7 +177,9 @@ async function readJson(req, limit = 64 * 1024) {
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > limit) throw new ReviewError('Request body too large.');
+    // `code` so a caller can answer 413 for its own seam instead of the blanket 409 a ReviewError
+    // gets: an avatar over the cap is "too big", not "the studio refused your request".
+    if (size > limit) throw Object.assign(new ReviewError('Request body too large.'), { code: 'too-large' });
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
@@ -394,136 +412,170 @@ const atPath = (wanted) => (method, pathname) => pathname === wanted;
 const orderAction = (name) => (method, pathname, parts) =>
   parts[0] === 'api' && parts.length === 3 && parts[2] === name;
 
+/** `methods: ANY_METHOD` — this route answers every verb, on purpose. Only /healthz does: a host's
+ *  health check may probe with HEAD, and losing the probe is how an instance gets killed. */
+export const ANY_METHOD = '*';
+
+/** Does this entry claim that verb? Every other entry names its verbs, and that is load-bearing:
+ *  `POST /img/<order>/<base>/rotate` must not inherit the audience of `GET /img/<order>/<base>/<kind>`
+ *  just because the path shape matches. A NEW VERB ON AN OLD PATH IS A NEW ROUTE, and it falls
+ *  through to the operator-only default until somebody writes a line for it. */
+const answersMethod = (entry, method) => entry.methods === ANY_METHOD || entry.methods.includes(method);
+
 /**
  * Route -> who may reach it. Ordered: the FIRST match wins, so an operator-only entry that overlaps
  * a broader printer pattern is listed above it and the overlap resolves closed.
+ *
+ * Every entry carries four things: `methods` (see above), `match` (the path shape), `tokens` (the
+ * literals the dispatcher branches on, which is how the drift test links a line here to a route
+ * there) and `sample` — one concrete pathname this line is meant to catch. `sample` is not
+ * documentation: the drift test drives every entry's own sample back through this table and fails
+ * unless it lands on that entry and on no earlier one, and unless every verb the entry does NOT
+ * declare lands somewhere else.
  */
 export const ROUTE_POLICY = Object.freeze([
   // -- Before there is an identity at all ---------------------------------------------------------
-  { id: 'GET /healthz', audience: AUDIENCES.ANYONE, tokens: ['/healthz'], match: atPath('/healthz') },
-  { id: 'GET /login', audience: AUDIENCES.ANYONE, tokens: [LOGIN_PAGE_PATH], match: atPath(LOGIN_PAGE_PATH) },
-  { id: 'POST /api/login', audience: AUDIENCES.ANYONE, tokens: [SIGN_IN_PATH], match: atPath(SIGN_IN_PATH) },
-  { id: 'POST /api/logout', audience: AUDIENCES.ANYONE, tokens: [SIGN_OUT_PATH], match: atPath(SIGN_OUT_PATH) },
+  // Every verb, deliberately: the dispatcher answers /healthz without asking the method, because a
+  // host's health check may probe with HEAD and a probe that 404s kills the instance.
+  { id: 'ANY /healthz', audience: AUDIENCES.ANYONE, methods: ANY_METHOD, tokens: ['/healthz'], match: atPath('/healthz'), sample: '/healthz' },
+  { id: 'GET /login', audience: AUDIENCES.ANYONE, methods: ['GET'], tokens: [LOGIN_PAGE_PATH], match: atPath(LOGIN_PAGE_PATH), sample: LOGIN_PAGE_PATH },
+  { id: 'POST /api/login', audience: AUDIENCES.ANYONE, methods: ['POST'], tokens: [SIGN_IN_PATH], match: atPath(SIGN_IN_PATH), sample: SIGN_IN_PATH },
+  { id: 'POST /api/logout', audience: AUDIENCES.ANYONE, methods: ['POST'], tokens: [SIGN_OUT_PATH], match: atPath(SIGN_OUT_PATH), sample: SIGN_OUT_PATH },
 
   // -- Operator only. Listed first so nothing below can accidentally widen one of them -------------
   // Settings names the folders, the integrations and the retention window (AE5).
-  { id: 'GET /api/settings', audience: AUDIENCES.OPERATOR, tokens: ['/api/settings'], match: atPath('/api/settings') },
+  { id: 'GET /api/settings', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/settings'], match: atPath('/api/settings'), sample: '/api/settings' },
   // The box and the filesystem around it: re-pointing the inbox, the native folder dialog, and the
   // button that stops the server everybody else is using.
-  { id: 'POST /api/_scan', audience: AUDIENCES.OPERATOR, tokens: ['/api/_scan'], match: atPath('/api/_scan') },
-  { id: 'POST /api/_pick-folder', audience: AUDIENCES.OPERATOR, tokens: ['/api/_pick-folder'], match: atPath('/api/_pick-folder') },
-  { id: 'POST /api/_shutdown', audience: AUDIENCES.OPERATOR, tokens: ['/api/_shutdown'], match: atPath('/api/_shutdown') },
+  { id: 'POST /api/_scan', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/_scan'], match: atPath('/api/_scan'), sample: '/api/_scan' },
+  { id: 'POST /api/_pick-folder', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/_pick-folder'], match: atPath('/api/_pick-folder'), sample: '/api/_pick-folder' },
+  { id: 'POST /api/_shutdown', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/_shutdown'], match: atPath('/api/_shutdown'), sample: '/api/_shutdown' },
   // /api/_open/<generator|folder> spawns a desktop process on the SERVER and hands out the
   // token-scoped generator URL. Four segments, so it must sit above the per-photo action pattern.
   {
     id: 'POST /api/_open/*',
     audience: AUDIENCES.OPERATOR,
+    methods: ['POST'],
     tokens: ['_open', 'generator', 'folder'],
     match: (method, pathname, parts) => parts[0] === 'api' && parts[1] === '_open',
+    sample: '/api/_open/folder/1510',
   },
   // The business mailbox: reading customers' mail, sending as info@, deleting it, flagging it.
-  { id: 'GET /api/mail', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail'], match: atPath('/api/mail') },
-  { id: 'GET /api/mail/message', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail/message'], match: atPath('/api/mail/message') },
-  { id: 'GET /api/mail/templates', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail/templates'], match: atPath('/api/mail/templates') },
-  { id: 'POST /api/mail/send', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail/send'], match: atPath('/api/mail/send') },
-  { id: 'POST /api/mail/delete', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail/delete'], match: atPath('/api/mail/delete') },
-  { id: 'POST /api/mail/flag', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail/flag'], match: atPath('/api/mail/flag') },
+  { id: 'GET /api/mail', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/mail'], match: atPath('/api/mail'), sample: '/api/mail' },
+  { id: 'GET /api/mail/message', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/mail/message'], match: atPath('/api/mail/message'), sample: '/api/mail/message' },
+  { id: 'GET /api/mail/templates', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/mail/templates'], match: atPath('/api/mail/templates'), sample: '/api/mail/templates' },
+  { id: 'POST /api/mail/send', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/mail/send'], match: atPath('/api/mail/send'), sample: '/api/mail/send' },
+  { id: 'POST /api/mail/delete', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/mail/delete'], match: atPath('/api/mail/delete'), sample: '/api/mail/delete' },
+  { id: 'POST /api/mail/flag', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/mail/flag'], match: atPath('/api/mail/flag'), sample: '/api/mail/flag' },
   // Publishing to the live storefront blog, and the AI that writes it.
-  { id: 'GET /api/blog/topics', audience: AUDIENCES.OPERATOR, tokens: ['/api/blog/topics'], match: atPath('/api/blog/topics') },
-  { id: 'POST /api/blog/draft', audience: AUDIENCES.OPERATOR, tokens: ['/api/blog/draft'], match: atPath('/api/blog/draft') },
-  { id: '/api/blog/posts', audience: AUDIENCES.OPERATOR, tokens: ['/api/blog/posts'], match: atPath('/api/blog/posts') },
-  { id: 'GET /api/blog/blogs', audience: AUDIENCES.OPERATOR, tokens: ['/api/blog/blogs'], match: atPath('/api/blog/blogs') },
-  { id: 'POST /api/blog/publish', audience: AUDIENCES.OPERATOR, tokens: ['/api/blog/publish'], match: atPath('/api/blog/publish') },
+  { id: 'GET /api/blog/topics', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/blog/topics'], match: atPath('/api/blog/topics'), sample: '/api/blog/topics' },
+  { id: 'POST /api/blog/draft', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/blog/draft'], match: atPath('/api/blog/draft'), sample: '/api/blog/draft' },
+  // The one route in the table that answers three verbs: list, save and remove a draft post.
+  { id: 'GET|POST|DELETE /api/blog/posts', audience: AUDIENCES.OPERATOR, methods: ['GET', 'POST', 'DELETE'], tokens: ['/api/blog/posts'], match: atPath('/api/blog/posts'), sample: '/api/blog/posts' },
+  { id: 'GET /api/blog/blogs', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/blog/blogs'], match: atPath('/api/blog/blogs'), sample: '/api/blog/blogs' },
+  { id: 'POST /api/blog/publish', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/blog/publish'], match: atPath('/api/blog/publish'), sample: '/api/blog/publish' },
   // Marketing: the ad calendar, the studio renderer, and the one route that spends money per click.
-  { id: 'GET /api/creatives/calendar', audience: AUDIENCES.OPERATOR, tokens: ['/api/creatives/calendar'], match: atPath('/api/creatives/calendar') },
+  { id: 'GET /api/creatives/calendar', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/creatives/calendar'], match: atPath('/api/creatives/calendar'), sample: '/api/creatives/calendar' },
   {
     id: 'GET /creatives/ad/<key>/<file>',
     audience: AUDIENCES.OPERATOR,
+    methods: ['GET'],
     tokens: ['creatives', 'ad'],
     match: (method, pathname, parts) => parts[0] === 'creatives' && parts[1] === 'ad',
+    sample: '/creatives/ad/12-24-vanoce/x.png',
   },
-  { id: 'POST /api/creative/ai-image', audience: AUDIENCES.OPERATOR, tokens: ['/api/creative/ai-image'], match: atPath('/api/creative/ai-image') },
-  { id: 'GET /api/studio/templates', audience: AUDIENCES.OPERATOR, tokens: ['/api/studio/templates'], match: atPath('/api/studio/templates') },
-  { id: 'GET /api/studio/validate', audience: AUDIENCES.OPERATOR, tokens: ['/api/studio/validate'], match: atPath('/api/studio/validate') },
-  { id: 'GET /studio/preview', audience: AUDIENCES.OPERATOR, tokens: ['/studio/preview'], match: atPath('/studio/preview') },
-  { id: 'GET /studio/render', audience: AUDIENCES.OPERATOR, tokens: ['/studio/render'], match: atPath('/studio/render') },
+  { id: 'POST /api/creative/ai-image', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/creative/ai-image'], match: atPath('/api/creative/ai-image'), sample: '/api/creative/ai-image' },
+  { id: 'GET /api/studio/templates', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/studio/templates'], match: atPath('/api/studio/templates'), sample: '/api/studio/templates' },
+  { id: 'GET /api/studio/validate', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/studio/validate'], match: atPath('/api/studio/validate'), sample: '/api/studio/validate' },
+  { id: 'GET /studio/preview', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/studio/preview'], match: atPath('/studio/preview'), sample: '/studio/preview' },
+  { id: 'GET /studio/render', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/studio/render'], match: atPath('/studio/render'), sample: '/studio/render' },
   // The unattended fetch: it pulls new paid orders from Shopify and generates them, which is spend.
-  { id: 'POST /api/autopilot/run', audience: AUDIENCES.OPERATOR, tokens: ['/api/autopilot/run'], match: atPath('/api/autopilot/run') },
-  { id: 'GET /api/autopilot/status', audience: AUDIENCES.OPERATOR, tokens: ['/api/autopilot/status'], match: atPath('/api/autopilot/status') },
+  { id: 'POST /api/autopilot/run', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/autopilot/run'], match: atPath('/api/autopilot/run'), sample: '/api/autopilot/run' },
+  { id: 'GET /api/autopilot/status', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/autopilot/status'], match: atPath('/api/autopilot/status'), sample: '/api/autopilot/status' },
   // Order actions that are the operator's act, not the printer's: dispatch to the customer and
   // undoing it, writing to the customer, and taking an order off the board for good.
-  { id: 'POST /api/<order>/sent', audience: AUDIENCES.OPERATOR, tokens: ['sent'], match: orderAction('sent') },
-  { id: 'POST /api/<order>/unsent', audience: AUDIENCES.OPERATOR, tokens: ['unsent'], match: orderAction('unsent') },
-  { id: 'POST /api/<order>/emailed', audience: AUDIENCES.OPERATOR, tokens: ['emailed'], match: orderAction('emailed') },
+  { id: 'POST /api/<order>/sent', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['sent'], match: orderAction('sent'), sample: '/api/1510/sent' },
+  { id: 'POST /api/<order>/unsent', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['unsent'], match: orderAction('unsent'), sample: '/api/1510/unsent' },
+  { id: 'POST /api/<order>/emailed', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['emailed'], match: orderAction('emailed'), sample: '/api/1510/emailed' },
   // The one-shot marker migration (U10). It writes into live customer order folders, so it belongs
   // to the person who owns the disk — and it must be decided here rather than fall through to the
   // table's operator-by-default, which would be refused-by-accident rather than a decision.
   {
     id: 'POST /api/migrate/sent-markers',
     audience: AUDIENCES.OPERATOR,
+    methods: ['POST'],
     tokens: ['/api/migrate/sent-markers'],
     match: atPath('/api/migrate/sent-markers'),
+    sample: '/api/migrate/sent-markers',
   },
-  { id: 'POST /api/<order>/delete', audience: AUDIENCES.OPERATOR, tokens: ['delete'], match: orderAction('delete') },
+  { id: 'POST /api/<order>/delete', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['delete'], match: orderAction('delete'), sample: '/api/1510/delete' },
   // The retention purge (U11, R19). Both halves are the operator's: the report because it enumerates
   // what is on the disk, and the confirmation because it deletes photographs of customers' children
   // and nothing gets them back. Jirka prints books; this is not printing a book.
-  { id: 'GET /api/purge/report', audience: AUDIENCES.OPERATOR, tokens: ['/api/purge/report'], match: atPath('/api/purge/report') },
-  { id: 'POST /api/purge/confirm', audience: AUDIENCES.OPERATOR, tokens: ['/api/purge/confirm'], match: atPath('/api/purge/confirm') },
+  { id: 'GET /api/purge/report', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/purge/report'], match: atPath('/api/purge/report'), sample: '/api/purge/report' },
+  { id: 'POST /api/purge/confirm', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/purge/confirm'], match: atPath('/api/purge/confirm'), sample: '/api/purge/confirm' },
 
   // -- Both people: printing a book, end to end ---------------------------------------------------
-  { id: 'GET /', audience: AUDIENCES.BOTH, tokens: ['/'], match: atPath('/') },
-  { id: 'GET /review', audience: AUDIENCES.BOTH, tokens: ['/review'], match: atPath('/review') },
-  { id: 'GET /api/state', audience: AUDIENCES.BOTH, tokens: ['/api/state'], match: atPath('/api/state') },
-  { id: 'GET /api/studio', audience: AUDIENCES.BOTH, tokens: ['/api/studio'], match: atPath('/api/studio') },
+  { id: 'GET /', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['/'], match: atPath('/'), sample: '/' },
+  { id: 'GET /review', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['/review'], match: atPath('/review'), sample: '/review' },
+  { id: 'GET /api/state', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['/api/state'], match: atPath('/api/state'), sample: '/api/state' },
+  { id: 'GET /api/studio', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['/api/studio'], match: atPath('/api/studio'), sample: '/api/studio' },
   // Each person's OWN profile — the route reads the role off the session and ignores any role in the
   // body, so "both" here can never mean "either one's".
-  { id: 'POST /api/profile', audience: AUDIENCES.BOTH, tokens: ['/api/profile'], match: atPath('/api/profile') },
+  { id: 'POST /api/profile', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['/api/profile'], match: atPath('/api/profile'), sample: '/api/profile' },
   {
     id: 'GET /api/avatar/<file>',
     audience: AUDIENCES.BOTH,
+    methods: ['GET'],
     tokens: ['avatar'],
     match: (method, pathname, parts) => parts[0] === 'api' && parts[1] === 'avatar',
+    sample: '/api/avatar/operator-0123456789abcdef.webp',
   },
   // An order's photographs and its two downloads: the book itself and the archive Jirka prints from.
   {
     id: 'GET /img/<order>/<base>/<kind>',
     audience: AUDIENCES.BOTH,
+    methods: ['GET'],
     tokens: ['img', 'coloring'],
     match: (method, pathname, parts) => parts[0] === 'img',
+    sample: '/img/1510/clean/coloring',
   },
-  { id: 'GET /svg/<order>/<base>', audience: AUDIENCES.BOTH, tokens: ['svg'], match: (method, pathname, parts) => parts[0] === 'svg' },
-  { id: 'GET /api/<order>/pdf', audience: AUDIENCES.BOTH, tokens: ['pdf'], match: orderAction('pdf') },
-  { id: 'GET /api/<order>/zip', audience: AUDIENCES.BOTH, tokens: ['zip'], match: orderAction('zip') },
+  { id: 'GET /svg/<order>/<base>', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['svg'], match: (method, pathname, parts) => parts[0] === 'svg', sample: '/svg/1510/clean' },
+  { id: 'GET /api/<order>/pdf', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['pdf'], match: orderAction('pdf'), sample: '/api/1510/pdf' },
+  { id: 'GET /api/<order>/zip', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['zip'], match: orderAction('zip'), sample: '/api/1510/zip' },
   // Generation. Jirka runs it: with WhatsApp gone he fetches the book himself, and a book that never
   // generated is a book he cannot fetch.
-  { id: 'POST /api/_run', audience: AUDIENCES.BOTH, tokens: ['/api/_run'], match: atPath('/api/_run') },
-  { id: 'POST /api/_stop', audience: AUDIENCES.BOTH, tokens: ['/api/_stop'], match: atPath('/api/_stop') },
-  { id: 'POST /api/_select', audience: AUDIENCES.BOTH, tokens: ['/api/_select'], match: atPath('/api/_select') },
+  { id: 'POST /api/_run', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['/api/_run'], match: atPath('/api/_run'), sample: '/api/_run' },
+  { id: 'POST /api/_stop', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['/api/_stop'], match: atPath('/api/_stop'), sample: '/api/_stop' },
+  { id: 'POST /api/_select', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['/api/_select'], match: atPath('/api/_select'), sample: '/api/_select' },
   // The book's title page, and clearing an intake hold so a flagged order can be generated anyway.
-  { id: 'POST /api/<order>/dedication', audience: AUDIENCES.BOTH, tokens: ['dedication'], match: orderAction('dedication') },
-  { id: 'POST /api/<order>/intake-override', audience: AUDIENCES.BOTH, tokens: ['intake-override'], match: orderAction('intake-override') },
+  { id: 'POST /api/<order>/dedication', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['dedication'], match: orderAction('dedication'), sample: '/api/1510/dedication' },
+  { id: 'POST /api/<order>/intake-override', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['intake-override'], match: orderAction('intake-override'), sample: '/api/1510/intake-override' },
   // Printing, and undoing a mis-click on it (R10).
-  { id: 'POST /api/<order>/printed', audience: AUDIENCES.BOTH, tokens: ['printed'], match: orderAction('printed') },
-  { id: 'POST /api/<order>/unprinted', audience: AUDIENCES.BOTH, tokens: ['unprinted'], match: orderAction('unprinted') },
+  { id: 'POST /api/<order>/printed', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['printed'], match: orderAction('printed'), sample: '/api/1510/printed' },
+  { id: 'POST /api/<order>/unprinted', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['unprinted'], match: orderAction('unprinted'), sample: '/api/1510/unprinted' },
   // The per-photo review verdicts. Four segments, so every four-segment operator route above must
   // stay above this line.
   {
     id: 'POST /api/<order>/<base>/<action>',
     audience: AUDIENCES.BOTH,
+    methods: ['POST'],
     tokens: ['approve', 'reject', 'handoff', 'replaced', 'redo', 'edit', 'revert'],
-    match: (method, pathname, parts) => method === 'POST' && parts[0] === 'api' && parts.length === 4,
+    match: (method, pathname, parts) => parts[0] === 'api' && parts.length === 4,
+    sample: '/api/1510/clean/approve',
   },
   // The dashboard's own CSS, JS, fonts and graphics — the dispatcher's static fallback. Deliberately
   // matched by "a file of that name really exists under static/" rather than by "it is a GET":
-  // a bare `method === 'GET'` here would be a catch-all, and the next GET route somebody adds would
-  // land in the printer's allowlist by accident — the exact drift this table exists to stop.
+  // a bare catch-all here would swallow the next GET route somebody adds into the printer's
+  // allowlist by accident — the exact drift this table exists to stop.
   // Nothing under static/ is secret; everything that is lives behind a route above.
   {
     id: 'GET <static asset>',
     audience: AUDIENCES.BOTH,
+    methods: ['GET'],
     tokens: [],
-    match: (method, pathname) => method === 'GET' && staticAssetPath(pathname) !== null,
+    match: (method, pathname) => staticAssetPath(pathname) !== null,
+    sample: '/dashboard.html',
   },
 ]);
 
@@ -532,8 +584,15 @@ export const ROUTE_POLICY = Object.freeze([
  * is why an unrecorded route is refused rather than open.
  */
 export function routeAudience(method, pathname, parts = pathname.split('/').filter(Boolean)) {
-  const entry = ROUTE_POLICY.find((r) => r.match(method, pathname, parts));
-  return entry ? entry.audience : AUDIENCES.OPERATOR;
+  return routePolicyFor(method, pathname, parts)?.audience ?? AUDIENCES.OPERATOR;
+}
+
+/** The single table line that answers this request, or null when none does (→ operator-only). The
+ *  method is part of the question: an entry only answers the verbs it declares, so a new verb on an
+ *  existing path is undecided rather than inherited. Exported for the drift test, which drives every
+ *  entry's own `sample` back through here. */
+export function routePolicyFor(method, pathname, parts = pathname.split('/').filter(Boolean)) {
+  return ROUTE_POLICY.find((r) => answersMethod(r, method) && r.match(method, pathname, parts)) ?? null;
 }
 
 /** May this role reach that audience? The operator reaches everything; the printer reaches what the
@@ -550,7 +609,7 @@ export function mayReach(role, audience) {
  *  of that and the board already refuses to hand out paths for the same reason (see boardEntry).
  *  `backfilled` and `stalledDays` DO cross, because they are the two things the operator has to be
  *  able to see: whether a large batch is historical, and which orders will never age out at all. */
-export function purgeReportForClient(result) {
+export function purgeReportForClient(result, autopilot = null) {
   const row = (o) => ({
     orderId: o.orderId,
     photos: o.photos.length,
@@ -571,6 +630,11 @@ export function purgeReportForClient(result) {
     deferred: result.deferred.map(row),
     stalled: result.stalled.map(row),
     skipped: result.skipped.filter((o) => o.stalledDays == null).map(row),
+    // The overnight report and handled-set, which age out on the same clock and are cleared by the
+    // same confirmation. Names only, no paths — and present on BOTH routes: the report is supposed
+    // to be exactly what confirming does, and a confirmation that also deleted two files the report
+    // never mentioned would make that a lie (see the routes).
+    autopilotFiles: (autopilot?.removed ?? []).map((f) => f.name),
     warning: purgeWarning,
   };
 }
@@ -972,7 +1036,16 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
-    const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    const parts = pathSegments(url.pathname);
+    // A path this server cannot even decode is a 404, decided here, before anything else runs.
+    //
+    // `decodeURIComponent` THROWS on a malformed escape ("/%zz"), and it used to be called on this
+    // line outside the try/catch below — in an async listener, where an unhandled rejection takes the
+    // whole process down. One unauthenticated GET, no session, no route: the studio stops. Total
+    // decoding (see pathSegments) turns that into the only honest answer — a path that is not valid
+    // UTF-8 percent-encoding names no route, no order and no asset — and it mirrors what
+    // staticAssetPath has always done with its own decode.
+    if (parts === null) return json(res, 404, { error: 'Not found.' });
 
     // Unauthenticated liveness probe for a cloud host's health check — must answer before the gate.
     // Reports the deployed commit so "is my fix actually live?" is answerable from outside, without
@@ -1078,7 +1151,16 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         if (!accountsDir) return json(res, 503, { error: 'Účty nejsou nastavené (accounts.dataDir).', code: 'not-configured' });
 
         const role = req.identity.role;
-        const body = await readJson(req, AVATAR_BODY_LIMIT);
+        // The size refusal is the READER's (it stops mid-stream, before the memory is spent), so it
+        // is the reader's error that has to become the 413 the page expects — it used to fall through
+        // to the blanket ReviewError 409 and told the operator nothing about what was wrong.
+        let body;
+        try {
+          body = await readJson(req, AVATAR_BODY_LIMIT);
+        } catch (err) {
+          if (err?.code === 'too-large') return json(res, 413, { error: AVATAR_TOO_LARGE_MESSAGE, code: 'too-large' });
+          throw err;
+        }
         const before = readAccount(accountsDir, role);
         const patch = {};
         if (typeof body?.username === 'string') patch.username = body.username;
@@ -1790,7 +1872,12 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         if (!Number.isInteger(days) || days <= 0) {
           return json(res, 503, { error: 'Doba uchování (retentionDays) není nastavená — úklid je vypnutý.', code: 'not-configured' });
         }
-        return json(res, 200, purgeReportForClient(purgeOriginals({ outboxRoot: outbox, days })));
+        // The autopilot files are reported DRY here for the same reason the photographs are: this
+        // route's whole contract is "what would confirming do", and it was quietly incomplete —
+        // confirm cleared the night report and handled-set as well, and the report said nothing
+        // about them. Same call, same clock, `dryRun` the only difference between the two routes.
+        const autopilot = purgeAutopilotData({ dataDir: config.shopify?.dataDir ?? null, days });
+        return json(res, 200, purgeReportForClient(purgeOriginals({ outboxRoot: outbox, days }), autopilot));
       }
       if (req.method === 'POST' && url.pathname === '/api/purge/confirm') {
         const days = config.retentionDays;
@@ -1806,9 +1893,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         const result = purgeOriginals({ outboxRoot: outbox, days, dryRun: false });
         log(`purge: deleted ${result.photos} photograph(s) across ${result.orders.length} order(s); ${result.deferred.length} left for the next run`);
         // The night report and handled-set age out on the same clock (they carry order numbers), so
-        // the confirmed run clears them too — the CLI has always done both in one pass.
+        // the confirmed run clears them too — the CLI has always done both in one pass, and the
+        // REPORT route above now lists them for exactly this reason.
         const auto = purgeAutopilotData({ dataDir: config.shopify?.dataDir ?? null, days, dryRun: false });
-        return json(res, 200, { ...purgeReportForClient(result), autopilotFiles: auto.removed.map((f) => f.name) });
+        return json(res, 200, purgeReportForClient(result, auto));
       }
 
       // POST /api/<order>/<base>/<action>
