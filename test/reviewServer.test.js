@@ -1,10 +1,12 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import sharp from 'sharp';
-import { createReviewServer, openCommand, powershellPath, openExternally, pickFolder, pickFolderScript } from '../src/ui/server.js';
+import { createReviewServer, openCommand, powershellPath, openExternally, pickFolder, pickFolderScript, ROUTE_POLICY } from '../src/ui/server.js';
+import { hashPassword, ROLE_ENV_VARS } from '../src/auth/credentials.js';
+import { LOGIN_PAGE_PATH, SIGN_IN_PATH, SIGN_OUT_PATH } from '../src/auth/sessions.js';
 import { STATES, readManifest, getStatus, setStatus, setIntake, writeManifest, emptyManifest } from '../src/manifest.js';
 import { writeReport } from '../src/autopilotReport.js';
 
@@ -598,5 +600,237 @@ test('POST /api/<order>/delete hides the order from the board (marker on disk, f
   } finally {
     s.close();
     rmSync(r, { recursive: true, force: true });
+  }
+});
+
+// --- WHO MAY REACH WHAT (R8, U6) -------------------------------------------------------------
+//
+// The rule is an ALLOWLIST and these tests are what keeps it one. Jirka's session is a real session
+// minted through the real sign-in, not a fabricated identity, so what is asserted here is what a
+// browser holding his cookie would actually get.
+//
+// The last test in this file is the one that matters most in a year's time: it reads the dispatcher's
+// own source and fails when a route exists there with no line in ROUTE_POLICY. A deny-list is what
+// let the mail, blog-publish and AI-spend routes be reachable in the first draft — every one of them
+// added AFTER the rule was written. This is the thing that makes that impossible to repeat quietly.
+
+/** A real scrypt hash at a cheap cost — the stored string is self-describing, so it verifies through
+ *  the production path. credentials.test.js is where the production parameters are exercised. */
+const cheapHash = (password) => hashPassword(password, { logN: 14, r: 8, p: 1 });
+const PASSWORD = 'correct horse battery staple';
+
+/** A gated studio over its own fixture, plus a signed-in cookie for each person. */
+async function roleServer() {
+  const r = mkdtempSync(join(tmpdir(), 'fma-role-'));
+  const inb = join(r, 'inbox');
+  const outb = join(r, 'outbox');
+  const dir = join(outb, '1510');
+  mkdirSync(join(inb, '1510'), { recursive: true });
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(inb, '1510', 'clean.jpeg'), 'photo');
+  await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).jpeg().toFile(join(dir, 'clean.jpg'));
+  writeFileSync(join(dir, 'clean.svg'), SVG);
+  await sharp(LINE_ART, RAW_8).png().toFile(join(dir, 'clean_bw.png'));
+  writeFileSync(join(dir, '1510 Final.pdf'), '%PDF-1.4\n');
+  writeManifest(dir, setStatus(emptyManifest('1510'), 'clean', STATES.OK, 'ok'));
+
+  const hash = await cheapHash(PASSWORD);
+  const { server: s } = createReviewServer({
+    config: { ...CONFIG, accounts: { dataDir: join(r, 'accounts') } },
+    inboxRoot: inb,
+    outboxRoot: outb,
+    memoryRoot: outb,
+    driver: { generate: async () => {} },
+    authEnv: { [ROLE_ENV_VARS.operator]: hash, [ROLE_ENV_VARS.printer]: hash },
+  });
+  await new Promise((done) => s.listen(0, '127.0.0.1', done));
+  const o = `http://127.0.0.1:${s.address().port}`;
+
+  const signIn = async (username) => {
+    const res = await fetch(`${o}${SIGN_IN_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password: PASSWORD }),
+    });
+    assert.equal(res.status, 200, `${username} signs in`);
+    return String(res.headers.get('set-cookie')).split(';')[0];
+  };
+
+  return {
+    origin: o,
+    dir,
+    operator: await signIn('David'),
+    printer: await signIn('Jirka'),
+    get: (p, cookie) => fetch(o + p, { headers: { cookie } }),
+    post: (p, cookie, body) =>
+      fetch(o + p, { method: 'POST', headers: { cookie, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }),
+    cleanup: () => { s.close(); rmSync(r, { recursive: true, force: true }); },
+  };
+}
+
+test('AE5 — settings is refused for the printer and served for the operator', async () => {
+  const f = await roleServer();
+  try {
+    const refused = await f.get('/api/settings', f.printer);
+    assert.equal(refused.status, 403, 'Jirka cannot read the settings screen');
+    assert.equal((await refused.json()).code, 'forbidden', 'and is told why, in a code the page can act on');
+
+    const allowed = await f.get('/api/settings', f.operator);
+    assert.equal(allowed.status, 200, 'David can');
+    assert.ok((await allowed.json()).integrations, 'and gets the real payload');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the printer is refused every route that spends money, writes to a customer, or touches the box', async () => {
+  const f = await roleServer();
+  try {
+    // GETs.
+    for (const path of [
+      '/api/settings', '/api/mail', '/api/mail/message?uid=1', '/api/mail/templates',
+      '/api/blog/topics', '/api/blog/posts', '/api/blog/blogs',
+      '/api/creatives/calendar', '/api/studio/templates', '/api/studio/validate', '/studio/preview', '/studio/render',
+      '/api/autopilot/status', '/creatives/ad/12-24-vanoce/x.png',
+    ]) {
+      const res = await f.get(path, f.printer);
+      assert.equal(res.status, 403, `GET ${path} is refused for the printer`);
+    }
+
+    // POSTs. /api/_shutdown is deliberately only ever exercised as the REFUSED case — the allowed
+    // case would stop the process running this suite.
+    for (const path of [
+      '/api/_scan', '/api/_pick-folder', '/api/_shutdown', '/api/_open/generator', '/api/_open/folder/1510',
+      '/api/mail/send', '/api/mail/delete', '/api/mail/flag',
+      '/api/blog/draft', '/api/blog/posts', '/api/blog/publish',
+      '/api/creative/ai-image', '/api/autopilot/run',
+      '/api/1510/delete', '/api/1510/sent', '/api/1510/unsent', '/api/1510/emailed',
+    ]) {
+      const res = await f.post(path, f.printer, {});
+      assert.equal(res.status, 403, `POST ${path} is refused for the printer`);
+      assert.equal((await res.json()).code, 'forbidden', `POST ${path} refuses with the role code`);
+    }
+
+    // The refusals are refusals, not silent no-ops: the order is still on the board, undeleted.
+    const board = await (await f.get('/api/studio', f.operator)).json();
+    assert.ok(board.orders.some((o) => o.orderId === '1510'), 'nothing the printer was refused took effect');
+    assert.ok(!existsSync(join(f.dir, 'hidden.json')), 'the delete it was refused wrote no marker');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the printer reaches everything printing a book needs, end to end', async () => {
+  const f = await roleServer();
+  try {
+    for (const path of ['/', '/review', '/api/state', '/api/studio', '/img/1510/clean/coloring', '/svg/1510/clean', '/api/1510/pdf', '/api/1510/zip']) {
+      const res = await f.get(path, f.printer);
+      assert.equal(res.status, 200, `GET ${path} is served for the printer`);
+    }
+
+    assert.equal((await f.post('/api/1510/clean/approve', f.printer)).status, 200, 'a photo verdict is the printer\'s to give');
+    assert.equal((await f.post('/api/1510/dedication', f.printer, { text: 'Pro Barču' })).status, 200, 'so is the title page');
+    assert.equal((await f.post('/api/1510/printed', f.printer)).status, 200, 'and the printed mark (R10)');
+    assert.equal((await f.post('/api/1510/unprinted', f.printer)).status, 200, 'and undoing it');
+    assert.equal((await f.post('/api/_select', f.printer, { orders: null })).status, 200, 'ticking orders for a run');
+    assert.equal((await f.post('/api/_stop', f.printer)).status, 200, 'and stopping one');
+
+    // Generation: with WhatsApp gone Jirka fetches the book himself, so he must be able to make one.
+    // `only: []` makes startRun refuse before it spends anything — a 409 here proves the route was
+    // REACHED, which is what this test is about, without starting a pipeline.
+    const run = await f.post('/api/_run', f.printer, { only: [] });
+    assert.equal(run.status, 409, 'the run route is reached (and then refuses an empty selection)');
+    assert.match((await run.json()).error, /[Tt]ick at least one order/, 'refused by the run rule, not by the role rule');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the state endpoint names the signed-in person and carries no credential material', async () => {
+  const f = await roleServer();
+  try {
+    const res = await f.get('/api/state', f.printer);
+    const body = await res.text();
+    const state = JSON.parse(body);
+    assert.equal(state.identity.role, 'printer', 'the page is told which role it is painting for');
+    assert.equal(state.identity.username, 'Jirka', 'and the name that person answers to');
+    assert.equal(state.identity.implicit, false, 'a real session, not the local-mode implicit operator');
+
+    for (const secret of ['scrypt$', 'PASS_HASH', 'password', PASSWORD, f.printer.split('=')[1]]) {
+      assert.ok(!body.includes(secret), `no ${secret} reaches the page`);
+    }
+
+    const board = await (await f.get('/api/studio', f.operator)).json();
+    assert.equal(board.identity.role, 'operator', 'the board carries it too, so the first paint is right');
+    assert.equal(board.identity.username, 'David');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('AE6 — the dashboard guards the view RESOLVER, not just the nav control', async () => {
+  const f = await roleServer();
+  try {
+    const html = await (await f.get('/', f.printer)).text();
+    // go() is reached by a click, by the fragment on first load, by the back button and by Escape.
+    // The guard has to be inside it, or "#settings" typed into the address bar opens the view.
+    assert.match(html, /function go\(v\)\{[\s\S]{0,600}?!viewAllowed\(v\)/, 'the resolver itself refuses a view the role may not reach');
+    assert.match(html, /OPERATOR_VIEWS=\[[^\]]*"settings"[^\]]*\]/, 'settings is named as an operator-only view');
+    assert.match(html, /window\.addEventListener\("popstate",\(\)=>go\(/, 'history navigation goes through the guarded resolver');
+    assert.match(html, /data-view="settings" data-operator/, 'and the control is hidden as well, so it is not offered at all');
+
+    // The page is only ever the second line of defence: the data behind that view is refused anyway.
+    assert.equal((await f.get('/api/settings', f.printer)).status, 403, 'and the screen would have nothing to show');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('no route in the dispatcher is undecided: every one has a line in ROUTE_POLICY', () => {
+  // The drift guard. It reads the DISPATCHER's own source — everything inside createServer — pulls
+  // out every route it branches on, and fails when one of them is not recorded in the policy table.
+  // Add a route, forget the policy line, and this test is red before the route can be shipped open.
+  const source = readFileSync(new URL('../src/ui/server.js', import.meta.url), 'utf8');
+  const start = source.indexOf('const server = createServer(');
+  assert.ok(start > 0, 'the dispatcher is still one createServer call — this test reads its source');
+  const dispatcher = source.slice(start); // deliberately excludes ROUTE_POLICY itself: no circularity
+
+  /** Constants the dispatcher routes on, resolved to the paths they hold. */
+  const PATH_CONSTANTS = { LOGIN_PAGE_PATH, SIGN_IN_PATH, SIGN_OUT_PATH };
+  /** `api` is the prefix nearly every route shares, not a route. It is the only such segment, and
+   *  naming it here is cheaper than teaching the scan to understand path shapes. */
+  const STRUCTURAL = new Set(['api']);
+
+  const found = new Set();
+  for (const m of dispatcher.matchAll(/url\.pathname === (?:'([^']*)'|([A-Za-z_$][\w$]*))/g)) {
+    if (m[1] !== undefined) {
+      found.add(m[1]);
+      continue;
+    }
+    const resolved = PATH_CONSTANTS[m[2]];
+    assert.ok(resolved, `the dispatcher routes on the constant ${m[2]}, which this scan cannot resolve — add it to PATH_CONSTANTS and record the route in ROUTE_POLICY`);
+    found.add(resolved);
+  }
+  for (const m of dispatcher.matchAll(/parts\[\d\] === '([^']*)'/g)) found.add(m[1]);
+  for (const m of dispatcher.matchAll(/\baction === '([^']*)'/g)) found.add(m[1]);
+  for (const s of STRUCTURAL) found.delete(s);
+
+  const decided = new Set(ROUTE_POLICY.flatMap((r) => r.tokens));
+  const undecided = [...found].filter((t) => !decided.has(t)).sort();
+  assert.deepEqual(
+    undecided,
+    [],
+    `these routes exist in the dispatcher with nobody having decided who may reach them: ${undecided.join(', ')}. ` +
+      `Add a line to ROUTE_POLICY in src/ui/server.js — an unrecorded route is refused for the printer, but ` +
+      `refused-by-accident is not a decision.`,
+  );
+
+  const stale = [...decided].filter((t) => !found.has(t)).sort();
+  assert.deepEqual(stale, [], `ROUTE_POLICY records routes the dispatcher no longer has: ${stale.join(', ')}`);
+
+  // Every entry says who, and nothing says "everyone" by omission.
+  for (const entry of ROUTE_POLICY) {
+    assert.ok(['anyone', 'both', 'operator'].includes(entry.audience), `${entry.id} names a real audience`);
+    assert.equal(typeof entry.match, 'function', `${entry.id} can be matched against a request`);
   }
 });

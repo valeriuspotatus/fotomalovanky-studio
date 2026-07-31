@@ -277,10 +277,10 @@
       <a data-view="home" href="#home"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>Přehled</a>
       <a data-view="orders" href="#orders"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>Objednávky<span class="count" id="nav-orders">–</span></a>
       <a data-view="generator" href="/review"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6"/><path d="m14 4 6 6"/><path d="M14.5 4.5 19 9l-9 9-4.5-4.5z"/><path d="M18 2v3M21 4h-3"/></svg>Generátor<span class="count" id="nav-gen">–</span></a>
-      <a data-view="creatives" href="#creatives"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg>Kreativy</a>
-      <a data-view="calendar" href="#calendar"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Kalendář</a>
-      <a data-view="blog" href="#blog"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h10l6 6v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M14 4.5v6h6"/><path d="M8 13h8M8 16.5h5"/></svg>Blog</a>
-      <a data-view="mail" href="#mail"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>Pošta<span class="count" id="nav-mail">–</span></a>
+      <a data-view="creatives" data-operator href="#creatives"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg>Kreativy</a>
+      <a data-view="calendar" data-operator href="#calendar"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Kalendář</a>
+      <a data-view="blog" data-operator href="#blog"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h10l6 6v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M14 4.5v6h6"/><path d="M8 13h8M8 16.5h5"/></svg>Blog</a>
+      <a data-view="mail" data-operator href="#mail"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>Pošta<span class="count" id="nav-mail">–</span></a>
     </nav>
     <div class="sb-art">
       <svg width="150" height="80" viewBox="0 0 150 80" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
@@ -290,9 +290,13 @@
       </svg>
     </div>
     <div class="sb-foot">
-      <div class="user"><div class="avatar"><img src="avatar.png" alt=""></div><div class="who"><b>David</b><br><span>Studio</span></div></div>
+      <!-- Who is signed in. Painted from /api/studio's `identity`, never from anything in this file:
+           the name is the person's own (they can change it), and the role decides what the rest of
+           this sidebar even exists. `profileBtn` is hidden in ungated local mode (KTD11). -->
+      <div class="user"><div class="avatar"><img id="userAvatar" src="avatar.png" alt=""></div><div class="who"><b id="userName">Studio</b><br><span id="userRole">Studio</span></div></div>
+      <button class="mini" id="profileBtn" data-view="profile" hidden onclick="go('profile')"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>Můj profil</button>
       <button class="mini" id="themeBtn"><svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></svg><span id="themeLabel">Tmavý režim</span></button>
-      <button class="mini" data-view="settings" onclick="go('settings')"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Nastavení</button>
+      <button class="mini" data-view="settings" data-operator onclick="go('settings')"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Nastavení</button>
       <a class="mini" href="/review"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/></svg>Otevřít generátor</a>
     </div>
   </aside>
@@ -328,8 +332,8 @@
             <div class="sec-h"><h2>Nástroje studia</h2></div>
             <div class="tools">
               <a class="tool" href="/review"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/></svg></div><b>Generátor</b><span>Omalovánky z fotek</span></a>
-              <a class="tool" href="#creatives" onclick="go('creatives');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg></div><b>Kreativy</b><span>Vizuály pro marketing</span></a>
-              <a class="tool" href="#calendar" onclick="go('calendar');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></div><b>Kalendář</b><span>Plán kampaní</span></a>
+              <a class="tool" data-operator href="#creatives" onclick="go('creatives');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg></div><b>Kreativy</b><span>Vizuály pro marketing</span></a>
+              <a class="tool" data-operator href="#calendar" onclick="go('calendar');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></div><b>Kalendář</b><span>Plán kampaní</span></a>
               <a class="tool" href="#orders" onclick="go('orders');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16M16 10a4 4 0 0 1-8 0"/></svg></div><b>Objednávky</b><span>Přehled všech</span></a>
             </div>
           </section>
@@ -346,7 +350,7 @@
         </div>
 
         <aside class="rail">
-          <div class="card" style="padding:18px" id="mailCard">
+          <div class="card" style="padding:18px" id="mailCard" data-operator>
             <div class="sec-h"><h2>Pošta</h2><div class="mail-head-r"><button class="mail-write" id="mailCompose">Napsat</button><span class="chip c-neutral" id="mailUnread">–</span></div></div>
             <div id="mailBody"><div class="empty">Načítám…</div></div>
           </div>
@@ -474,6 +478,36 @@
 
     <!-- ===== NASTAVENÍ (N14) ===== -->
     <section class="view" id="v-settings"><div class="settings" id="settings">Načítám…</div></section>
+
+    <!-- ===== MŮJ PROFIL (R11) — both people reach this one; each only ever edits their own,
+             because the server reads the role off the session and ignores anything sent here. ===== -->
+    <section class="view" id="v-profile">
+      <div class="settings">
+        <div class="set-card">
+          <h3>Můj profil</h3>
+          <div class="set-note">Jméno se ukazuje u vašich záznamů — kdo objednávku vytiskl a kdo ji odeslal. Heslo se tady nemění; to nastavuje David mimo aplikaci.</div>
+          <div class="set-folder">
+            <input id="profName" spellcheck="false" aria-label="Jméno" maxlength="40">
+            <button class="btn" id="profSave">Uložit jméno</button>
+          </div>
+          <div class="set-msg" id="profMsg"></div>
+        </div>
+        <div class="set-card">
+          <h3>Profilová fotka</h3>
+          <div class="set-note">Fotka se před uložením zmenší a znovu uloží — z nahraného souboru se nepřenáší nic jiného než obraz (žádné EXIF, žádná poloha).</div>
+          <div class="set-folder">
+            <input type="file" id="profFile" accept="image/*" aria-label="Profilová fotka">
+            <button class="btn" id="profPhotoClear">Odebrat fotku</button>
+          </div>
+          <div class="set-msg" id="profPhotoMsg"></div>
+        </div>
+        <div class="set-card">
+          <h3>Odhlášení</h3>
+          <div class="set-note">Odhlášení ukončí relaci na serveru, ne jen v prohlížeči.</div>
+          <button class="btn" id="profSignOut">Odhlásit se</button>
+        </div>
+      </div>
+    </section>
 
     <!-- ===== BLOG ===== -->
     <section class="view" id="v-blog">
@@ -633,8 +667,41 @@
     calendar:{t:"Kalendář",s:"Sezóna a plán kreativ."},
     blog:{t:"Blog",s:"SEO články z kalendáře a aktuálních témat — koncept do Shopify."},
     mail:{t:"Pošta",s:"Schránka info@fotomalovanky.cz přes Proton Bridge."},
-    settings:{t:"Nastavení",s:"Složky, propojení a poslední noční běh — stav, nikdy hesla."}
+    settings:{t:"Nastavení",s:"Složky, propojení a poslední noční běh — stav, nikdy hesla."},
+    profile:{t:"Můj profil",s:"Jméno a fotka, které se ukazují u vašich záznamů."}
   };
+
+  /* ---- who is signed in (R8, KTD10) ----
+     The server decides this and refuses the routes on its own; everything here is reflection, never
+     enforcement. Two things it must still get right:
+       - the RESOLVER is guarded, not just the nav. go() reads the fragment on load, on popstate and
+         on Escape, so hiding the Nastavení button would leave "#settings" typed in the address bar
+         opening the view (the data would 403, but the screen should never appear at all);
+       - unknown identity counts as NOT operator. The board is polled every 2.5s, so "unknown" means
+         the very first paint or a server that stopped answering — in both, the closed answer is the
+         right one. */
+  let identity=null;
+  const isOperator=()=>identity!==null&&identity.role==="operator";
+  const OPERATOR_VIEWS=["creatives","calendar","blog","mail","settings"];
+  const viewAllowed=(v)=>isOperator()||!OPERATOR_VIEWS.includes(v);
+  const currentView=()=>(location.hash||"#home").slice(1);
+
+  function applyIdentity(next){
+    if(!next)return;
+    const same=identity&&identity.role===next.role&&identity.username===next.username&&identity.avatar===next.avatar&&identity.implicit===next.implicit;
+    identity=next;
+    if(same)return;
+    document.getElementById("userName").textContent=next.username||"Studio";
+    document.getElementById("userRole").textContent=next.role==="printer"?"Tisk":"Studio";
+    const img=document.getElementById("userAvatar");
+    img.src=next.avatar||"avatar.png";
+    document.querySelectorAll("[data-operator]").forEach(el=>{el.hidden=!isOperator();});
+    // No profile surface in ungated local mode: one implicit identity, nothing to tell apart (KTD11).
+    document.getElementById("profileBtn").hidden=next.implicit===true;
+    const nameField=document.getElementById("profName");
+    if(nameField&&document.activeElement!==nameField)nameField.value=next.username||"";
+    if(!viewAllowed(currentView())||(next.implicit&&currentView()==="profile"))go("home");
+  }
 
   /* ---- live board from /api/studio ---- */
   let studioData=null;
@@ -828,7 +895,7 @@
     renderOvernight(studioData);renderHome(studioData);renderOrders(studioData);syncFetchButton(studioData);
   }
   async function fetchStudio(){
-    try{const res=await fetch("/api/studio");if(!res.ok)return;studioData=await res.json();renderStudio();}
+    try{const res=await fetch("/api/studio");if(!res.ok)return;studioData=await res.json();applyIdentity(studioData.identity);renderStudio();}
     catch(e){/* offline / not the live server — keep the last board */}
   }
   setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["home","orders"].includes(v))fetchStudio();},2500);
@@ -930,6 +997,7 @@
       <div class="mail-sub">${esc(x.subject)}</div></div>`).join("");
   }
   async function fetchMail(){
+    if(!isOperator())return; // the printer has no route to the mailbox; don't poll a 403 every minute
     try{const r=await fetch("/api/mail");if(!r.ok)return;renderMail(await r.json());}
     catch(e){/* offline / not the live server — keep the last state */}
   }
@@ -1627,10 +1695,14 @@
   paintEvergreen();
 
   /* ---- router ---- */
-  const views=["home","orders","creatives","calendar","blog","mail","settings"];
+  const views=["home","orders","creatives","calendar","blog","mail","settings","profile"];
   function setActiveNav(v){document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.view===v));}
   function go(v){
-    if(!views.includes(v))v="home";
+    // The guard lives HERE, on the resolver, not on the nav control. Every way into a view goes
+    // through this line — the click, the fragment on first load, the back button, Escape — so a
+    // printer typing #settings lands on home instead of on a screen they cannot use (KTD10).
+    if(!views.includes(v)||!viewAllowed(v))v="home";
+    if(v==="profile"&&identity&&identity.implicit)v="home";
     views.forEach(x=>document.getElementById("v-"+x).classList.toggle("on",x===v));
     setActiveNav(v);
     const m=VIEW_META[v];document.getElementById("pageTitle").innerHTML=m.t;document.getElementById("pageSub").textContent=m.s;
@@ -1638,6 +1710,7 @@
     if(["home","orders"].includes(v))fetchStudio();
     if(v==="mail")fetchMailTab();
     if(v==="settings")fetchSettings();
+    if(v==="profile")paintProfile();
     if(v==="creatives"){if(window.loadAdCal)loadAdCal();if(window.__cvFit)window.__cvFit();}
     if(v==="blog")loadBlog();
     window.scrollTo({top:0,behavior:"instant"});
@@ -1831,6 +1904,53 @@
     if(own)own.addEventListener("submit",e=>{e.preventDefault();const t=bg("blogOwnTitle").value.trim();if(!t)return;const k=bg("blogOwnKw").value.trim();generateBlogDraft({title:t,keyword:k||t,intent:"",source:"manual"});bg("blogOwnTitle").value="";bg("blogOwnKw").value="";});
   })();
 
+  /* ---- Můj profil (R11, R13) ----
+         The photo is sent as base64 in a JSON body, the same shape the AI-image route already uses,
+         so there is no multipart anything on either side. Nothing here validates the file: the
+         server decodes it, re-encodes it and stores that, and a file this page thinks is fine is
+         still refused if libvips cannot read it. */
+  function paintProfile(){
+    const f=document.getElementById("profName");
+    if(f&&identity)f.value=identity.username||"";
+    setProfMsg("profMsg","");setProfMsg("profPhotoMsg","");
+  }
+  function setProfMsg(id,text,bad){const e=document.getElementById(id);if(!e)return;e.textContent=text;e.className="set-msg"+(bad?" bad":"");}
+
+  async function saveProfile(patch,msgId){
+    try{
+      const r=await fetch("/api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){setProfMsg(msgId,j.error||"Uložení se nepovedlo.",true);return false;}
+      applyIdentity(j.identity);
+      setProfMsg(msgId,"Uloženo ✓");
+      return true;
+    }catch(e){setProfMsg(msgId,"Server neodpovídá.",true);return false;}
+  }
+
+  (function(){
+    const save=document.getElementById("profSave");
+    if(!save)return;
+    save.addEventListener("click",()=>{
+      const name=document.getElementById("profName").value.trim();
+      if(!name){setProfMsg("profMsg","Jméno nemůže být prázdné.",true);return;}
+      saveProfile({username:name},"profMsg");
+    });
+    document.getElementById("profFile").addEventListener("change",ev=>{
+      const file=ev.target.files&&ev.target.files[0];
+      if(!file)return;
+      setProfMsg("profPhotoMsg","Nahrávám…");
+      const r=new FileReader();
+      r.onload=()=>{saveProfile({image:String(r.result)},"profPhotoMsg").finally(()=>{ev.target.value="";});};
+      r.onerror=()=>{setProfMsg("profPhotoMsg","Soubor se nepodařilo přečíst.",true);ev.target.value="";};
+      r.readAsDataURL(file);
+    });
+    document.getElementById("profPhotoClear").addEventListener("click",()=>saveProfile({image:null},"profPhotoMsg"));
+    document.getElementById("profSignOut").addEventListener("click",async()=>{
+      try{await fetch("/api/logout",{method:"POST"});}catch(e){}
+      location.href="/login"; // the server has dropped the session; this is only where to send them
+    });
+  })();
+
   /* ---- theme ---- */
   (function(){
     const root=document.documentElement,label=document.getElementById("themeLabel"),icon=document.getElementById("themeIcon");
@@ -1846,6 +1966,9 @@
     sync();
   })();
 
-  go((location.hash||"#home").slice(1));
-  fetchStudio();
+  // Identity BEFORE the first view resolution: fetchStudio is what answers "who is this?", and
+  // resolving #settings first and correcting afterwards would flash the view at somebody who may not
+  // have it. If the request fails there is no identity, isOperator() is false, and the closed answer
+  // is the one that gets painted.
+  fetchStudio().finally(()=>go(currentView()));
 </script>

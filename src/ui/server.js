@@ -51,7 +51,15 @@ import {
 } from '../review.js';
 import { migrateDedications, MEMORY_DIR } from '../dedications.js';
 import { verifyRolePassword } from '../auth/credentials.js';
-import { readAccounts } from '../auth/accounts.js';
+import { AccountError, readAccount, readAccounts, updateAccount } from '../auth/accounts.js';
+import {
+  AVATAR_BODY_LIMIT,
+  AVATAR_MIME,
+  AvatarError,
+  avatarFilePath,
+  removeAvatar,
+  storeAvatar,
+} from '../auth/avatar.js';
 import {
   AUTH_MODES,
   AuthConfigError,
@@ -116,23 +124,30 @@ const json = (res, code, body) => {
   res.end(JSON.stringify(body));
 };
 
-/** Serve a file from the studio's static tree, and only from there. The resolved path must stay
- *  inside static/, so a crafted request (../../config.json) resolves outside it and gets a 404
- *  rather than the file — no secret, source, or order data is reachable through here. */
-function serveStatic(pathname, res) {
+/** The file this pathname names inside the studio's static tree, or null. The resolved path must
+ *  stay inside static/, so a crafted request (../../config.json) resolves outside it and is nothing
+ *  — no secret, source, or order data is reachable through here.
+ *
+ *  Split out from `serveStatic` because the route policy needs the same answer without serving
+ *  anything: "is this GET a real asset?" is what keeps the dispatcher's static fallback from
+ *  swallowing a newly added route into the printer's allowlist (see ROUTE_POLICY). */
+function staticAssetPath(pathname) {
   let candidate;
   try {
     const rel = decodeURIComponent(pathname).replace(/^\/+/, '');
     candidate = resolve(STATIC_DIR, rel);
   } catch {
-    return json(res, 404, { error: 'Not found.' }); // a malformed/percent-encoded path is just not found
+    return null; // a malformed/percent-encoded path is just not found
   }
-  if (candidate !== STATIC_DIR && !candidate.startsWith(STATIC_DIR + sep)) {
-    return json(res, 404, { error: 'Not found.' });
-  }
-  if (!existsSync(candidate) || !statSync(candidate).isFile()) {
-    return json(res, 404, { error: 'Not found.' });
-  }
+  if (candidate !== STATIC_DIR && !candidate.startsWith(STATIC_DIR + sep)) return null;
+  if (!existsSync(candidate) || !statSync(candidate).isFile()) return null;
+  return candidate;
+}
+
+/** Serve a file from the studio's static tree, and only from there. */
+function serveStatic(pathname, res) {
+  const candidate = staticAssetPath(pathname);
+  if (!candidate) return json(res, 404, { error: 'Not found.' });
   const ext = candidate.slice(candidate.lastIndexOf('.')).toLowerCase();
   res.writeHead(200, { 'Content-Type': MIME[ext] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
   return res.end(readFileSync(candidate));
@@ -339,6 +354,177 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
       resolve(true);
     });
   });
+}
+
+// --- WHO MAY REACH WHAT (R8, KTD10) ------------------------------------------------------------
+//
+// An ALLOWLIST, and the distinction is the whole point. Written as a deny-list — "the printer may
+// not reach settings and shutdown" — the first draft of this left Jirka able to send and delete
+// customer mail from the business Proton account, publish articles to the live storefront, and spend
+// money on AI image generation, because none of those routes existed when the deny-list was written.
+// A route added tomorrow would join them. So the table below names what a printer MAY reach and
+// `routeAudience` answers OPERATOR for everything else, including a path that matches no entry at
+// all. A new route is refused for the printer until somebody writes down a decision about it.
+//
+// The table is also the record of that decision, one line per route, and `test/reviewServer.test.js`
+// reads BOTH this table and the dispatcher's source and fails when a route exists with no entry
+// here. That test is the thing that stops this boundary drifting: it makes "I added a route and
+// forgot the policy" a red suite rather than a quiet hole. It finds routes by their idiom —
+// `url.pathname === '<literal>'` and `parts[n] === '<segment>'` — so a new route must keep to those
+// or declare itself here; `tokens` on each entry is what links a line in this table to the literals
+// in the dispatcher.
+//
+// Enforced on the server, before dispatch. The dashboard hides what a printer cannot use, but that
+// is cosmetics: hiding a control does not close a route (KTD10).
+
+export const AUDIENCES = Object.freeze({
+  /** No session needed — the gate answers these before an identity exists. */
+  ANYONE: 'anyone',
+  /** Both people. Everything printing a book needs, and nothing else. */
+  BOTH: 'both',
+  /** David only: settings, money, customer correspondence, publishing, dispatch, the box itself. */
+  OPERATOR: 'operator',
+});
+
+/** Match one exact pathname. */
+const atPath = (wanted) => (method, pathname) => pathname === wanted;
+/** Match /api/<order>/<name> — the three-segment per-order actions. */
+const orderAction = (name) => (method, pathname, parts) =>
+  parts[0] === 'api' && parts.length === 3 && parts[2] === name;
+
+/**
+ * Route -> who may reach it. Ordered: the FIRST match wins, so an operator-only entry that overlaps
+ * a broader printer pattern is listed above it and the overlap resolves closed.
+ */
+export const ROUTE_POLICY = Object.freeze([
+  // -- Before there is an identity at all ---------------------------------------------------------
+  { id: 'GET /healthz', audience: AUDIENCES.ANYONE, tokens: ['/healthz'], match: atPath('/healthz') },
+  { id: 'GET /login', audience: AUDIENCES.ANYONE, tokens: [LOGIN_PAGE_PATH], match: atPath(LOGIN_PAGE_PATH) },
+  { id: 'POST /api/login', audience: AUDIENCES.ANYONE, tokens: [SIGN_IN_PATH], match: atPath(SIGN_IN_PATH) },
+  { id: 'POST /api/logout', audience: AUDIENCES.ANYONE, tokens: [SIGN_OUT_PATH], match: atPath(SIGN_OUT_PATH) },
+
+  // -- Operator only. Listed first so nothing below can accidentally widen one of them -------------
+  // Settings names the folders, the integrations and the retention window (AE5).
+  { id: 'GET /api/settings', audience: AUDIENCES.OPERATOR, tokens: ['/api/settings'], match: atPath('/api/settings') },
+  // The box and the filesystem around it: re-pointing the inbox, the native folder dialog, and the
+  // button that stops the server everybody else is using.
+  { id: 'POST /api/_scan', audience: AUDIENCES.OPERATOR, tokens: ['/api/_scan'], match: atPath('/api/_scan') },
+  { id: 'POST /api/_pick-folder', audience: AUDIENCES.OPERATOR, tokens: ['/api/_pick-folder'], match: atPath('/api/_pick-folder') },
+  { id: 'POST /api/_shutdown', audience: AUDIENCES.OPERATOR, tokens: ['/api/_shutdown'], match: atPath('/api/_shutdown') },
+  // /api/_open/<generator|folder> spawns a desktop process on the SERVER and hands out the
+  // token-scoped generator URL. Four segments, so it must sit above the per-photo action pattern.
+  {
+    id: 'POST /api/_open/*',
+    audience: AUDIENCES.OPERATOR,
+    tokens: ['_open', 'generator', 'folder'],
+    match: (method, pathname, parts) => parts[0] === 'api' && parts[1] === '_open',
+  },
+  // The business mailbox: reading customers' mail, sending as info@, deleting it, flagging it.
+  { id: 'GET /api/mail', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail'], match: atPath('/api/mail') },
+  { id: 'GET /api/mail/message', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail/message'], match: atPath('/api/mail/message') },
+  { id: 'GET /api/mail/templates', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail/templates'], match: atPath('/api/mail/templates') },
+  { id: 'POST /api/mail/send', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail/send'], match: atPath('/api/mail/send') },
+  { id: 'POST /api/mail/delete', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail/delete'], match: atPath('/api/mail/delete') },
+  { id: 'POST /api/mail/flag', audience: AUDIENCES.OPERATOR, tokens: ['/api/mail/flag'], match: atPath('/api/mail/flag') },
+  // Publishing to the live storefront blog, and the AI that writes it.
+  { id: 'GET /api/blog/topics', audience: AUDIENCES.OPERATOR, tokens: ['/api/blog/topics'], match: atPath('/api/blog/topics') },
+  { id: 'POST /api/blog/draft', audience: AUDIENCES.OPERATOR, tokens: ['/api/blog/draft'], match: atPath('/api/blog/draft') },
+  { id: '/api/blog/posts', audience: AUDIENCES.OPERATOR, tokens: ['/api/blog/posts'], match: atPath('/api/blog/posts') },
+  { id: 'GET /api/blog/blogs', audience: AUDIENCES.OPERATOR, tokens: ['/api/blog/blogs'], match: atPath('/api/blog/blogs') },
+  { id: 'POST /api/blog/publish', audience: AUDIENCES.OPERATOR, tokens: ['/api/blog/publish'], match: atPath('/api/blog/publish') },
+  // Marketing: the ad calendar, the studio renderer, and the one route that spends money per click.
+  { id: 'GET /api/creatives/calendar', audience: AUDIENCES.OPERATOR, tokens: ['/api/creatives/calendar'], match: atPath('/api/creatives/calendar') },
+  {
+    id: 'GET /creatives/ad/<key>/<file>',
+    audience: AUDIENCES.OPERATOR,
+    tokens: ['creatives', 'ad'],
+    match: (method, pathname, parts) => parts[0] === 'creatives' && parts[1] === 'ad',
+  },
+  { id: 'POST /api/creative/ai-image', audience: AUDIENCES.OPERATOR, tokens: ['/api/creative/ai-image'], match: atPath('/api/creative/ai-image') },
+  { id: 'GET /api/studio/templates', audience: AUDIENCES.OPERATOR, tokens: ['/api/studio/templates'], match: atPath('/api/studio/templates') },
+  { id: 'GET /api/studio/validate', audience: AUDIENCES.OPERATOR, tokens: ['/api/studio/validate'], match: atPath('/api/studio/validate') },
+  { id: 'GET /studio/preview', audience: AUDIENCES.OPERATOR, tokens: ['/studio/preview'], match: atPath('/studio/preview') },
+  { id: 'GET /studio/render', audience: AUDIENCES.OPERATOR, tokens: ['/studio/render'], match: atPath('/studio/render') },
+  // The unattended fetch: it pulls new paid orders from Shopify and generates them, which is spend.
+  { id: 'POST /api/autopilot/run', audience: AUDIENCES.OPERATOR, tokens: ['/api/autopilot/run'], match: atPath('/api/autopilot/run') },
+  { id: 'GET /api/autopilot/status', audience: AUDIENCES.OPERATOR, tokens: ['/api/autopilot/status'], match: atPath('/api/autopilot/status') },
+  // Order actions that are the operator's act, not the printer's: dispatch to the customer and
+  // undoing it, writing to the customer, and taking an order off the board for good.
+  { id: 'POST /api/<order>/sent', audience: AUDIENCES.OPERATOR, tokens: ['sent'], match: orderAction('sent') },
+  { id: 'POST /api/<order>/unsent', audience: AUDIENCES.OPERATOR, tokens: ['unsent'], match: orderAction('unsent') },
+  { id: 'POST /api/<order>/emailed', audience: AUDIENCES.OPERATOR, tokens: ['emailed'], match: orderAction('emailed') },
+  { id: 'POST /api/<order>/delete', audience: AUDIENCES.OPERATOR, tokens: ['delete'], match: orderAction('delete') },
+
+  // -- Both people: printing a book, end to end ---------------------------------------------------
+  { id: 'GET /', audience: AUDIENCES.BOTH, tokens: ['/'], match: atPath('/') },
+  { id: 'GET /review', audience: AUDIENCES.BOTH, tokens: ['/review'], match: atPath('/review') },
+  { id: 'GET /api/state', audience: AUDIENCES.BOTH, tokens: ['/api/state'], match: atPath('/api/state') },
+  { id: 'GET /api/studio', audience: AUDIENCES.BOTH, tokens: ['/api/studio'], match: atPath('/api/studio') },
+  // Each person's OWN profile — the route reads the role off the session and ignores any role in the
+  // body, so "both" here can never mean "either one's".
+  { id: 'POST /api/profile', audience: AUDIENCES.BOTH, tokens: ['/api/profile'], match: atPath('/api/profile') },
+  {
+    id: 'GET /api/avatar/<file>',
+    audience: AUDIENCES.BOTH,
+    tokens: ['avatar'],
+    match: (method, pathname, parts) => parts[0] === 'api' && parts[1] === 'avatar',
+  },
+  // An order's photographs and its two downloads: the book itself and the archive Jirka prints from.
+  {
+    id: 'GET /img/<order>/<base>/<kind>',
+    audience: AUDIENCES.BOTH,
+    tokens: ['img', 'coloring'],
+    match: (method, pathname, parts) => parts[0] === 'img',
+  },
+  { id: 'GET /svg/<order>/<base>', audience: AUDIENCES.BOTH, tokens: ['svg'], match: (method, pathname, parts) => parts[0] === 'svg' },
+  { id: 'GET /api/<order>/pdf', audience: AUDIENCES.BOTH, tokens: ['pdf'], match: orderAction('pdf') },
+  { id: 'GET /api/<order>/zip', audience: AUDIENCES.BOTH, tokens: ['zip'], match: orderAction('zip') },
+  // Generation. Jirka runs it: with WhatsApp gone he fetches the book himself, and a book that never
+  // generated is a book he cannot fetch.
+  { id: 'POST /api/_run', audience: AUDIENCES.BOTH, tokens: ['/api/_run'], match: atPath('/api/_run') },
+  { id: 'POST /api/_stop', audience: AUDIENCES.BOTH, tokens: ['/api/_stop'], match: atPath('/api/_stop') },
+  { id: 'POST /api/_select', audience: AUDIENCES.BOTH, tokens: ['/api/_select'], match: atPath('/api/_select') },
+  // The book's title page, and clearing an intake hold so a flagged order can be generated anyway.
+  { id: 'POST /api/<order>/dedication', audience: AUDIENCES.BOTH, tokens: ['dedication'], match: orderAction('dedication') },
+  { id: 'POST /api/<order>/intake-override', audience: AUDIENCES.BOTH, tokens: ['intake-override'], match: orderAction('intake-override') },
+  // Printing, and undoing a mis-click on it (R10).
+  { id: 'POST /api/<order>/printed', audience: AUDIENCES.BOTH, tokens: ['printed'], match: orderAction('printed') },
+  { id: 'POST /api/<order>/unprinted', audience: AUDIENCES.BOTH, tokens: ['unprinted'], match: orderAction('unprinted') },
+  // The per-photo review verdicts. Four segments, so every four-segment operator route above must
+  // stay above this line.
+  {
+    id: 'POST /api/<order>/<base>/<action>',
+    audience: AUDIENCES.BOTH,
+    tokens: ['approve', 'reject', 'handoff', 'replaced', 'redo', 'edit', 'revert'],
+    match: (method, pathname, parts) => method === 'POST' && parts[0] === 'api' && parts.length === 4,
+  },
+  // The dashboard's own CSS, JS, fonts and graphics — the dispatcher's static fallback. Deliberately
+  // matched by "a file of that name really exists under static/" rather than by "it is a GET":
+  // a bare `method === 'GET'` here would be a catch-all, and the next GET route somebody adds would
+  // land in the printer's allowlist by accident — the exact drift this table exists to stop.
+  // Nothing under static/ is secret; everything that is lives behind a route above.
+  {
+    id: 'GET <static asset>',
+    audience: AUDIENCES.BOTH,
+    tokens: [],
+    match: (method, pathname) => method === 'GET' && staticAssetPath(pathname) !== null,
+  },
+]);
+
+/**
+ * Who may reach this request? OPERATOR when nothing matches — that default IS the allowlist, and it
+ * is why an unrecorded route is refused rather than open.
+ */
+export function routeAudience(method, pathname, parts = pathname.split('/').filter(Boolean)) {
+  const entry = ROUTE_POLICY.find((r) => r.match(method, pathname, parts));
+  return entry ? entry.audience : AUDIENCES.OPERATOR;
+}
+
+/** May this role reach that audience? The operator reaches everything; the printer reaches what the
+ *  table named for both of them, and nothing it did not. */
+export function mayReach(role, audience) {
+  if (audience === AUDIENCES.ANYONE || audience === AUDIENCES.BOTH) return true;
+  return role === 'operator';
 }
 
 /** `revealFinished` opens the finished book's folder on the desktop. It defaults to off: a test
@@ -650,6 +836,30 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   }
 
   /**
+   * The signed-in person as the PAGE is allowed to see them (R8 step 3, R11).
+   *
+   * Three fields and a flag, assembled here rather than spread across the endpoints that return it,
+   * so there is exactly one place to check what crosses to the browser. What is deliberately absent
+   * is the point: no session token, no password hash, no environment variable name, nothing that
+   * helps anybody become this person. The role is included because the UI reflects it; it is not
+   * what enforces it (the check above is).
+   */
+  function identityFor(req) {
+    if (!req.identity) return null;
+    const account = readAccount(accountsDir, req.identity.role); // defaults when no account file exists yet
+    return {
+      role: req.identity.role,
+      username: account.username,
+      // A URL, never the file name on disk: the page has no business knowing how the accounts dir
+      // is laid out, and the route is the only way into it anyway.
+      avatar: account.avatar ? `/api/avatar/${account.avatar}` : null,
+      // KTD11: ungated local mode resolves ONE implicit operator. The page hides the profile surface
+      // on this flag — there is no second identity to tell apart and nothing to sign out of.
+      implicit: req.identity.implicit === true,
+    };
+  }
+
+  /**
    * POST /api/login — verify a password and mint a session.
    *
    * Three things are load-bearing and none of them are obvious from the happy path:
@@ -761,6 +971,21 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       }
     }
 
+    // --- THE ROLE CHECK (R8, KTD10) ---------------------------------------------------------------
+    //
+    // One table-driven check, ahead of every handler, so no route can be reached by a role the table
+    // did not name — including a route whose own handler forgot to ask. `req.identity` is undefined
+    // only on the pre-gate paths (the sign-in POST, the two branded assets), which the table records
+    // as reachable by anyone; in ungated local mode it is the implicit operator (KTD11), so the
+    // answer here is defined in every mode rather than "no identity, therefore no check".
+    //
+    // The refusal is logged with the route and the role and nothing else — a refused printer is
+    // either a stale tab or somebody typing URLs, and the operator should be able to tell which.
+    if (req.identity && !mayReach(req.identity.role, routeAudience(req.method, url.pathname, parts))) {
+      log(`refused ${req.method} ${url.pathname} for role ${req.identity.role}`);
+      return json(res, 403, { error: 'Tahle část studia je jen pro operátora.', code: 'forbidden' });
+    }
+
     try {
       // --- Sign in / sign out ---------------------------------------------------------------------
       // The only endpoint in the app that touches a password, and the only one that mints a session.
@@ -786,6 +1011,70 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return serveStatic('/login.html', res);
       }
 
+      // POST /api/profile { username?, image? } — a person changes their OWN display name or photo
+      // (R11, R13). The role comes off the SESSION and a `role` in the body is never read, so "may I
+      // change this account?" is not a check that can be forgotten — there is no code path here that
+      // writes to the other person's record. The username goes through accounts.js's mutator, so the
+      // collision rule (two people who cannot be told apart) applies to this route for free.
+      //
+      // `image` is base64 in the JSON body (KTD8), read under AVATAR_BODY_LIMIT — the cap is applied
+      // BY THE READER, so an oversized upload is refused mid-stream rather than after it has already
+      // been buffered. `image: null` clears the photo.
+      if (req.method === 'POST' && url.pathname === '/api/profile') {
+        // Ungated local mode has one implicit identity and no sign-in (KTD11). Renaming an account
+        // nobody signs in as would change a label with no way back through the UI, so it is refused
+        // here and the surface is hidden in the page.
+        if (!req.identity || req.identity.implicit) {
+          return json(res, 409, { error: 'V místním režimu se profil nenastavuje — nikdo se nepřihlašuje.', code: 'ungated' });
+        }
+        if (!accountsDir) return json(res, 503, { error: 'Účty nejsou nastavené (accounts.dataDir).', code: 'not-configured' });
+
+        const role = req.identity.role;
+        const body = await readJson(req, AVATAR_BODY_LIMIT);
+        const before = readAccount(accountsDir, role);
+        const patch = {};
+        if (typeof body?.username === 'string') patch.username = body.username;
+
+        let written = null; // the file this request created, for the rollback below
+        try {
+          if (typeof body?.image === 'string' && body.image.trim()) {
+            // Stored BEFORE the account is updated, and the previous file is kept until the update
+            // lands: a colliding username must not leave the record pointing at a deleted photo.
+            written = await storeAvatar({ dataDir: accountsDir, role, payload: body.image });
+            patch.avatar = written.file;
+          } else if (body?.image === null) {
+            patch.avatar = null;
+          }
+          if (!('username' in patch) && !('avatar' in patch)) return json(res, 400, { error: 'Není co změnit.' });
+          updateAccount(accountsDir, role, patch);
+        } catch (err) {
+          if (written) removeAvatar(accountsDir, written.file); // roll back the orphan
+          if (err instanceof AvatarError) {
+            return json(res, err.code === 'not-configured' ? 503 : err.code === 'too-large' ? 413 : 400, { error: err.message, code: err.code });
+          }
+          if (err instanceof AccountError) return json(res, 409, { error: err.message, code: 'account' });
+          throw err;
+        }
+        // The record now points at the new file (or at nothing), so the old one is safe to drop.
+        if ('avatar' in patch && before.avatar && before.avatar !== patch.avatar) removeAvatar(accountsDir, before.avatar);
+        return json(res, 200, { identity: identityFor(req) });
+      }
+
+      // GET /api/avatar/<file> — a stored profile photo, from the accounts data dir and nowhere else.
+      // The name is matched against the shape THIS SERVER generates (avatarFilePath), so a path from
+      // the URL cannot reach the filesystem; the Content-Type is the one the re-encode chose, never
+      // one the upload claimed; and nosniff stops a browser deciding it knows better.
+      if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'avatar' && parts.length === 3) {
+        const path = avatarFilePath(accountsDir, parts[2]);
+        if (!path || !existsSync(path)) return json(res, 404, { error: 'Not found.' });
+        res.writeHead(200, {
+          'Content-Type': AVATAR_MIME,
+          'X-Content-Type-Options': 'nosniff',
+          'Cache-Control': 'no-store',
+        });
+        return res.end(readFileSync(path));
+      }
+
       // Home is the studio dashboard; the review grid moved to /review. Both are served from the
       // static tree through the same contained path.
       if (req.method === 'GET' && url.pathname === '/') {
@@ -796,7 +1085,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       }
 
       if (req.method === 'GET' && url.pathname === '/api/state') {
-        return json(res, 200, { orders: forClient(state(), inFlight), inbox, outbox, run, selected, queue });
+        // `identity` rides along on the state read the review grid already makes, so the page never
+        // needs a second round trip to know who is signed in (R8 step 3). Credential material never
+        // appears in it — see identityFor.
+        return json(res, 200, { orders: forClient(state(), inFlight), inbox, outbox, run, selected, queue, identity: identityFor(req) });
       }
 
       // GET /api/studio — the live order board behind the dashboard's Objednávky + Potřebuje vás
@@ -811,7 +1103,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           firstLiveOrder: config.studio?.firstLiveOrder ?? null,
           dataDir: config.shopify?.dataDir ?? null,
         });
-        return json(res, 200, { ...board, inbox, run: { active: run.active, orderId: run.orderId }, autopilot: { running: autopilot.running, error: autopilot.error, report: autopilot.report } });
+        // The dashboard polls this one, so the identity travels here too: the page decides which
+        // views to build from it, and it must not paint an operator's nav for a printer for the
+        // 2.5 seconds before a second request answers.
+        return json(res, 200, { ...board, inbox, identity: identityFor(req), run: { active: run.active, orderId: run.orderId }, autopilot: { running: autopilot.running, error: autopilot.error, report: autopilot.report } });
       }
 
       // GET /api/mail — the read-only Proton inbox tile. Always 200 with a stable shape: the tile
