@@ -151,16 +151,6 @@
   .mr-del{margin-left:auto;color:var(--danger);border-color:var(--border)}
   .mr-del:hover{background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
   @media (max-width:820px){.mail-app{grid-template-columns:1fr;height:auto;min-height:0}.mail-scroll{max-height:50vh}}
-  /* WhatsApp delivery strip on the Objednávky tab: link state + a QR to scan the one time */
-  .wa-strip{display:flex;align-items:center;gap:14px;padding:12px 16px;border:1px solid var(--border);border-radius:12px;background:var(--surface);margin-bottom:14px}
-  .wa-strip[hidden]{display:none}
-  .wa-strip.linked{border-color:color-mix(in srgb,var(--success) 45%,var(--border))}
-  .wa-strip.needs-qr,.wa-strip.not-installed,.wa-strip.offline{border-color:color-mix(in srgb,var(--warn,#d98a00) 40%,var(--border))}
-  .wa-strip img{width:132px;height:132px;flex:none;border-radius:8px;background:#fff;padding:6px}
-  .wa-strip .wa-t{font-size:13.5px;font-weight:600;color:var(--ink)}
-  .wa-strip .wa-s{font-size:12.5px;color:var(--ink-2);margin-top:2px}
-  .wa-dot{width:8px;height:8px;border-radius:50%;flex:none}
-  .wa-dot.ok{background:var(--success)} .wa-dot.warn{background:var(--warn,#d98a00)} .wa-dot.off{background:var(--ink-3)}
   .act-cell .btn+.btn{margin-left:6px}
   /* bell: jumps to Potřebuje vás; a coral dot when something is waiting */
   .icon-btn{position:relative}
@@ -375,7 +365,6 @@
     <!-- ===== ORDERS ===== -->
     <section class="view" id="v-orders">
       <div class="overnight" hidden></div>
-      <div id="waStrip" class="wa-strip" hidden></div>
       <div class="orders-toolbar">
         <span class="fetch-note" id="fetchNote">Nové objednávky se stahují automaticky ze Shopify.</span>
       </div>
@@ -649,7 +638,6 @@
 
   /* ---- live board from /api/studio ---- */
   let studioData=null;
-  let waState=null; // WhatsApp delivery link state, polled from /api/whatsapp
 
   function orderFaceSvg(){return '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="9" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>';}
 
@@ -676,28 +664,16 @@
         act=`<button class="btn btn-primary sm act-buildpdf" data-buildpdf="${esc(o.orderId)}"${busyAttr}>Vytvořit PDF</button>`;
       }
       else if(o.status==="ready-to-send"){
-        // With WhatsApp linked, the primary action sends the book to Jirka and marks it in one step;
-        // a manual "mark sent" stays as the fallback for when David sends it by hand. Until the
-        // session is actually linked (needs-qr / connecting / offline), the send button is disabled
-        // with a tooltip — an active send while unlinked (N6) hits an unknown failure path.
-        const waOn=waState&&waState.state==="linked";
-        const send=waOn
-          ?`<button class="btn btn-primary sm act-deliver" data-deliver="${esc(o.orderId)}">Odeslat Jirkovi</button>`
-          :`<button class="btn btn-primary sm" disabled title="Nejdříve propojte WhatsApp (QR kód nahoře na této stránce).">Odeslat Jirkovi</button>`;
-        act=send+`<button class="btn btn-secondary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`;
+        // The book leaves this tool by hand (or Jirka fetches the PDF himself), so the board's job is
+        // to record that it went: "Označit odeslané" writes the delivery marker and the order drops
+        // off the active list. Nothing here contacts anyone.
+        act=`<button class="btn btn-primary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`;
       }
       // Sent, awaiting Jirka's print confirmation: the operator closes the loop with "Označit vytištěno"
-      // (N3). If the PDF was rebuilt after send (N10), the primary action becomes "Odeslat znovu" so
-      // Jirka isn't left printing a stale book.
+      // (N3). A stale chip (N10) still warns that the PDF was rebuilt after it went out, so Jirka isn't
+      // left printing an older book — the fix is to hand him the current one again.
       else if(o.status==="sent"){
-        // Resend to Jirka is always available on a sent order (he lost the message, wants it again),
-        // and becomes the primary action when the PDF went stale after sending (N10). Disabled with a
-        // tooltip until WhatsApp is linked.
-        const waOn=waState&&waState.state==="linked";
-        const resend=waOn
-          ?`<button class="btn ${o.stale?"btn-primary":"btn-secondary"} sm act-deliver" data-deliver="${esc(o.orderId)}">Odeslat Jirkovi znovu</button>`
-          :`<button class="btn btn-secondary sm" disabled title="Nejdříve propojte WhatsApp (QR kód nahoře na této stránce).">Odeslat Jirkovi znovu</button>`;
-        act=`${resend}<button class="btn ${o.stale?"btn-secondary":"btn-primary"} sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button><button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
+        act=`<button class="btn btn-primary sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button><button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
       }
       else if(o.status==="printed") act=`<button class="btn btn-ghost sm act-unprinted" data-unprinted="${esc(o.orderId)}">Vrátit</button>`;
       // A "Zobrazit PDF" link for any order whose book is on disk, so the operator can open it in a new
@@ -752,7 +728,7 @@
       // href, label + a one-word progress note keyed to the state.
       const CTA={
         generating:{href:"/review",label:"Zobrazit generátor",note:"generuje se"},
-        "ready-to-send":{href:"#orders",label:"Odeslat Jirkovi",note:"připraveno k odeslání"},
+        "ready-to-send":{href:"#orders",label:"Označit odeslané",note:"připraveno k odeslání"},
         approved:{href:"/review",label:"Vytvořit PDF",note:"schváleno"},
         "pending-review":{href:"/review",label:"Zkontrolovat",note:"zkontrolovat"}
       }[pick.status];
@@ -872,30 +848,7 @@
     fetchWasRunning=running;
   }
 
-  /* ---- WhatsApp delivery link state: shows "propojeno" or a QR to scan the one time ---- */
-  const WA_TEXT={
-    "linked":["dot ok","WhatsApp propojen","Hotové knihy odešlete Jirkovi tlačítkem „Odeslat Jirkovi“."],
-    "connecting":["dot warn","Připojuji WhatsApp…","Chvíli strpení, načítá se relace."],
-    "needs-qr":["dot warn","Propojte WhatsApp","V telefonu: WhatsApp → Propojená zařízení → Propojit zařízení, a naskenujte QR kód."],
-    "not-installed":["dot off","WhatsApp není nainstalován","Spusťte v terminálu: npm install whatsapp-web.js qrcode a restartujte studio."],
-    "offline":["dot off","WhatsApp nedostupný","Relaci se nepodařilo připojit. Zkuste restartovat studio."]
-  };
-  function renderWa(){
-    const strip=document.getElementById("waStrip"); if(!strip) return;
-    if(!waState||!waState.available||waState.state==="disabled"){strip.hidden=true;strip.innerHTML="";strip.className="wa-strip";return;}
-    const [dot,t,s]=WA_TEXT[waState.state]||["dot off","WhatsApp",""];
-    strip.className="wa-strip "+waState.state;strip.hidden=false;
-    const qr=waState.state==="needs-qr"&&waState.qr?`<img src="${esc(waState.qr)}" alt="WhatsApp QR">`:"";
-    strip.innerHTML=`${qr}<span class="wa-dot ${dot.split(" ")[1]||"off"}"></span><div><div class="wa-t">${esc(t)}</div><div class="wa-s">${esc(s)}</div></div>`;
-  }
-  async function fetchWa(){
-    try{const r=await fetch("/api/whatsapp");if(!r.ok)return;const prev=waState&&waState.state;waState=await r.json();renderWa();if(prev!==(waState&&waState.state)&&studioData)renderOrders(studioData);}
-    catch(e){/* leave last state */}
-  }
-  fetchWa();
-  setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["orders","home"].includes(v))fetchWa();},8000);
-
-  /* ---- board actions: send a finished order to Jirka on WhatsApp (or mark sent by hand), or undo ---- */
+  /* ---- board actions: record that an order went out (or was printed), or undo ---- */
   async function orderAction(id,action){
     try{const r=await fetch(`/api/${encodeURIComponent(id)}/${action}`,{method:"POST"});if(r.ok)await fetchStudio();}
     catch(e){/* offline — leave the board as-is */}
@@ -927,26 +880,18 @@
       else toast(j.error||"Smazání selhalo.");
     }catch(e){toast("Server neodpovídá.");}
   }
-  // Send the book to Jirka on WhatsApp. The order becomes 'sent' only if the server's send succeeded;
-  // a failure leaves it on the board with a toast so David can retry (or mark it sent by hand).
-  async function deliverToJirka(id,btn){
-    // An incomplete book (N2) must not leave for the printer on an unconfirmed click.
+  // Mark a finished order as gone out. An incomplete book (N2) must not be recorded as dispatched on
+  // an unconfirmed click — the count mismatch is the operator's last chance to catch a short book.
+  function markSent(id,btn){
     const o=(studioData&&studioData.orders||[]).find(x=>x.orderId===id);
-    if(o&&o.incomplete&&!confirm(`Objednávka ${id} je NEÚPLNÁ kniha (${o.incomplete.pages} z ${o.incomplete.expected} stran). Opravdu ji odeslat Jirkovi?`)) return;
-    const orig=btn?btn.textContent:null; // "Odeslat Jirkovi" or "Odeslat Jirkovi znovu" — restore on failure
-    if(btn){btn.disabled=true;btn.textContent="Odesílám…";}
-    try{
-      const r=await fetch(`/api/${encodeURIComponent(id)}/deliver`,{method:"POST"});
-      const j=await r.json().catch(()=>({}));
-      if(r.ok&&j.sent){toast("Odesláno Jirkovi ✓");await fetchStudio();}
-      else{toast(j.error||"Odeslání selhalo.");if(btn){btn.disabled=false;btn.textContent=orig;}}
-    }catch(e){toast("Server neodpovídá.");if(btn){btn.disabled=false;btn.textContent=orig;}}
+    if(o&&o.incomplete&&!confirm(`Objednávka ${id} je NEÚPLNÁ kniha (${o.incomplete.pages} z ${o.incomplete.expected} stran). Opravdu ji označit jako odeslanou?`)) return;
+    if(btn)btn.disabled=true;
+    orderAction(id,"sent");
   }
   document.getElementById("ordersBody").addEventListener("click",e=>{
     const g=e.target.closest(".act-generate");if(g){startOrderRun(g.dataset.generate,false,g);return;}
     const bp=e.target.closest(".act-buildpdf");if(bp){startOrderRun(bp.dataset.buildpdf,true,bp);return;}
-    const d=e.target.closest(".act-deliver");if(d){deliverToJirka(d.dataset.deliver,d);return;}
-    const s=e.target.closest(".act-sent");if(s){s.disabled=true;orderAction(s.dataset.sent,"sent");return;}
+    const s=e.target.closest(".act-sent");if(s){markSent(s.dataset.sent,s);return;}
     const p=e.target.closest(".act-printed");if(p){p.disabled=true;orderAction(p.dataset.printed,"printed");return;}
     const up=e.target.closest(".act-unprinted");if(up){up.disabled=true;orderAction(up.dataset.unprinted,"unprinted");return;}
     const u=e.target.closest(".act-unsent");if(u){u.disabled=true;orderAction(u.dataset.unsent,"unsent");return;}
@@ -1081,7 +1026,6 @@
   }
   /* ---- Nastavení (N14): read-only status, never a secret value ---- */
   const stPill=(ok,label,tone)=>`<span class="chip ${tone||(ok?"c-success":"c-neutral")}">${esc(label)}</span>`;
-  const waLabel=(w)=>{const s=w&&w.state;if(s==="linked")return stPill(true,"propojeno");if(s==="disabled")return stPill(false,"vypnuto");if(s==="offline")return stPill(false,"offline","c-danger");return stPill(false,s?("čeká na spárování"):"neznámý","c-warning");};
   function settingsRow(label,valHtml){return `<div class="set-row"><div class="set-k">${esc(label)}</div><div class="set-v">${valHtml}</div></div>`;}
   async function fetchSettings(){
     const box=document.getElementById("settings");
@@ -1116,7 +1060,6 @@
         ${settingsRow("AI popis fotek",`${cfg(ai)} ${en(ai)}${ai.model?` <code>${esc(ai.model)}</code>`:""}`)}
         ${settingsRow("Pošta",`${cfg(ml)} ${en(ml)}${ml.user?` <code>${esc(ml.user)}</code>`:""}${ml.host?` <span class="dim">· ${esc(ml.host)}${ml.port?":"+ml.port:""}</span>`:""}`)}
         ${ml.from&&ml.from!==ml.user?settingsRow("Odesílá jako",`<code>${esc(ml.from)}</code>`):""}
-        ${settingsRow("WhatsApp (Jirkovi)",waLabel(s.whatsapp))}
         <div class="set-note">Tokeny a hesla se nikde nezobrazují — jen jestli jsou nastavené a kam míří.</div>
       </div>
       <div class="set-card">

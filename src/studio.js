@@ -18,9 +18,9 @@ import { readReport } from './autopilotReport.js';
 export const deliveredMarkerPath = (orderDir) => join(orderDir, 'delivered.json');
 
 /** The operator confirms a finished book has gone to Jirka: write the terminal delivery marker so
- *  the order derives to 'sent' and drops off the active board. This is a MANUAL acknowledgement —
- *  nothing here contacts Jirka; it only records that the operator already did. Idempotent. Later,
- *  automated WhatsApp delivery (Phase 2) would write the same marker in the operator's place. */
+ *  the order derives to 'sent' and drops off the active board. This is a MANUAL acknowledgement and
+ *  the ONLY way the marker is ever written — nothing in this tool hands a book to anyone; it only
+ *  records that the operator already did. Idempotent. */
 export function markDelivered(orderDir, info = {}) {
   // Stamp the mtime of the exact PDF that went out (N10): if the book is rebuilt after this, the
   // board can tell the sent file is now stale and offer to re-send. mtime, not a hash — a rebuild
@@ -42,8 +42,8 @@ export function unmarkDelivered(orderDir) {
 }
 
 /** The 'printed' marker: the operator confirms Jirka actually printed the book (N3). This single
- *  manual bit closes the lifecycle past 'sent' — a WhatsApp message could be lost, so 'odesláno' is
- *  not proof of print — and it is what gates the photo purge: a customer's photos are only ever
+ *  manual bit closes the lifecycle past 'sent' — a handoff can go astray, so 'odesláno' is not proof
+ *  of print — and it is what gates the photo purge: a customer's photos are only ever
  *  deleted once their book is confirmed printed (see retention.js). Its presence is the source of
  *  truth for 'printed'. */
 export const printedMarkerPath = (orderDir) => join(orderDir, 'printed.json');
@@ -73,7 +73,7 @@ export const ORDER_BOARD_STATES = Object.freeze({
   HELD: 'held',
   PENDING_REVIEW: 'pending-review',
   APPROVED: 'approved', // every photo approved, but no Final.pdf on disk yet → CTA "Vytvořit PDF"
-  READY_TO_SEND: 'ready-to-send', // the book exists on disk → CTA "Odeslat Jirkovi"
+  READY_TO_SEND: 'ready-to-send', // the book exists on disk → CTA "Označit odeslané"
   SENT: 'sent', // delivered to Jirka, awaiting his print confirmation → CTA "Označit vytištěno"
   PRINTED: 'printed', // Jirka confirmed the print; terminal, and the only state a purge will touch
   FAILED: 'failed',

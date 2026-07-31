@@ -116,7 +116,7 @@ test('an order whose book was never finished is never touched, however old', () 
 test('an order sent to Jirka but not yet confirmed printed keeps its photos (N3 — odesláno is not vytištěno)', () => {
   const f = fixture();
   try {
-    // Book built and delivered long ago, but no printed.json: the WhatsApp message could have been lost.
+    // Book built and delivered long ago, but no printed.json: the handoff could have gone astray.
     const dir = order(f.outbox, '1400', { printed: false, printedDaysAgo: 900 });
     const result = purgeOriginals({ outboxRoot: f.outbox, days: 30, now: NOW, dryRun: false });
 

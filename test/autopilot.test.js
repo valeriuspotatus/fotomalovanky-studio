@@ -326,10 +326,10 @@ test('the night report is written to the fixed data-dir path and carries count +
   }
 });
 
-test('the no-send invariant is structural — autopilot imports no delivery/WhatsApp/Proton path', () => {
+test('the no-send invariant is structural — autopilot imports no delivery/Proton path', () => {
   const src = readFileSync(new URL('../src/autopilot.js', import.meta.url), 'utf8');
   const importLines = src.split('\n').filter((l) => /^\s*import\b/.test(l));
-  for (const forbidden of ['whatsapp', 'proton', 'delivery', 'markdelivered', 'bridge']) {
+  for (const forbidden of ['proton', 'delivery', 'markdelivered', 'bridge']) {
     assert.ok(
       !importLines.some((l) => l.toLowerCase().includes(forbidden)),
       `autopilot must not import a "${forbidden}" module — no send path may exist in this scope`,

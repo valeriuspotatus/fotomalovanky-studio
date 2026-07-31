@@ -32,11 +32,6 @@
   "studio": {
     "firstLiveOrder": null
   },
-  "whatsapp": {
-    "enabled": false,
-    "recipient": "REPLACE_WITH_JIRKAS_WHATSAPP_NUMBER_OR_ID",
-    "sessionDir": ""
-  },
   "mail": {
     "enabled": false,
     "host": "127.0.0.1",

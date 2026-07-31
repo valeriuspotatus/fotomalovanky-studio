@@ -16,11 +16,6 @@
     "outbox": "/data/outbox"
   },
   "studio": { "firstLiveOrder": null },
-  "whatsapp": {
-    "enabled": true,
-    "recipient": "COPY_FROM_LOCAL_config.json (Jirka's number or the Objednávky group id)",
-    "sessionDir": "/data/whatsapp-session"
-  },
   "mail": { "enabled": false },
   "ai": {
     "enabled": true,
