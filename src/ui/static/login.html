@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Přihlášení — Fotomalovánky Studio</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<!-- Every style is inline, on purpose. This page is served to anyone who reaches the studio without
+     a session, so each extra file it needs would have to be added to the gate's pre-gate allowlist
+     (src/auth/sessions.js) — and the dashboard's stylesheets are exactly what must NOT be handed to
+     an anonymous visitor. Colours mirror css/tokens.css; keep them in step by hand. -->
+<style>
+  :root{
+    --paper:#FBFAF8; --surface:#FFFFFF; --border:#EAE6E0;
+    --ink:#22262E; --ink-2:#565D69; --ink-3:#8A909B;
+    --brand:#F1543F; --brand-hover:#E0442F; --brand-ring:#F1543F33;
+    --danger:#E5533D; --danger-soft:#FCE9E5;
+    --r-md:12px; --r-lg:16px;
+    --shadow-lg:0 12px 40px rgba(40,33,28,.14);
+    --font-ui:"Manrope","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+    --font-display:"Fredoka","Baloo 2",ui-rounded,"Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; display:grid; place-items:center; padding:24px;
+    font-family:var(--font-ui); color:var(--ink);
+    background:radial-gradient(1200px 600px at 50% -10%, #FDECE8 0%, var(--paper) 60%);
+  }
+  .card{
+    width:100%; max-width:380px; background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--r-lg); box-shadow:var(--shadow-lg); padding:32px 28px;
+  }
+  .brand{display:flex; flex-direction:column; align-items:center; gap:12px; margin-bottom:24px}
+  .brand img{height:38px; width:auto}
+  h1{font-family:var(--font-display); font-size:20px; margin:0; font-weight:600}
+  p.sub{margin:4px 0 0; font-size:13px; color:var(--ink-2); text-align:center}
+  label{display:block; font-size:13px; font-weight:600; margin:16px 0 6px}
+  input{
+    width:100%; padding:11px 12px; font:inherit; font-size:15px; color:var(--ink);
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md); outline:none;
+  }
+  input:focus{border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-ring)}
+  button{
+    width:100%; margin-top:22px; padding:12px 16px; font:inherit; font-size:15px; font-weight:600;
+    color:#fff; background:var(--brand); border:0; border-radius:var(--r-md); cursor:pointer;
+  }
+  button:hover{background:var(--brand-hover)}
+  button[disabled]{opacity:.6; cursor:progress}
+  .err{
+    margin-top:16px; padding:10px 12px; font-size:13px; border-radius:var(--r-md);
+    background:var(--danger-soft); color:var(--danger); border:1px solid #F6C9C0;
+  }
+  .err[hidden]{display:none}
+  footer{margin-top:20px; text-align:center; font-size:12px; color:var(--ink-3)}
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">
+      <img src="/creatives/logo.svg" alt="Fotomalovánky">
+      <h1>Přihlášení do studia</h1>
+      <p class="sub">Zadejte své jméno a heslo.</p>
+    </div>
+
+    <form id="f" autocomplete="on">
+      <label for="username">Jméno</label>
+      <input id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+
+      <label for="password">Heslo</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+      <button id="go" type="submit">Přihlásit se</button>
+    </form>
+
+    <div class="err" id="err" role="alert" hidden></div>
+    <footer>Fotomalovánky Studio</footer>
+  </main>
+
+<script>
+  // One deliberately dull form. The password leaves this page in a JSON body over HTTPS and is
+  // never stored, never put in the URL, and never logged — the server logs the attempted username
+  // and the outcome only.
+  const form = document.getElementById('f');
+  const err = document.getElementById('err');
+  const go = document.getElementById('go');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    err.hidden = true;
+    go.disabled = true;
+    go.textContent = 'Přihlašuji…';
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin', // the session cookie is HttpOnly; only the browser ever holds it
+        body: JSON.stringify({
+          username: document.getElementById('username').value,
+          password: document.getElementById('password').value,
+        }),
+      });
+      if (res.ok) {
+        // Replace, not assign: the sign-in page must not sit in the back stack behind the studio.
+        location.replace('/');
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      err.textContent = body.error || 'Přihlášení se nezdařilo.';
+      err.hidden = false;
+    } catch {
+      err.textContent = 'Server neodpovídá. Zkuste to prosím znovu.';
+      err.hidden = false;
+    } finally {
+      document.getElementById('password').value = '';
+      go.disabled = false;
+      go.textContent = 'Přihlásit se';
+    }
+  });
+</script>
+</body>
+</html>

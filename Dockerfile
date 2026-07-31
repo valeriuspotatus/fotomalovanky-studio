@@ -23,13 +23,12 @@ COPY . .
 # Render injects $PORT and expects a 0.0.0.0 bind (HOST). Locally the app still defaults to
 # 127.0.0.1:4173 when these are unset.
 #   - config.json arrives as a Render Secret File; FMA_CONFIG points the loader at it.
-#   - STUDIO_USER / STUDIO_PASS turn on the login gate (set them in the Render env — the public URL
-#     has no other auth).
 #   - STUDIO_OPERATOR_PASS_HASH / STUDIO_PRINTER_PASS_HASH hold the per-person passwords — one scrypt
 #     hash per ROLE, generated with `node src/auth/credentials.js <password>` and pasted into the
 #     Render env. Keyed by role, not username, so renaming an account never locks it out. The hashes
 #     live ONLY here, never in config.json and never on the mounted disk (KTD1) — the disk holds
-#     usernames and avatars only.
+#     usernames and avatars only. BOTH must be set: with neither, the app refuses to start at all on
+#     this image, because HOST=0.0.0.0 below would otherwise serve the whole studio ungated.
 #   - Data dirs (inbox/outbox, creatives, blog, autopilot, accounts) must point under the mounted
 #     persistent disk in the cloud config.json, or they vanish on redeploy.
 ENV HOST=0.0.0.0 \

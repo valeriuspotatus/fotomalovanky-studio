@@ -4,7 +4,6 @@ import { readFileSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSy
 import { join, dirname, resolve, sep, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { timingSafeEqual } from 'node:crypto';
 import sharp from 'sharp';
 import { ZipArchive } from 'archiver';
 import { loadConfig } from '../config.js';
@@ -51,6 +50,26 @@ import {
   ReviewError,
 } from '../review.js';
 import { migrateDedications, MEMORY_DIR } from '../dedications.js';
+import { verifyRolePassword } from '../auth/credentials.js';
+import { readAccounts } from '../auth/accounts.js';
+import {
+  AUTH_MODES,
+  AuthConfigError,
+  IMPLICIT_OPERATOR,
+  LOGIN_PAGE_PATH,
+  SIGN_IN_PATH,
+  SIGN_OUT_PATH,
+  assertLocalModeIsSafe,
+  clearedSessionCookie,
+  createSessionStore,
+  isLoopbackHost,
+  isPreGate,
+  resolveAuthMode,
+  sessionCookie,
+  tokenFromRequest,
+  wantsSignInPage,
+} from '../auth/sessions.js';
+import { SignInBusyError, isSameOrigin, sharedSignInThrottle } from '../auth/throttle.js';
 
 // The U4 review grid: a local page over state.json. Bound to 127.0.0.1 only — it can approve
 // photos and spend GPU, and it serves customer faces.
@@ -326,9 +345,24 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
  *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
  *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
  *  double-click launcher, where a real operator is watching, turns it on. */
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient, smtpClient, adImageFn } = {}) {
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient, smtpClient, adImageFn, authEnv = process.env, bindHost = authEnv.HOST, sessions = createSessionStore(), signInThrottle = sharedSignInThrottle() } = {}) {
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
+
+  // --- Sign-in, decided ONCE, here, from the environment this server was built with ---------------
+  //
+  // Snapshotted rather than re-read per request: the mode is a property of the deployment, and
+  // re-reading process.env on every request would let a later mutation silently open a server that
+  // started closed. It also keeps two servers in one process (the test suite) independent.
+  //
+  // `assertLocalModeIsSafe` is the guard that makes the ungated path survivable. It throws — before
+  // a socket exists — when no password hashes are configured AND the server would bind an address
+  // beyond this machine. The Dockerfile sets HOST=0.0.0.0, so a Render deploy that forgot the
+  // hashes stops here instead of publishing the studio.
+  assertLocalModeIsSafe({ env: authEnv, bindHost });
+  const auth = resolveAuthMode(authEnv);
+  const accountsDir = config?.accounts?.dataDir ?? null;
+  if (auth.mode === AUTH_MODES.MISCONFIGURED) log(auth.message);
   const inFlight = new Map(); // "order/base" -> { message }
   // `orderId` is the order the run is generating right now, so the board can tell 'generating' from
   // 'queued' — the review state alone shows both as all-null photo statuses.
@@ -605,6 +639,79 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       .finally(() => inFlight.delete(key));
   }
 
+  /** The role that answers to a typed username, or null. Usernames live in the account file and can
+   *  be renamed at runtime; the password hash is keyed by ROLE, so a rename can never lock anybody
+   *  out (KTD1). Compared the same case-insensitive way accounts.js refuses a colliding name. */
+  function roleForUsername(username) {
+    const wanted = String(username ?? '').trim().toLocaleLowerCase('cs');
+    if (!wanted) return null;
+    const match = readAccounts(accountsDir).find((a) => a.username.toLocaleLowerCase('cs') === wanted);
+    return match ? match.role : null;
+  }
+
+  /**
+   * POST /api/login — verify a password and mint a session.
+   *
+   * Three things are load-bearing and none of them are obvious from the happy path:
+   *
+   *   - EVERY answer is the same. Unknown username, wrong password and a role whose hash is missing
+   *     all return the identical 401 after the identical scrypt work (credentials.js derives against
+   *     a dummy hash rather than returning early), so the response cannot be used to enumerate who
+   *     has an account here.
+   *   - The token is minted fresh by the session store and never adopted from the request. There is
+   *     no code path that turns a client-supplied cookie into a live session, which is session
+   *     fixation closed by construction.
+   *   - The attempt is logged — outcome, attempted username, timestamp — and NOTHING else. The
+   *     password, the stored hash and the new token never reach the log line.
+   */
+  async function handleSignIn(req, res) {
+    const body = await readJson(req, 8 * 1024);
+    const username = typeof body?.username === 'string' ? body.username.trim() : '';
+    const password = typeof body?.password === 'string' ? body.password : '';
+    const at = new Date().toISOString();
+    /** Never interpolate anything but the typed username here. */
+    const attempt = (outcome, detail = '') => log(`sign-in ${outcome} for ${JSON.stringify(username)} at ${at}${detail ? ` — ${detail}` : ''}`);
+
+    if (auth.mode !== AUTH_MODES.GATED) {
+      attempt('unavailable', 'no passwords are configured; this studio runs ungated');
+      return json(res, 409, { error: 'Přihlášení není v místním režimu potřeba.', code: 'ungated' });
+    }
+    if (!username || !password) {
+      attempt('rejected', 'missing username or password');
+      return json(res, 400, { error: 'Vyplňte jméno i heslo.' });
+    }
+
+    const role = roleForUsername(username);
+    let ok;
+    try {
+      // The throttle owns the pacing AND the global cap on concurrent derivations; the callback is
+      // the only thing inside it that sees a password. An unknown username still runs a full
+      // derivation (verifyRolePassword against no hash) so it costs what a real one costs.
+      ok = await signInThrottle.run(username, () => verifyRolePassword(role ?? '__unknown__', password, { env: authEnv }));
+    } catch (err) {
+      if (err instanceof SignInBusyError) {
+        attempt('deferred', 'too many verifications in flight');
+        res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': String(err.retryAfterSeconds) });
+        return res.end(JSON.stringify({ error: err.message, code: 'busy' }));
+      }
+      throw err;
+    }
+
+    if (!ok) {
+      attempt('failed');
+      return json(res, 401, { error: 'Jméno nebo heslo nesouhlasí.' });
+    }
+
+    const token = sessions.create(role);
+    attempt('ok', `role ${role}`);
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Set-Cookie': sessionCookie(token),
+    });
+    return res.end(JSON.stringify({ ok: true, role }));
+  }
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
@@ -617,15 +724,68 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     // locally. It is the commit only, no repo/branch/env — nothing worth gating behind auth, and this
     // route must stay unauthenticated or the host's health check kills the instance.
     if (url.pathname === '/healthz') return json(res, 200, { ok: true, commit: process.env.RENDER_GIT_COMMIT ?? null });
-    // Optional password gate for public hosting (Render has no built-in auth). Active only when both
-    // STUDIO_USER + STUDIO_PASS are set, so local runs are unchanged. HTTPS at the host makes Basic
-    // Auth safe enough for one operator; without it the whole customer-book/mail panel is open.
-    if (!checkAuth(req)) {
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Fotomalovanky"', 'Content-Type': 'text/plain; charset=utf-8' });
-      return res.end('Přihlášení vyžadováno.');
+    // Same-origin check on anything that can change something (KTD4). Ahead of the gate because the
+    // sign-in POST is itself mutating and itself pre-gate; a GET is never affected.
+    if (!isSameOrigin(req)) {
+      return json(res, 403, { error: 'Požadavek přišel z jiné stránky a byl odmítnut.' });
+    }
+
+    // --- THE REQUEST GATE (KTD9) -----------------------------------------------------------------
+    //
+    // Exactly where checkAuth stood: after the /healthz early return, once per request. Deliberately
+    // REQUEST-scoped and not stream-scoped — /api/<order>/zip streams for minutes after its headers
+    // are sent, and a session expiring mid-download must not truncate the operator's archive. There
+    // are no per-chunk checks anywhere downstream, and there must not be.
+    //
+    // The identity it resolves hangs off the request for handlers to read (role enforcement is U6).
+    if (auth.mode === AUTH_MODES.MISCONFIGURED) {
+      // Half-configured: one role has a hash, the other's env var is missing or misspelled. This is
+      // the case the old boolean would have collapsed into "not configured" and served the whole
+      // studio for. It refuses everything but /healthz instead, and says what is missing. Logged
+      // once at construction, not here — a refusal per request would bury the reason in noise.
+      return json(res, 503, { error: auth.message, code: 'auth-misconfigured' });
+    }
+    if (auth.mode === AUTH_MODES.UNGATED) {
+      // No role has a password at all: the desktop workflow. Safe only because the constructor
+      // already refused to build this server on a non-loopback bind (assertLocalModeIsSafe).
+      req.identity = IMPLICIT_OPERATOR; // KTD11 — role checks need a defined answer
+    } else {
+      const session = sessions.get(tokenFromRequest(req));
+      if (session) {
+        req.identity = { role: session.role, implicit: false };
+      } else if (!isPreGate(req.method, url.pathname)) {
+        // Anonymous. A page request gets the sign-in form; an API call is refused where it stands
+        // rather than redirected, so fetch() reports "signed out" instead of choking on HTML.
+        if (wantsSignInPage(req.method, url.pathname)) return serveStatic('/login.html', res);
+        return json(res, 401, { error: 'Přihlaste se prosím.', code: 'signed-out' });
+      }
     }
 
     try {
+      // --- Sign in / sign out ---------------------------------------------------------------------
+      // The only endpoint in the app that touches a password, and the only one that mints a session.
+      if (req.method === 'POST' && url.pathname === SIGN_IN_PATH) {
+        return await handleSignIn(req, res);
+      }
+      // Sign-out is NOT pre-gate: destroying a session requires holding one. It deletes the SERVER
+      // entry — clearing the cookie alone would leave a copied token live (KTD3).
+      if (req.method === 'POST' && url.pathname === SIGN_OUT_PATH) {
+        sessions.destroy(tokenFromRequest(req));
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': clearedSessionCookie() });
+        return res.end(JSON.stringify({ ok: true }));
+      }
+      // The sign-in page for someone who already has a session: send them to the studio rather than
+      // showing a form they do not need.
+      // In ungated local mode this is every visit to /login, and it is why that mode has no sign-in
+      // page at all (KTD11): there is nothing to sign in to and nobody to distinguish.
+      if (req.method === 'GET' && url.pathname === LOGIN_PAGE_PATH) {
+        if (req.identity) {
+          res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
+          return res.end();
+        }
+        return serveStatic('/login.html', res);
+      }
+
       // Home is the studio dashboard; the review grid moved to /review. Both are served from the
       // static tree through the same contained path.
       if (req.method === 'GET' && url.pathname === '/') {
@@ -1281,6 +1441,22 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     }
   });
 
+  // The last word on the fail-open guard, checked against the address the socket ACTUALLY bound.
+  // `assertLocalModeIsSafe` above reads the declared HOST, which is what a deploy gets wrong; this
+  // catches a caller that passed a different address to listen() and would otherwise publish an
+  // ungated studio anyway. Closing and re-raising is a refusal to start, not a degraded mode.
+  server.on('listening', () => {
+    if (auth.mode !== AUTH_MODES.UNGATED) return;
+    const address = server.address();
+    const bound = address && typeof address === 'object' ? address.address : null;
+    if (isLoopbackHost(bound)) return;
+    server.close();
+    server.emit('error', new AuthConfigError(
+      `Refusing to serve: no password hashes are configured and the server bound ${bound}, which is not ` +
+        `loopback. Set the role password hashes, or bind 127.0.0.1.`,
+    ));
+  });
+
   // Auto-fetch: poll Shopify for new orders on a timer so they land on the board on their own, without
   // the operator clicking "Načíst nové objednávky". Same pass as the button (fetch + generate), so a
   // tick that lands mid-run/redo/fetch is skipped silently by startAutopilot's run-lock. Off when
@@ -1333,33 +1509,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
 
 // CLI: node src/ui/server.js [inbox] [outbox] [--port 4173] [--no-open]
 // This is what the double-click launcher runs: the operator's whole tool is this page.
-/** Optional HTTP Basic Auth gate for public hosting. Returns true when the request is allowed: either
- *  no gate is configured (STUDIO_USER/STUDIO_PASS unset → local runs unchanged) or the request carries
- *  matching credentials. Timing-safe compare so the check can't be probed by response timing. */
-export function checkAuth(req) {
-  const user = process.env.STUDIO_USER;
-  const pass = process.env.STUDIO_PASS;
-  if (!user || !pass) return true; // no gate configured — local/dev
-  const m = /^Basic (.+)$/.exec(req.headers.authorization || '');
-  if (!m) return false;
-  let decoded;
-  try {
-    decoded = Buffer.from(m[1], 'base64').toString('utf8');
-  } catch {
-    return false;
-  }
-  const i = decoded.indexOf(':');
-  if (i < 0) return false;
-  return safeEqual(decoded.slice(0, i), user) && safeEqual(decoded.slice(i + 1), pass);
-}
-
-/** Constant-time string compare (length-guarded — timingSafeEqual throws on length mismatch). */
-function safeEqual(a, b) {
-  const ab = Buffer.from(String(a));
-  const bb = Buffer.from(String(b));
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
-}
-
+//
+// The Basic Auth gate that used to live here (STUDIO_USER/STUDIO_PASS) is gone. It has been replaced
+// by the session gate inside createReviewServer: per-role scrypt hashes, a sign-in page, and a
+// refusal to run ungated anywhere but a loopback bind (src/auth/sessions.js).
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const argv = process.argv.slice(2);
   const portFlag = argv.indexOf('--port');
@@ -1376,7 +1529,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(1);
   }
 
-  const { server, shutdown } = createReviewServer({ config, inboxRoot, outboxRoot, revealFinished: true, log: (m) => console.log(`  ${m}`) });
+  // `host` is handed in rather than re-read inside, so the safety check is made against the address
+  // this process is actually about to bind — including a --port/HOST combination the env alone would
+  // not describe. An AuthConfigError here means the studio would have been served ungated to the
+  // world; it is a refusal to start, printed like the config errors above.
+  let started;
+  try {
+    started = createReviewServer({ config, inboxRoot, outboxRoot, revealFinished: true, bindHost: host, log: (m) => console.log(`  ${m}`) });
+  } catch (err) {
+    console.error(`\n${err.message}\n`);
+    process.exit(1);
+  }
+  const { server, shutdown } = started;
   // Stop the background timers cleanly on the way out. Guard against double-fire (SIGINT then SIGTERM).
   let stopping = false;
   const stop = async () => {

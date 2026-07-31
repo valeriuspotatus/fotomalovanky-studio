@@ -33,15 +33,35 @@ Add these under **Environment**:
 
 | Key | Value |
 |-----|-------|
-| `STUDIO_USER` | a username you choose (the login for the site) |
-| `STUDIO_PASS` | a strong password you choose |
+| `STUDIO_OPERATOR_PASS_HASH` | David's password, hashed — see below |
+| `STUDIO_PRINTER_PASS_HASH` | Jirka's password, hashed — see below |
 | `FMA_CONFIG` | `/etc/secrets/config.json` |
 | `FMA_SHOPIFY_TOKEN` | *(optional)* your Shopify read_orders token, if you'd rather not put it in the config file |
 
 `PORT` and `HOST` are handled automatically — don't set them.
 
-⚠️ **`STUDIO_USER` + `STUDIO_PASS` are the only thing protecting the public URL** (it controls your books
-and orders). Pick a real password.
+**Producing the two hashes.** On your own machine, in the project folder:
+
+```
+node src/auth/credentials.js "the password you chose"
+```
+
+It prints one long `scrypt$...` line. Paste that line into Render as the value — never the password
+itself. Do it once per person: the operator's line goes in `STUDIO_OPERATOR_PASS_HASH`, the printer's
+in `STUDIO_PRINTER_PASS_HASH`. The variables are keyed by **role**, not by name, so renaming yourself
+in the app later cannot lock you out.
+
+⚠️ **Set BOTH before the deploy, not after.** These two variables are the only thing protecting the
+public URL (it controls your books, your orders and your customers' photographs), so the app refuses
+to run without them on a public bind:
+
+| What you set | What happens |
+|---|---|
+| both hashes | the sign-in page appears, both people sign in |
+| only one | every page answers "sign-in is half-configured", naming the variable you missed |
+| neither | the container refuses to start at all, rather than publishing the studio |
+
+`/healthz` keeps answering in all three cases, so Render's health check never hides the problem.
 
 ## 5. Add the config as a Secret File
 - Service settings → **Secret Files** → **Add Secret File**
