@@ -27,6 +27,55 @@ import { readReport } from './autopilotReport.js';
 // a live customer's photographs purge-eligible. Deleting it would be equally wrong: it is the only
 // record those handoffs ever happened. So: left alone, never consulted.
 
+// WHO WROTE THE MARKER (R9, U8).
+//
+// `by: 'operator'` used to be a constant: both writers accepted caller-supplied info and every call
+// site omitted it, so a marker written by Jirka and one written by David were byte-identical in the
+// one field that was supposed to tell them apart. Splitting `printed` (the printer's act) from
+// `sent` (the operator's) is pointless if the audit trail cannot say who did which — that split IS
+// the reason there are two accounts at all.
+//
+// Two fields, not one. `by` is the DISPLAY NAME the person chose and may change tomorrow (R11);
+// `byRole` is the role, which cannot change and is therefore the field anything mechanical should
+// read. Storing only the name would leave a renamed account's old markers unattributable; storing
+// only the role would lose the person.
+
+/** The one identity a local ungated studio has (KTD11). Nobody signs in there, so there is no
+ *  display name to record and the marker reads exactly as it always did before per-user logins. */
+export const IMPLICIT_ACTOR = Object.freeze({ by: 'operator', byRole: 'operator' });
+
+/** The actor fields for a marker, from a resolved request identity (`{ role, username, implicit }`).
+ *  Total: an absent, implicit or unrecognisable identity falls back to the implicit operator rather
+ *  than throwing — a marker that cannot be attributed must still be writable, because refusing to
+ *  record that a book was printed is worse than recording it against nobody in particular. */
+export function markerActor(identity = null) {
+  if (!identity || identity.implicit === true) return { ...IMPLICIT_ACTOR };
+  const byRole = identity.role === 'printer' ? 'printer' : 'operator';
+  const named = typeof identity.username === 'string' ? identity.username.trim() : '';
+  return { by: named || byRole, byRole };
+}
+
+/** What a marker file says about who wrote it, or null when there is nothing recognisable there.
+ *
+ *  Every failure mode answers null rather than throwing: markers written before this change carry
+ *  `by: 'operator'` and no role, markers on the live disk may predate even that, and a hand-edited
+ *  or truncated file is not an error the board should die of. A caller that wants "somebody, we
+ *  don't know who" gets it as null and can say so. */
+export function readMarkerActor(markerPath) {
+  if (!existsSync(markerPath)) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(markerPath, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const by = typeof parsed.by === 'string' && parsed.by.trim() ? parsed.by.trim() : null;
+  if (!by) return null;
+  const byRole = parsed.byRole === 'printer' || parsed.byRole === 'operator' ? parsed.byRole : null;
+  return { by, byRole };
+}
+
 /** The dispatch marker: the finished book was posted to the CUSTOMER (R14). A DISTINCT filename
  *  from the retired `delivered.json` — see the note above; the two mean different things and must
  *  never share a path. Its presence is the source of truth for 'sent'. */
@@ -35,11 +84,14 @@ export const sentMarkerPath = (orderDir) => join(orderDir, 'sent.json');
 /** The operator confirms a printed book has gone into the post: write the terminal dispatch marker
  *  so the order derives to 'sent' and drops off the active board. This is a MANUAL acknowledgement
  *  and the ONLY way the marker is ever written — nothing in this tool posts anything to anyone; it
- *  only records that the operator already did. Idempotent. */
-export function markSent(orderDir, info = {}) {
+ *  only records that the operator already did. Idempotent.
+ *
+ *  `identity` is the resolved request identity of whoever clicked (R9). Omitted → the implicit
+ *  operator, which is what an ungated local studio and every non-HTTP caller are. */
+export function markSent(orderDir, identity = null) {
   writeFileSync(
     sentMarkerPath(orderDir),
-    JSON.stringify({ at: new Date().toISOString(), by: 'operator', ...info }, null, 2),
+    JSON.stringify({ at: new Date().toISOString(), ...markerActor(identity) }, null, 2),
   );
   return ORDER_BOARD_STATES.SENT;
 }
@@ -79,11 +131,14 @@ export function readSentMarker(orderDir) {
 export const printedMarkerPath = (orderDir) => join(orderDir, 'printed.json');
 
 /** Jirka marks a ready book printed. Idempotent. The marker's own mtime is the clock the U10
- *  migration copies onto a backfilled dispatch marker, so retention cannot restart at zero. */
-export function markPrinted(orderDir, info = {}) {
+ *  migration copies onto a backfilled dispatch marker, so retention cannot restart at zero.
+ *
+ *  `identity` is who clicked (R9) — normally the printer here, which is the whole point of
+ *  recording it: this marker and the dispatch marker must name different people. */
+export function markPrinted(orderDir, identity = null) {
   writeFileSync(
     printedMarkerPath(orderDir),
-    JSON.stringify({ at: new Date().toISOString(), by: 'operator', ...info }, null, 2),
+    JSON.stringify({ at: new Date().toISOString(), ...markerActor(identity) }, null, 2),
   );
   return ORDER_BOARD_STATES.PRINTED;
 }
@@ -249,7 +304,23 @@ export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => fal
   for (const entry of board) counts[entry.status] += 1;
 
   const needsYou = board.filter((entry) => entry.status === ORDER_BOARD_STATES.HELD);
-  return { orders: board, counts, needsYou };
+  return { orders: board, counts, needsYou, printQueue: printQueue(board) };
+}
+
+/** Jirka's queue (R10, U12): every order whose book is BUILT and which nobody has printed yet.
+ *
+ *  Derived from the board's own status rather than re-reading the markers, so the queue can never
+ *  disagree with the board about an order — READY_TO_PRINT already means exactly "the PDF is on
+ *  disk and no printed marker exists", and it already loses to every state that should keep a book
+ *  off the press: a dispatched or printed order has left the queue, an intake hold or a flagged
+ *  photo means the book on disk is not the book to print, and an order with no PDF yet is not a
+ *  book at all.
+ *
+ *  This is what replaced "Odeslat Jirkovi". With WhatsApp gone nothing hands a finished book to the
+ *  printer, so without this view an order awaiting print is just one status among nine on a board
+ *  he has no other reason to read. */
+export function printQueue(entries) {
+  return entries.filter((entry) => entry.status === ORDER_BOARD_STATES.READY_TO_PRINT);
 }
 
 /** The compact overnight rollup the dashboard banner reads, distilled from the night report the

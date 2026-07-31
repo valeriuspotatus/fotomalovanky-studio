@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildBoard, deriveOrderStatus, studioBoard, overnightSummary, ORDER_BOARD_STATES, markSent, unmarkSent, sentMarkerPath, readSentMarker, markPrinted, unmarkPrinted, printedMarkerPath } from '../src/studio.js';
+import { buildBoard, deriveOrderStatus, studioBoard, overnightSummary, ORDER_BOARD_STATES, markSent, unmarkSent, sentMarkerPath, readSentMarker, markPrinted, unmarkPrinted, printedMarkerPath, markerActor, readMarkerActor, printQueue } from '../src/studio.js';
+import { createReviewServer } from '../src/ui/server.js';
+import { hashPassword, ROLE_ENV_VARS } from '../src/auth/credentials.js';
+import { SIGN_IN_PATH } from '../src/auth/sessions.js';
+import { emptyManifest, setStatus, writeManifest, STATES } from '../src/manifest.js';
 
 // Review-state-shaped fakes. buildBoard is pure over these, so the whole status machine is tested
 // without a filesystem or a running server.
@@ -385,6 +389,220 @@ test('markPrinted writes the printed marker; undoing a dispatch returns the orde
     unmarkPrinted(dir); // idempotent
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---- who wrote the marker (R9, U8) -----------------------------------------
+
+test('a marker names the person who wrote it — by display name AND by role', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-actor-'));
+  try {
+    const dir = join(root, '1600');
+    mkdirSync(dir, { recursive: true });
+    const read = (path) => JSON.parse(readFileSync(path, 'utf8'));
+
+    markPrinted(dir, { role: 'printer', username: 'Jirka', implicit: false });
+    markSent(dir, { role: 'operator', username: 'David', implicit: false });
+
+    const printed = read(printedMarkerPath(dir));
+    const sent = read(sentMarkerPath(dir));
+    assert.equal(printed.by, 'Jirka', 'the printer printed it');
+    assert.equal(printed.byRole, 'printer');
+    assert.equal(sent.by, 'David', 'and the operator posted it');
+    assert.equal(sent.byRole, 'operator');
+    assert.notEqual(printed.by, sent.by, 'which is the whole point: the two acts name two people');
+
+    // The role is stored beside the name because the name can change tomorrow (R11); a renamed
+    // account must not make its own old markers unattributable.
+    assert.deepEqual(markerActor({ role: 'printer', username: 'Tiskárna u Nádraží' }), { by: 'Tiskárna u Nádraží', byRole: 'printer' });
+    assert.deepEqual(markerActor({ role: 'printer', username: '   ' }), { by: 'printer', byRole: 'printer' }, 'a blank name falls back to the role');
+    assert.deepEqual(markerActor({ role: 'nonsense', username: 'x' }), { by: 'x', byRole: 'operator' }, 'an unknown role is never silently a printer');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('ungated local mode writes the implicit operator, exactly as the tool always did (KTD11)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-implicit-'));
+  try {
+    const dir = join(root, '1601');
+    mkdirSync(dir, { recursive: true });
+
+    // Nobody signs in locally, so there is no display name to record.
+    markSent(dir, { role: 'operator', username: 'David', implicit: true });
+    assert.deepEqual(readMarkerActor(sentMarkerPath(dir)), { by: 'operator', byRole: 'operator' });
+
+    // And a caller with no identity at all — a CLI, a test, anything off the HTTP boundary.
+    markPrinted(dir);
+    assert.deepEqual(readMarkerActor(printedMarkerPath(dir)), { by: 'operator', byRole: 'operator' });
+    assert.deepEqual(markerActor(null), { by: 'operator', byRole: 'operator' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a marker with no recognisable actor still reads, as nobody in particular', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-legacy-actor-'));
+  try {
+    const dir = join(root, '1602');
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'marker.json');
+
+    // The markers on the live disk today: written before roles existed, so `by` is the old constant
+    // and there is no role at all. It must read, not throw — the board polls this every 2.5s.
+    writeFileSync(path, JSON.stringify({ at: '2026-01-01T00:00:00.000Z', by: 'operator' }));
+    assert.deepEqual(readMarkerActor(path), { by: 'operator', byRole: null }, 'a pre-roles marker names its person and no role');
+
+    for (const contents of ['{not json', '{}', 'null', '[]', JSON.stringify({ at: 'x', by: '   ' })]) {
+      writeFileSync(path, contents);
+      assert.equal(readMarkerActor(path), null, `"${contents}" reads as nobody, without throwing`);
+    }
+    assert.equal(readMarkerActor(join(dir, 'nope.json')), null, 'and a marker that is not there is nobody either');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/** An outbox-only order the review state will find: a manifest and one approved photo, plus a book. */
+function outboxOrder(outbox, orderId) {
+  const dir = join(outbox, orderId);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${orderId} Final.pdf`), '%PDF-1.4\n');
+  writeManifest(dir, setStatus(emptyManifest(orderId), 'clean', STATES.OK, 'ok'));
+  return dir;
+}
+
+const SERVER_CONFIG = {
+  generator: { baseUrl: 'https://example.test/gen/', mode: 'api' },
+  builder: { baseUrl: 'https://example.test/builder' },
+  paths: { inbox: './inbox', outbox: './outbox' },
+  retentionDays: 30,
+};
+
+test('AE7 — the printed marker names Jirka and the dispatch marker names David, from their own sessions', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-signed-'));
+  const outbox = join(root, 'outbox');
+  const dir = outboxOrder(outbox, '1700');
+  const password = 'correct horse battery staple';
+  const hash = await hashPassword(password, { logN: 14, r: 8, p: 1 });
+  const { server } = createReviewServer({
+    config: { ...SERVER_CONFIG, accounts: { dataDir: join(root, 'accounts') } },
+    inboxRoot: join(root, 'inbox'),
+    outboxRoot: outbox,
+    memoryRoot: outbox,
+    driver: { generate: async () => {} },
+    authEnv: { [ROLE_ENV_VARS.operator]: hash, [ROLE_ENV_VARS.printer]: hash },
+  });
+  try {
+    await new Promise((done) => server.listen(0, '127.0.0.1', done));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const signIn = async (username) => {
+      const res = await fetch(`${origin}${SIGN_IN_PATH}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+      assert.equal(res.status, 200, `${username} signs in`);
+      return String(res.headers.get('set-cookie')).split(';')[0];
+    };
+    const printer = await signIn('Jirka');
+    const operator = await signIn('David');
+    const act = (path, cookie) => fetch(origin + path, { method: 'POST', headers: { cookie } });
+
+    assert.equal((await act('/api/1700/printed', printer)).status, 200);
+    assert.equal((await act('/api/1700/sent', operator)).status, 200);
+
+    assert.deepEqual(readMarkerActor(printedMarkerPath(dir)), { by: 'Jirka', byRole: 'printer' }, 'Jirka printed it');
+    assert.deepEqual(readMarkerActor(sentMarkerPath(dir)), { by: 'David', byRole: 'operator' }, 'David posted it');
+  } finally {
+    server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('in ungated local mode the same route records the implicit operator', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-signed-local-'));
+  const outbox = join(root, 'outbox');
+  const dir = outboxOrder(outbox, '1701');
+  const { server } = createReviewServer({
+    config: SERVER_CONFIG,
+    inboxRoot: join(root, 'inbox'),
+    outboxRoot: outbox,
+    memoryRoot: outbox,
+    driver: { generate: async () => {} },
+    authEnv: {}, // no role hashes at all: the desktop workflow, one implicit identity (KTD11)
+  });
+  try {
+    await new Promise((done) => server.listen(0, '127.0.0.1', done));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    assert.equal((await fetch(`${origin}/api/1701/printed`, { method: 'POST' })).status, 200);
+    assert.deepEqual(readMarkerActor(printedMarkerPath(dir)), { by: 'operator', byRole: 'operator' });
+  } finally {
+    server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---- Jirka's print queue (R10, U12) ----------------------------------------
+
+test('the print queue is the books that are built and not yet printed, and nothing else', () => {
+  const ready = order('1800', summary({ total: 1, eligible: 1, ready: true }));
+  const printed = order('1801', summary({ total: 1, eligible: 1, ready: true }));
+  const dispatched = order('1802', summary({ total: 1, eligible: 1, ready: true }));
+  const held = heldOrder('1803', 'Komu: x');
+  const noBook = order('1804', summary({ total: 1, eligible: 1, ready: true })); // approved, no PDF yet
+  const flagged = order('1805', summary({ total: 2, eligible: 1, held: 1 })); // a photo still awaits a verdict
+
+  const built = new Set(['1800', '1801', '1802', '1803', '1805']);
+  const board = buildBoard([ready, printed, dispatched, held, noBook, flagged], {
+    pdfBuilt: (o) => built.has(o.orderId),
+    printed: (o) => o.orderId === '1801' || o.orderId === '1802',
+    sent: (o) => o.orderId === '1802',
+  });
+
+  assert.deepEqual(board.printQueue.map((o) => o.orderId), ['1800'], 'only the built, unprinted book');
+  assert.equal(board.printQueue[0].status, ORDER_BOARD_STATES.READY_TO_PRINT);
+  // Spelled out, because each exclusion is a different reason a book must not go to the press.
+  const excluded = board.orders.filter((o) => !board.printQueue.includes(o)).map((o) => o.orderId);
+  assert.deepEqual(excluded, ['1801', '1802', '1803', '1804', '1805'], 'printed, dispatched, held, no book yet, and flagged');
+
+  // printQueue is pure over board entries, so the derivation can be checked on its own.
+  assert.deepEqual(printQueue(board.orders).map((o) => o.orderId), ['1800']);
+});
+
+test('marking an order printed takes it out of the queue', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-queue-'));
+  try {
+    const outbox = join(root, 'outbox');
+    const dir = join(outbox, '1810');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, '1810 Final.pdf'), '%PDF-1.4\n');
+
+    const fakeState = () => [order('1810', summary({ total: 1, eligible: 1, ready: true }), { orderDir: dir })];
+    const queue = () => studioBoard({ inboxRoot: null, outboxRoot: outbox, state: fakeState }).printQueue.map((o) => o.orderId);
+    assert.deepEqual(queue(), ['1810'], 'the book is on the press queue');
+
+    markPrinted(dir, { role: 'printer', username: 'Jirka' });
+    assert.deepEqual(queue(), [], 'and leaves it the moment it is printed');
+
+    unmarkPrinted(dir);
+    assert.deepEqual(queue(), ['1810'], 'an undone mis-click puts it back');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a printer session lands on the print queue; the operator lands on the board', () => {
+  // The offline half, like the STATUS-label test above: the landing rule lives in the page, and the
+  // browser smoke drives it for real. What must hold here is that the rule exists, that it is keyed
+  // on the role rather than on a hidden nav control, and that an explicit fragment still wins.
+  const page = readFileSync(new URL('../src/ui/static/dashboard.html', import.meta.url), 'utf8');
+  assert.match(page, /const landingView=\(\)=>\(location\.hash\?currentView\(\):\(isOperator\(\)\?"home":"queue"\)\)/, 'the printer lands on the queue, the operator on the board');
+  assert.match(page, /fetchStudio\(\)\.finally\(\(\)=>go\(landingView\(\)\)\)/, 'and the first paint goes through it, after the identity is known');
+  assert.match(page, /const views=\[[^\]]*"queue"[^\]]*\]/, 'the queue is a real view the resolver knows');
+  assert.match(page, /queue:\{t:"Tisková fronta"/, 'with an operator-facing title');
+  // Two controls per row and no more: the book, and the mark that it was printed.
+  const view = page.slice(page.indexOf('function renderQueue('), page.indexOf('// Waiting-since'));
+  assert.match(view, /\/api\/\$\{esc\(o\.orderId\)\}\/pdf/, 'the row offers the download');
+  assert.match(view, /act-printed/, 'and the printed action');
+  for (const forbidden of ['act-sent', 'act-unsent', 'act-delete', 'act-generate', 'act-buildpdf']) {
+    assert.ok(!view.includes(forbidden), `the queue row does not offer ${forbidden}`);
   }
 });
 

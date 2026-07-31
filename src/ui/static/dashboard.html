@@ -276,6 +276,10 @@
     <nav class="nav" id="nav">
       <a data-view="home" href="#home"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>Přehled</a>
       <a data-view="orders" href="#orders"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>Objednávky<span class="count" id="nav-orders">–</span></a>
+      <!-- Jirka's queue (R10, U12): the books whose PDF is built and which nobody has printed yet.
+           Both people see it — it is the operator's "what is waiting on the press" too — but it is
+           where a printer session LANDS, because printing is the whole of what he signs in to do. -->
+      <a data-view="queue" href="#queue"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="7" rx="2"/><path d="M7 16h10v5H7z"/></svg>Tisková fronta<span class="count" id="nav-queue">–</span></a>
       <a data-view="generator" href="/review"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6"/><path d="m14 4 6 6"/><path d="M14.5 4.5 19 9l-9 9-4.5-4.5z"/><path d="M18 2v3M21 4h-3"/></svg>Generátor<span class="count" id="nav-gen">–</span></a>
       <a data-view="creatives" data-operator href="#creatives"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg>Kreativy</a>
       <a data-view="calendar" data-operator href="#calendar"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Kalendář</a>
@@ -377,6 +381,16 @@
         <tbody id="ordersBody"></tbody>
       </table></div>
       <div id="doneToggle" class="done-toggle"></div>
+    </section>
+
+    <!-- ===== TISKOVÁ FRONTA (U12, R10) — books built and not yet printed =====
+         Two controls per row and nothing else: the book to print, and the mark that it was printed.
+         Everything else an order can need belongs on the board; this view is a work list. -->
+    <section class="view" id="v-queue">
+      <div class="table"><table>
+        <thead><tr><th>Objednávka</th><th>Stránky</th><th>Titulek</th><th></th></tr></thead>
+        <tbody id="queueBody"></tbody>
+      </table></div>
     </section>
 
     <!-- ===== CREATIVES (Kreativy studio) — deterministic layered template engine ===== -->
@@ -666,6 +680,7 @@
   const VIEW_META={
     home:{t:'Dobrý den, David! <span aria-hidden="true">👋</span>',s:"Tady je přehled toho, co se dnes děje ve studiu."},
     orders:{t:"Objednávky",s:"Výrobní fronta — nejstarší nahoře, živě z generátoru."},
+    queue:{t:"Tisková fronta",s:"Hotové knihy čekající na tisk — stáhněte PDF a označte vytištěno."},
     creatives:{t:"Kreativy",s:"Reklamní vizuály z fotek — feed, story i wide."},
     calendar:{t:"Kalendář",s:"Sezóna a plán kreativ."},
     blog:{t:"Blog",s:"SEO články z kalendáře a aktuálních témat — koncept do Shopify."},
@@ -688,6 +703,12 @@
   const OPERATOR_VIEWS=["creatives","calendar","blog","mail","settings"];
   const viewAllowed=(v)=>isOperator()||!OPERATOR_VIEWS.includes(v);
   const currentView=()=>(location.hash||"#home").slice(1);
+  /* Where a fresh load lands (R10, U12). A printer signs in to print, so he lands on the print
+     queue; the operator keeps landing on the board. An explicit fragment always wins — a bookmark,
+     a refresh or the back button must return you to the view you were on, not to a default. An
+     unknown identity (the very first paint, or a server that stopped answering) counts as
+     not-operator here, and the queue is a read-only work list, so that answer is harmless. */
+  const landingView=()=>(location.hash?currentView():(isOperator()?"home":"queue"));
 
   function applyIdentity(next){
     if(!next)return;
@@ -866,6 +887,35 @@
     tog.innerHTML=done.length?`<button class="btn btn-secondary sm" id="toggleDone">${showDone?"Skrýt dokončené":"Zobrazit dokončené ("+done.length+")"}</button>`:"";
   }
 
+  /* ---- Tisková fronta (U12, R10): what is waiting on the press ----
+     The server derives the list (studio.js printQueue) — a book on disk with no printed marker —
+     so the queue and the board can never disagree about an order. Oldest first: the press works the
+     queue in the order the customers sent it, unlike the board, which leads with the newest.
+     Exactly two controls per row. Anything else an order might need is on the board; adding a
+     third control here is how a work list turns back into the screen it was extracted from. */
+  function renderQueue(d){
+    const b=document.getElementById("queueBody");
+    if(!b)return;
+    const rows=d.printQueue||[];
+    document.getElementById("nav-queue").textContent=rows.length;
+    b.innerHTML=rows.length?rows.map(o=>{
+      const denom=o.expectedPages||o.photos.total;
+      const ph=o.photos.total?`${o.photos.eligible}/${denom}`:"–";
+      return `<tr>
+        <td><span class="oid">${esc(o.orderId)}</span></td>
+        <td class="mono">${ph}</td>
+        <td><span class="ded-cell">${o.dedication?"„"+esc(o.dedication)+"“":"—"}</span></td>
+        <td class="act-cell">
+          <a class="btn btn-secondary sm" href="/api/${esc(o.orderId)}/pdf" target="_blank" rel="noopener">Stáhnout PDF</a>
+          <button class="btn btn-primary sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button>
+        </td></tr>`;
+    }).join(""):'<tr><td colspan="4" class="empty">Žádná kniha nečeká na tisk.</td></tr>';
+  }
+  document.getElementById("queueBody").addEventListener("click",e=>{
+    const p=e.target.closest(".act-printed");
+    if(p){p.disabled=true;orderAction(p.dataset.printed,"printed");}
+  });
+
   // Waiting-since (N4): how long the ball has been in the customer's court, danger after 5 days.
   const plD=(n)=>(n===1?"den":n>=2&&n<=4?"dny":"dní");
   const daysSince=(iso)=>Math.max(0,Math.floor((Date.now()-new Date(iso).getTime())/86400000));
@@ -905,13 +955,13 @@
 
   function renderStudio(){
     if(!studioData)return;
-    renderOvernight(studioData);renderHome(studioData);renderOrders(studioData);syncFetchButton(studioData);
+    renderOvernight(studioData);renderHome(studioData);renderOrders(studioData);renderQueue(studioData);syncFetchButton(studioData);
   }
   async function fetchStudio(){
     try{const res=await fetch("/api/studio");if(!res.ok)return;studioData=await res.json();applyIdentity(studioData.identity);renderStudio();}
     catch(e){/* offline / not the live server — keep the last board */}
   }
-  setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["home","orders"].includes(v))fetchStudio();},2500);
+  setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["home","orders","queue"].includes(v))fetchStudio();},2500);
 
   /* ---- Auto-fetch status: orders download from Shopify on a timer; the note shows activity + a
          one-time toast when a background fetch finishes. (The old manual "Načíst" button is gone.) ---- */
@@ -1155,7 +1205,10 @@
       <div class="set-card">
         <h3>Úklid</h3>
         ${settingsRow("Doba uchování",`${s.retentionDays!=null?s.retentionDays+" "+plD(s.retentionDays):"—"}`)}
-        <div class="set-note">Vytištěné objednávky se po této době mažou z výstupní složky.</div>
+        <div class="set-note">Fotky zákazníků se mažou až poté, co je objednávka označená jako <b>odeslaná zákazníkovi</b>, a po uplynutí doby uchování. Kresby a hotová PDF zůstávají.</div>
+        <div class="set-folder"><button class="btn" id="purgeReportBtn">Zobrazit, co by se smazalo</button></div>
+        <div class="set-msg" id="purgeMsg"></div>
+        <div id="purgeBox"></div>
       </div>`;
     const inp=document.getElementById("setInbox"), btn=document.getElementById("setInboxSave"), msg=document.getElementById("setInboxMsg");
     btn.addEventListener("click",async()=>{
@@ -1170,7 +1223,75 @@
       }catch{msg.textContent="Server neodpovídá.";msg.className="set-msg err";}
       finally{btn.disabled=false;}
     });
+    document.getElementById("purgeReportBtn").addEventListener("click",loadPurgeReport);
   }
+
+  /* ---- Úklid: report, then confirm (U11, R19) ----
+     Two requests, never one. The button asks the server what a purge WOULD do (a GET, a dry run)
+     and paints it; only a second, deliberate click on a button that appears with the report — and
+     a confirm() the operator has to read — sends the confirmation. There is no code path here that
+     deletes anything on the first click, because this deletes photographs of children and nothing
+     brings them back. */
+  let purgeState=null;
+  const purgeMb=(b)=>(b/1024/1024).toFixed(1)+" MB";
+
+  async function loadPurgeReport(){
+    const msg=document.getElementById("purgeMsg");
+    msg.textContent="Počítám…";msg.className="set-msg";
+    try{
+      const r=await fetch("/api/purge/report");
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok){msg.textContent=d.error||"Přehled se nepodařilo načíst.";msg.className="set-msg err";return;}
+      purgeState=d;msg.textContent="";renderPurge(d);
+    }catch{msg.textContent="Server neodpovídá.";msg.className="set-msg err";}
+  }
+
+  function renderPurge(d){
+    const box=document.getElementById("purgeBox");
+    const rows=d.orders||[];
+    const e=d.eligibility||{total:0,backfilled:0,dispatched:0};
+    let html="";
+    if(!rows.length){
+      html=`<div class="set-note">Nic ke smazání — žádná odeslaná objednávka není starší než ${d.days} ${plD(d.days)}.</div>`;
+    }else{
+      html=`<div class="set-note">Smazalo by se ${d.photos} ${plFotka(d.photos)} (${purgeMb(d.bytes)}) u ${rows.length} ${rows.length===1?"objednávky":"objednávek"}.</div>
+        <div class="table"><table><thead><tr><th>Objednávka</th><th>Fotek</th><th>Odesláno</th><th>Původ</th></tr></thead><tbody>${
+          rows.map(o=>`<tr><td><span class="oid">${esc(o.orderId)}</span></td><td class="mono">${o.photos}</td><td class="mono">${o.ageDays} ${plD(o.ageDays)}</td><td>${o.backfilled?'<span class="chip c-neutral"><span class="dot"></span>historické</span>':'<span class="chip c-success"><span class="dot"></span>odesláno ručně</span>'}</td></tr>`).join("")
+        }</tbody></table></div>`;
+      // Backfilled vs genuine, spelled out: the first purge on this box is almost all history, and
+      // an operator who cannot see that reads a big batch as a bug and never confirms it.
+      html+=`<div class="set-note">Z toho ${e.dispatched} ručně odeslaných a ${e.backfilled} historických (dopočítaných z dřívějšího tisku při změně životního cyklu).</div>`;
+      if((d.deferred||[]).length)
+        html+=`<div class="set-note">Jeden běh smaže nejvýš ${d.cap} objednávek — dalších ${d.deferred.length} zůstane na příště.</div>`;
+      html+=`<div class="set-folder"><button class="btn" id="purgeGoBtn">Smazat fotky (${rows.length})</button></div>`;
+    }
+    if((d.stalled||[]).length){
+      // The backstop (U11): printed, never dispatched. These never become eligible on their own.
+      html+=`<div class="set-note"><b>Vytištěné, ale nikdy neodeslané</b> — samy se nikdy nesmažou, rozhodněte o nich:<br>${
+        d.stalled.map(o=>`${esc(o.orderId)} — vytištěno před ${o.stalledDays} ${plD(o.stalledDays)}`).join("<br>")
+      }</div>`;
+    }
+    html+=`<div class="set-note">${esc(d.warning||"")}</div>`;
+    box.innerHTML=html;
+    const go=document.getElementById("purgeGoBtn");
+    if(go)go.addEventListener("click",confirmPurge);
+  }
+
+  async function confirmPurge(){
+    const d=purgeState;if(!d)return;
+    if(!confirm(`Opravdu smazat ${d.photos} ${plFotka(d.photos)} u ${d.orders.length} objednávek?\n\nFotky zákazníků zmizí z výstupní složky a nejdou obnovit. Kresby a hotová PDF zůstanou.`))return;
+    const msg=document.getElementById("purgeMsg");
+    msg.textContent="Mažu…";msg.className="set-msg";
+    try{
+      const r=await fetch("/api/purge/confirm",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirm:true})});
+      const res=await r.json().catch(()=>({}));
+      if(!r.ok){msg.textContent=res.error||"Mazání selhalo.";msg.className="set-msg err";return;}
+      msg.textContent=`Smazáno ${res.photos} ${plFotka(res.photos)} u ${res.orders.length} objednávek.`;msg.className="set-msg ok";
+      purgeState=null;
+      loadPurgeReport(); // re-read, so what is left (and what was deferred) is on screen
+    }catch{msg.textContent="Server neodpovídá.";msg.className="set-msg err";}
+  }
+
   const czDateTime=(iso)=>{try{return new Date(iso).toLocaleString("cs-CZ",{day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"});}catch{return iso;}};
 
   // Drop one from the nav badge and the home-tile chip. The server also marked the message \Seen, so
@@ -1709,7 +1830,7 @@
   paintEvergreen();
 
   /* ---- router ---- */
-  const views=["home","orders","creatives","calendar","blog","mail","settings","profile"];
+  const views=["home","orders","queue","creatives","calendar","blog","mail","settings","profile"];
   function setActiveNav(v){document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.view===v));}
   function go(v){
     // The guard lives HERE, on the resolver, not on the nav control. Every way into a view goes
@@ -1721,7 +1842,7 @@
     setActiveNav(v);
     const m=VIEW_META[v];document.getElementById("pageTitle").innerHTML=m.t;document.getElementById("pageSub").textContent=m.s;
     if(location.hash!=="#"+v)history.pushState(null,"","#"+v);
-    if(["home","orders"].includes(v))fetchStudio();
+    if(["home","orders","queue"].includes(v))fetchStudio();
     if(v==="mail")fetchMailTab();
     if(v==="settings")fetchSettings();
     if(v==="profile")paintProfile();
@@ -1983,6 +2104,6 @@
   // Identity BEFORE the first view resolution: fetchStudio is what answers "who is this?", and
   // resolving #settings first and correcting afterwards would flash the view at somebody who may not
   // have it. If the request fails there is no identity, isOperator() is false, and the closed answer
-  // is the one that gets painted.
-  fetchStudio().finally(()=>go(currentView()));
+  // is the one that gets painted. It is also what decides where a printer lands (landingView).
+  fetchStudio().finally(()=>go(landingView()));
 </script>

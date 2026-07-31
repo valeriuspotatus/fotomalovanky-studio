@@ -12,6 +12,7 @@ import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent, pdfPathFor } from '../orchestrator.js';
 import { studioBoard, markSent, unmarkSent, markPrinted, unmarkPrinted } from '../studio.js';
 import { backfillSentMarkers, SentMarkerMigrationError } from '../migrations/sentMarker.js';
+import { purgeAutopilotData, purgeOriginals, purgeWarning } from '../retention.js';
 import { readReport } from '../autopilotReport.js';
 import { runAutopilot } from '../autopilot.js';
 import { hiddenMarkerPath } from '../review.js';
@@ -464,6 +465,11 @@ export const ROUTE_POLICY = Object.freeze([
     match: atPath('/api/migrate/sent-markers'),
   },
   { id: 'POST /api/<order>/delete', audience: AUDIENCES.OPERATOR, tokens: ['delete'], match: orderAction('delete') },
+  // The retention purge (U11, R19). Both halves are the operator's: the report because it enumerates
+  // what is on the disk, and the confirmation because it deletes photographs of customers' children
+  // and nothing gets them back. Jirka prints books; this is not printing a book.
+  { id: 'GET /api/purge/report', audience: AUDIENCES.OPERATOR, tokens: ['/api/purge/report'], match: atPath('/api/purge/report') },
+  { id: 'POST /api/purge/confirm', audience: AUDIENCES.OPERATOR, tokens: ['/api/purge/confirm'], match: atPath('/api/purge/confirm') },
 
   // -- Both people: printing a book, end to end ---------------------------------------------------
   { id: 'GET /', audience: AUDIENCES.BOTH, tokens: ['/'], match: atPath('/') },
@@ -535,6 +541,38 @@ export function routeAudience(method, pathname, parts = pathname.split('/').filt
 export function mayReach(role, audience) {
   if (audience === AUDIENCES.ANYONE || audience === AUDIENCES.BOTH) return true;
   return role === 'operator';
+}
+
+/** A purge result as the PAGE is allowed to see it (U11).
+ *
+ *  Counts and reasons, never a path. `inspectOutbox` carries absolute filesystem paths — the order
+ *  folder and every photograph inside it — because the deletion needs them; the browser needs none
+ *  of that and the board already refuses to hand out paths for the same reason (see boardEntry).
+ *  `backfilled` and `stalledDays` DO cross, because they are the two things the operator has to be
+ *  able to see: whether a large batch is historical, and which orders will never age out at all. */
+export function purgeReportForClient(result) {
+  const row = (o) => ({
+    orderId: o.orderId,
+    photos: o.photos.length,
+    bytes: o.bytes,
+    ageDays: o.ageDays,
+    backfilled: o.backfilled,
+    stalledDays: o.stalledDays,
+    skip: o.skip,
+  });
+  return {
+    dryRun: result.dryRun,
+    days: result.days,
+    cap: result.cap,
+    photos: result.photos,
+    bytes: result.bytes,
+    eligibility: result.eligibility,
+    orders: result.orders.map(row),
+    deferred: result.deferred.map(row),
+    stalled: result.stalled.map(row),
+    skipped: result.skipped.filter((o) => o.stalledDays == null).map(row),
+    warning: purgeWarning,
+  };
 }
 
 /** `revealFinished` opens the finished book's folder on the desktop. It defaults to off: a test
@@ -1594,7 +1632,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'sent') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
-        return json(res, 200, { status: markSent(order.orderDir) });
+        // Signed by the person who clicked (R9, U8). `identityFor` is the same resolved identity the
+        // page is shown, so the name on the marker is the name in the sidebar of whoever wrote it —
+        // and in ungated local mode it is the implicit operator (KTD11), where nobody signed in.
+        return json(res, 200, { status: markSent(order.orderDir, identityFor(req)) });
       }
 
       // GET /api/<order>/pdf — the finished <order> Final.pdf, inline, so the operator can open it in a
@@ -1694,7 +1735,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'printed') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
-        return json(res, 200, { status: markPrinted(order.orderDir) });
+        // Signed by the printer who clicked it (R9, U8) — the marker this route writes and the
+        // dispatch marker above must be able to name two different people, or the split between the
+        // two acts records nothing.
+        return json(res, 200, { status: markPrinted(order.orderDir, identityFor(req)) });
       }
 
       // POST /api/<order>/unprinted — undo a printed mark set by mistake; the order returns to
@@ -1723,6 +1767,48 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           if (err instanceof SentMarkerMigrationError) return json(res, 409, { error: err.message, seam: err.seam });
           throw err;
         }
+      }
+
+      // --- THE PURGE, REPORT THEN CONFIRM (R19, U11) ----------------------------------------------
+      //
+      // Retention has existed since the first commit and has never once run on the hosted box: it
+      // was a CLI on a machine nobody has a shell into. These two routes are the whole of R19, and
+      // they are deliberately two:
+      //
+      //   GET  /api/purge/report   — what a purge would delete, and why every other order is kept.
+      //   POST /api/purge/confirm  — the deletion, and only on an explicit `confirm: true`.
+      //
+      // The report is a GET and a dry run (purgeOriginals' default posture), so there is no code
+      // path through it that opens an order folder for writing. A test asserts the fixture tree is
+      // byte-identical afterwards, because "read-only" is a claim about photographs of children and
+      // it should be checked rather than asserted in a comment.
+      //
+      // Both are operator-only in ROUTE_POLICY. Jirka prints books; he does not delete customers'
+      // photographs.
+      if (req.method === 'GET' && url.pathname === '/api/purge/report') {
+        const days = config.retentionDays;
+        if (!Number.isInteger(days) || days <= 0) {
+          return json(res, 503, { error: 'Doba uchování (retentionDays) není nastavená — úklid je vypnutý.', code: 'not-configured' });
+        }
+        return json(res, 200, purgeReportForClient(purgeOriginals({ outboxRoot: outbox, days })));
+      }
+      if (req.method === 'POST' && url.pathname === '/api/purge/confirm') {
+        const days = config.retentionDays;
+        if (!Number.isInteger(days) || days <= 0) {
+          return json(res, 503, { error: 'Doba uchování (retentionDays) není nastavená — úklid je vypnutý.', code: 'not-configured' });
+        }
+        // A separate, explicit confirmation, not a flag on the report route. The dry run stays the
+        // default posture everywhere: a purge must be something somebody asked for twice.
+        const { confirm = false } = await readJson(req).catch(() => ({}));
+        if (confirm !== true) {
+          return json(res, 409, { error: 'Smazání je potřeba potvrdit.', code: 'confirm-required' });
+        }
+        const result = purgeOriginals({ outboxRoot: outbox, days, dryRun: false });
+        log(`purge: deleted ${result.photos} photograph(s) across ${result.orders.length} order(s); ${result.deferred.length} left for the next run`);
+        // The night report and handled-set age out on the same clock (they carry order numbers), so
+        // the confirmed run clears them too — the CLI has always done both in one pass.
+        const auto = purgeAutopilotData({ dataDir: config.shopify?.dataDir ?? null, days, dryRun: false });
+        return json(res, 200, { ...purgeReportForClient(result), autopilotFiles: auto.removed.map((f) => f.name) });
       }
 
       // POST /api/<order>/<base>/<action>
