@@ -636,9 +636,12 @@
     "pending-review": {label:"ke kontrole",          chip:"c-warning"},
     held:             {label:"potřebuje vás",        chip:"c-danger"},
     approved:         {label:"schváleno",            chip:"c-info"},
-    "ready-to-send":  {label:"připraveno k odeslání",chip:"c-info"},
-    sent:             {label:"odesláno",             chip:"c-success"},
-    printed:          {label:"vytištěno",            chip:"c-success"},
+    /* The lifecycle, in the order it now happens: the book is built → Jirka prints it → David posts
+       it to the customer. "odesláno" therefore means POSTED TO THE CUSTOMER, and is the last word on
+       an order — it used to mean "handed to Jirka" and sat before the print. */
+    "ready-to-print": {label:"připraveno k tisku",   chip:"c-info"},
+    printed:          {label:"vytištěno",            chip:"c-info"},
+    sent:             {label:"odesláno zákazníkovi", chip:"c-success"},
     failed:           {label:"chyba",                chip:"c-danger"}
   };
   const statusMeta=s=>STATUS[s]||{label:s,chip:"c-neutral"};
@@ -730,22 +733,27 @@
         // All photos approved, no book on disk yet: build it from the board. (Was a link to /review.)
         act=`<button class="btn btn-primary sm act-buildpdf" data-buildpdf="${esc(o.orderId)}"${busyAttr}>Vytvořit PDF</button>`;
       }
-      else if(o.status==="ready-to-send"){
-        // The book leaves this tool by hand (or Jirka fetches the PDF himself), so the board's job is
-        // to record that it went: "Označit odeslané" writes the delivery marker and the order drops
-        // off the active list. Nothing here contacts anyone.
-        act=`<button class="btn btn-primary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`;
+      else if(o.status==="ready-to-print"){
+        // The book is on disk and Jirka fetches it himself. The board's job is to record that he
+        // printed it: "Označit vytištěno" writes the printed marker and the order moves on to
+        // awaiting dispatch. Nothing here contacts anyone.
+        act=`<button class="btn btn-primary sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button>`;
       }
-      // Sent, awaiting Jirka's print confirmation: the operator closes the loop with "Označit vytištěno"
-      // (N3). A stale chip (N10) still warns that the PDF was rebuilt after it went out, so Jirka isn't
-      // left printing an older book — the fix is to hand him the current one again.
-      else if(o.status==="sent"){
-        act=`<button class="btn btn-primary sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button><button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
+      // Printed, awaiting the post: the OPERATOR closes the loop with "Označit odeslané", which now
+      // means posted to the customer (R14). A stale chip (N10) warns that the PDF was rebuilt after
+      // the print, so what was printed is no longer the book the decisions describe.
+      // Dispatch is David's act, not Jirka's, and the server refuses /sent and /unsent for a printer
+      // (ROUTE_POLICY). Reflected here so the printer is not offered a button that would only 403 —
+      // reflection, never enforcement: identity is resolved before every render, and unknown counts
+      // as not-operator.
+      else if(o.status==="printed"){
+        const post=isOperator()?`<button class="btn btn-primary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`:"";
+        act=`${post}<button class="btn btn-ghost sm act-unprinted" data-unprinted="${esc(o.orderId)}">Vrátit</button>`;
       }
-      else if(o.status==="printed") act=`<button class="btn btn-ghost sm act-unprinted" data-unprinted="${esc(o.orderId)}">Vrátit</button>`;
-      // A "Zobrazit PDF" link for any order whose book is on disk, so the operator can open it in a new
-      // tab and check it before sending. Leads the actions — it's the "look before you send" step.
-      if(["ready-to-send","sent","printed"].includes(o.status))
+      else if(o.status==="sent") act=isOperator()?`<button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`:"";
+      // A "Zobrazit PDF" link for any order whose book is on disk, so it can be opened in a new tab
+      // and checked before it is printed. Leads the actions — it's the "look before you print" step.
+      if(["ready-to-print","printed","sent"].includes(o.status))
         act=`<a class="btn btn-secondary sm" href="/api/${esc(o.orderId)}/pdf" target="_blank" rel="noopener">Zobrazit PDF</a>`+act;
       // Everything the order produced, in one file — originals, SVGs and the book. Offered on every
       // row regardless of status: the outbox lives on the server, so when the tool is hosted this is
@@ -756,8 +764,8 @@
     }
     // The permanent under-count warning (N2): shown beside the status chip on every board glance.
     const inc=o.incomplete?`<span class="chip c-danger" title="Operátor potvrdil knihu s méně stranami, než produkt obsahuje."><span class="dot"></span>neúplná ${o.incomplete.pages}/${o.incomplete.expected}</span>`:"";
-    // Sent-file staleness (N10): the PDF was rebuilt after it went to Jirka.
-    const staleChip=o.stale?`<span class="chip c-warning" title="PDF bylo po odeslání znovu sestaveno — Jirka má starší verzi."><span class="dot"></span>zastaralé</span>`:"";
+    // Printed-book staleness (N10, re-scoped with the lifecycle): the PDF was rebuilt after the print.
+    const staleChip=o.stale?`<span class="chip c-warning" title="PDF bylo po vytištění znovu sestaveno — vytištěná kniha už neodpovídá."><span class="dot"></span>zastaralé</span>`:"";
     return `<tr>
       <td><span class="oid">${esc(o.orderId)}</span></td>
       ${ageTd}
@@ -771,9 +779,11 @@
     document.getElementById("kpi-generating").textContent=d.counts.generating||0;
     document.getElementById("kpi-held").textContent=d.counts.held||0;
     document.getElementById("kpi-ready").textContent=d.counts.approved||0; // "Připraveno pro PDF" = all approved, awaiting the PDF build
-    document.getElementById("kpi-sent").textContent=d.counts.sent||0;
-    // sidebar counts — active orders (everything except the ones already sent to Jirka)
-    document.getElementById("nav-orders").textContent=(d.counts.total||0)-(d.counts.sent||0)-(d.counts.printed||0);
+    document.getElementById("kpi-sent").textContent=d.counts.sent||0; // "Odesláno" = posted to the customer
+    // sidebar counts — active orders. Only 'sent' comes off: a PRINTED order is not finished any
+    // more, it is waiting for the operator to post it, and hiding it from the count is how a packed
+    // parcel sits on a desk for a week.
+    document.getElementById("nav-orders").textContent=(d.counts.total||0)-(d.counts.sent||0);
     document.getElementById("nav-gen").textContent=d.counts.generating||0;
     renderContinue(d);
     // recent orders — newest first
@@ -789,13 +799,14 @@
     // board never disagree about what to do next (N1).
     // Feature the order being generated right now (the newest work) first, so the card jumps to a fresh
     // order the moment it starts; fall back to the most-actionable finished order when nothing is running.
-    const pick=d.orders.find(o=>o.status==="generating")||d.orders.find(o=>o.status==="ready-to-send")||d.orders.find(o=>o.status==="approved")||d.orders.find(o=>o.status==="pending-review");
+    const pick=d.orders.find(o=>o.status==="generating")||d.orders.find(o=>o.status==="printed")||d.orders.find(o=>o.status==="ready-to-print")||d.orders.find(o=>o.status==="approved")||d.orders.find(o=>o.status==="pending-review");
     let c1;
     if(pick){
       // href, label + a one-word progress note keyed to the state.
       const CTA={
         generating:{href:"/review",label:"Zobrazit generátor",note:"generuje se"},
-        "ready-to-send":{href:"#orders",label:"Označit odeslané",note:"připraveno k odeslání"},
+        printed:{href:"#orders",label:"Označit odeslané",note:"vytištěno, čeká na odeslání"},
+        "ready-to-print":{href:"#orders",label:"Označit vytištěno",note:"připraveno k tisku"},
         approved:{href:"/review",label:"Vytvořit PDF",note:"schváleno"},
         "pending-review":{href:"/review",label:"Zkontrolovat",note:"zkontrolovat"}
       }[pick.status];
@@ -836,8 +847,10 @@
     row.innerHTML=c1+c2;
   }
 
-  // The active board hides finished orders — sent to Jirka or confirmed printed ("done"); a toggle reveals them.
-  const isDone=o=>o.status==="sent"||o.status==="printed";
+  // The active board hides finished orders; a toggle reveals them. "Done" is now ONLY 'sent' — the
+  // book is with the customer and there is nothing left to do. 'printed' used to be the terminal
+  // state and was hidden here; it now means "printed, still to post", which is work.
+  const isDone=o=>o.status==="sent";
   let showDone=false;
   function renderOrders(d){
     const b=document.getElementById("ordersBody");
@@ -947,11 +960,12 @@
       else toast(j.error||"Smazání selhalo.");
     }catch(e){toast("Server neodpovídá.");}
   }
-  // Mark a finished order as gone out. An incomplete book (N2) must not be recorded as dispatched on
-  // an unconfirmed click — the count mismatch is the operator's last chance to catch a short book.
+  // Mark a printed order as posted to the customer. An incomplete book (N2) must not be recorded as
+  // dispatched on an unconfirmed click — the count mismatch is the operator's last chance to catch a
+  // short book, and this is now the LAST such chance: dispatch is terminal.
   function markSent(id,btn){
     const o=(studioData&&studioData.orders||[]).find(x=>x.orderId===id);
-    if(o&&o.incomplete&&!confirm(`Objednávka ${id} je NEÚPLNÁ kniha (${o.incomplete.pages} z ${o.incomplete.expected} stran). Opravdu ji označit jako odeslanou?`)) return;
+    if(o&&o.incomplete&&!confirm(`Objednávka ${id} je NEÚPLNÁ kniha (${o.incomplete.pages} z ${o.incomplete.expected} stran). Opravdu ji označit jako odeslanou zákazníkovi?`)) return;
     if(btn)btn.disabled=true;
     orderAction(id,"sent");
   }

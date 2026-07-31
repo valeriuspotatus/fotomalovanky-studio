@@ -10,7 +10,8 @@ import { loadConfig } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent, pdfPathFor } from '../orchestrator.js';
-import { studioBoard, markDelivered, unmarkDelivered, markPrinted, unmarkPrinted } from '../studio.js';
+import { studioBoard, markSent, unmarkSent, markPrinted, unmarkPrinted } from '../studio.js';
+import { backfillSentMarkers, SentMarkerMigrationError } from '../migrations/sentMarker.js';
 import { readReport } from '../autopilotReport.js';
 import { runAutopilot } from '../autopilot.js';
 import { hiddenMarkerPath } from '../review.js';
@@ -453,6 +454,15 @@ export const ROUTE_POLICY = Object.freeze([
   { id: 'POST /api/<order>/sent', audience: AUDIENCES.OPERATOR, tokens: ['sent'], match: orderAction('sent') },
   { id: 'POST /api/<order>/unsent', audience: AUDIENCES.OPERATOR, tokens: ['unsent'], match: orderAction('unsent') },
   { id: 'POST /api/<order>/emailed', audience: AUDIENCES.OPERATOR, tokens: ['emailed'], match: orderAction('emailed') },
+  // The one-shot marker migration (U10). It writes into live customer order folders, so it belongs
+  // to the person who owns the disk — and it must be decided here rather than fall through to the
+  // table's operator-by-default, which would be refused-by-accident rather than a decision.
+  {
+    id: 'POST /api/migrate/sent-markers',
+    audience: AUDIENCES.OPERATOR,
+    tokens: ['/api/migrate/sent-markers'],
+    match: atPath('/api/migrate/sent-markers'),
+  },
   { id: 'POST /api/<order>/delete', audience: AUDIENCES.OPERATOR, tokens: ['delete'], match: orderAction('delete') },
 
   // -- Both people: printing a book, end to end ---------------------------------------------------
@@ -1576,14 +1586,15 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, overrideIntake(order.orderDir, { confirmCount }));
       }
 
-      // POST /api/<order>/sent — the operator confirms the finished book has gone to Jirka. Writes
-      // the delivery marker so the order derives to 'sent' and drops off the active board. Manual
-      // only: nothing here contacts anyone, it records that the operator already did — the book
-      // leaves this tool by hand, or by Jirka downloading it himself.
+      // POST /api/<order>/sent — the operator confirms the PRINTED book has gone into the post to
+      // the CUSTOMER (R14). Writes the dispatch marker (sent.json — a different file from the
+      // retired delivered.json, KTD6) so the order derives to 'sent', becomes terminal and drops off
+      // the active board. Manual only: nothing here posts anything, it records that the operator
+      // already did. Operator-only in ROUTE_POLICY — Jirka prints, David posts.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'sent') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
-        return json(res, 200, { status: markDelivered(order.orderDir) });
+        return json(res, 200, { status: markSent(order.orderDir) });
       }
 
       // GET /api/<order>/pdf — the finished <order> Final.pdf, inline, so the operator can open it in a
@@ -1660,11 +1671,12 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, { deleted: order.orderId });
       }
 
-      // POST /api/<order>/unsent — undo a delivery mark set by mistake; the order returns to the board.
+      // POST /api/<order>/unsent — undo a dispatch mark set by mistake; the order returns to
+      // 'printed' and back onto the active board.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'unsent') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
-        unmarkDelivered(order.orderDir);
+        unmarkSent(order.orderDir);
         return json(res, 200, { ok: true });
       }
 
@@ -1677,20 +1689,40 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, { emailedAt: markCustomerEmailed(order.orderDir, on) });
       }
 
-      // POST /api/<order>/printed — the operator confirms Jirka printed the book (N3). Terminal marker
-      // that closes the lifecycle past 'sent' and makes the order's photos purge-eligible. Manual only.
+      // POST /api/<order>/printed — Jirka confirms he printed the book (N3, R15). It now precedes
+      // dispatch: a printed book is not finished, it is waiting for the operator to post it.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'printed') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         return json(res, 200, { status: markPrinted(order.orderDir) });
       }
 
-      // POST /api/<order>/unprinted — undo a printed mark set by mistake; the order returns to 'sent'.
+      // POST /api/<order>/unprinted — undo a printed mark set by mistake; the order returns to
+      // 'ready-to-print'.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'unprinted') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         unmarkPrinted(order.orderDir);
         return json(res, 200, { ok: true });
+      }
+
+      // POST /api/migrate/sent-markers { confirm? } — the one-shot U10 backfill (KTD7, R17).
+      //
+      // REPORTS by default and writes only on a separate, explicit `confirm: true`, mirroring the
+      // purge's report-then-confirm shape: it writes markers into live customer order folders on the
+      // mounted disk, and the operator gets to read what it intends to do first.
+      //
+      // Deliberately NOT run at startup. A deploy would then write into every order folder before
+      // anyone could read a report, on an instance nobody was watching — and a migration over
+      // customer data is not something to discover after the fact. Operator-only in ROUTE_POLICY.
+      if (req.method === 'POST' && url.pathname === '/api/migrate/sent-markers') {
+        const { confirm = false } = await readJson(req);
+        try {
+          return json(res, 200, backfillSentMarkers({ outboxRoot: outbox, apply: confirm === true }));
+        } catch (err) {
+          if (err instanceof SentMarkerMigrationError) return json(res, 409, { error: err.message, seam: err.seam });
+          throw err;
+        }
       }
 
       // POST /api/<order>/<base>/<action>
