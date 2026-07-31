@@ -25,8 +25,13 @@ COPY . .
 #   - config.json arrives as a Render Secret File; FMA_CONFIG points the loader at it.
 #   - STUDIO_USER / STUDIO_PASS turn on the login gate (set them in the Render env — the public URL
 #     has no other auth).
-#   - Data dirs (inbox/outbox, creatives, blog, autopilot) must point under the mounted persistent
-#     disk in the cloud config.json, or they vanish on redeploy.
+#   - STUDIO_OPERATOR_PASS_HASH / STUDIO_PRINTER_PASS_HASH hold the per-person passwords — one scrypt
+#     hash per ROLE, generated with `node src/auth/credentials.js <password>` and pasted into the
+#     Render env. Keyed by role, not username, so renaming an account never locks it out. The hashes
+#     live ONLY here, never in config.json and never on the mounted disk (KTD1) — the disk holds
+#     usernames and avatars only.
+#   - Data dirs (inbox/outbox, creatives, blog, autopilot, accounts) must point under the mounted
+#     persistent disk in the cloud config.json, or they vanish on redeploy.
 ENV HOST=0.0.0.0 \
     NODE_ENV=production
 
