@@ -320,3 +320,89 @@ test('studioBoard carries the overnight block when a report is present, and null
   const noReport = studioBoard({ inboxRoot: null, outboxRoot: null, state: fakeState, dataDir: '/data', readReportFn: () => null });
   assert.equal(noReport.overnight, null);
 });
+
+// ---- one purchase, several books --------------------------------------------
+
+/** One book of a purchase, review-state shaped. */
+const bookOf = (orderId, purchaseId, position, of, s = summary(), extra = {}) =>
+  order(orderId, s, { purchase: { orderId: purchaseId, position, of }, copies: 1, ...extra });
+
+test('a lone book carries no linkage and no copy count, so its row is unchanged', () => {
+  const [entry] = buildBoard([order('1500', summary({ total: 2, eligible: 2, ready: true }))]).orders;
+  assert.equal(entry.purchase, null, 'nothing to link it to');
+  assert.equal(entry.copies, null, 'one copy is the ordinary case and says nothing');
+  assert.equal(entry.siblingPending, null);
+});
+
+test('the books of one purchase each carry their position in it', () => {
+  const { orders } = buildBoard([
+    bookOf('1234-1', '1234', 1, 2, summary({ total: 2, eligible: 2, ready: true })),
+    bookOf('1234-2', '1234', 2, 2, summary({ total: 2, eligible: 2, ready: true })),
+  ]);
+  assert.deepEqual(orders.map((o) => o.purchase.position), [1, 2]);
+  assert.deepEqual(orders.map((o) => o.purchase.of), [2, 2]);
+  assert.deepEqual(orders.map((o) => o.orderId), ['1234-1', '1234-2'], 'and they sort adjacently');
+});
+
+test('a copy count above one is surfaced; quantity 1 stays silent', () => {
+  const { orders } = buildBoard([
+    order('1500', summary(), { copies: 3 }),
+    order('1501', summary(), { copies: 1 }),
+  ]);
+  assert.equal(orders[0].copies, 3, 'the operator has to print this one three times');
+  assert.equal(orders[1].copies, null);
+});
+
+test('a book whose sibling is still held reports it, so half a parcel is not dispatched', () => {
+  const { orders } = buildBoard(
+    [
+      bookOf('1234-1', '1234', 1, 2, summary({ total: 2, eligible: 2, ready: true })),
+      bookOf('1234-2', '1234', 2, 2, summary(), {
+        intake: { verdict: 'hold', override: false, findings: [{ check: 'count', verdict: 'hold' }] },
+      }),
+    ],
+    { pdfBuilt: (o) => o.orderId === '1234-1' },
+  );
+  const [first, second] = orders;
+  assert.equal(first.status, ORDER_BOARD_STATES.READY_TO_SEND);
+  assert.equal(second.status, ORDER_BOARD_STATES.HELD);
+  assert.deepEqual(
+    first.siblingPending,
+    [{ orderId: '1234-2', position: 2, status: ORDER_BOARD_STATES.HELD }],
+    'the finished book warns that its parcel is not complete',
+  );
+  assert.equal(second.siblingPending, null, 'the held book has nothing to wait for — its sibling is ready');
+});
+
+test('once both books are ready to leave, neither warns', () => {
+  const { orders } = buildBoard(
+    [
+      bookOf('1234-1', '1234', 1, 2, summary({ total: 1, eligible: 1, ready: true })),
+      bookOf('1234-2', '1234', 2, 2, summary({ total: 1, eligible: 1, ready: true })),
+    ],
+    { pdfBuilt: () => true },
+  );
+  assert.deepEqual(orders.map((o) => o.siblingPending), [null, null]);
+});
+
+test('a book already sent does not hold its sibling back', () => {
+  const { orders } = buildBoard(
+    [
+      bookOf('1234-1', '1234', 1, 2, summary({ total: 1, eligible: 1, ready: true })),
+      bookOf('1234-2', '1234', 2, 2, summary({ total: 1, eligible: 1, ready: true })),
+    ],
+    { pdfBuilt: () => true, delivered: (o) => o.orderId === '1234-1' },
+  );
+  const second = orders.find((o) => o.orderId === '1234-2');
+  assert.equal(second.siblingPending, null, 'a sent book has left already — it is not pending');
+});
+
+test('books of different purchases never link to each other', () => {
+  const { orders } = buildBoard([
+    bookOf('1234-1', '1234', 1, 2, summary(), {}),
+    bookOf('1234-2', '1234', 2, 2, summary({ total: 1, eligible: 1, ready: true })),
+    bookOf('1300-1', '1300', 1, 2, summary({ total: 1, eligible: 1, ready: true })),
+  ]);
+  const from1300 = orders.find((o) => o.orderId === '1300-1');
+  assert.equal(from1300.siblingPending, null, "1234's unfinished book is not 1300's problem");
+});

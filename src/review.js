@@ -6,7 +6,7 @@ import { generatePhoto } from './batch.js';
 import { outputPaths, photoBase } from './organize.js';
 import { assessOutputFiles } from './qcFiles.js';
 import { deriveDedication, deriveSlug } from './dedication.js';
-import { shopDedication } from './orderInfo.js';
+import { readOrderInfo } from './orderInfo.js';
 import { recallDedication, learnDedication, MEMORY_DIR } from './dedications.js';
 import { applyEdits, EditError } from './editor.js';
 import {
@@ -96,7 +96,8 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
 
     // Best source first. The shop's own record is the only one that can spell "Pro Jiříčka"; the
     // photo names lost the accents before this tool ever saw them.
-    const fromShop = order.dir ? shopDedication(order.dir) : '';
+    const shopInfo = order.dir ? readOrderInfo(order.dir) : null;
+    const fromShop = shopInfo?.dedication ?? '';
     const remembered = fromShop ? '' : recallDedication(memoryRoot, deriveSlug(bases));
     const suggestion = fromShop || remembered || deriveDedication(bases);
 
@@ -140,6 +141,11 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
       suggestionSource: hasDedication(manifest) || !suggestion ? '' : fromShop ? 'shop' : remembered ? 'memory' : 'filename',
       // What an empty box used to say, so a clear the operator did not mean is one click away.
       clearedDedication: manifest.dedicationWas ?? '',
+      // Which book of a purchase this is, and how many copies of it to print. One checkout can hold
+      // several books; each is its own folder, and these are what let the board show the parcel they
+      // belong to. A folder with no shop record reads as a lone single-copy book.
+      purchase: shopInfo?.purchase ?? { orderId, position: 1, of: 1 },
+      copies: shopInfo?.copies ?? 1,
       photos,
       summary: summarizeOrder(manifest, bases),
       // The finished book exists on disk. The generator uses this to move a done order out of the

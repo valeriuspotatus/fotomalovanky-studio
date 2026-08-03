@@ -11,9 +11,15 @@ export class IngestError extends Error {
 }
 
 /** The Chrome extension names each photo "<order>_img<NNNN>_-_<label>.jpeg".
- *  "1523_img0002_-_hofbauerovi_18.7.2026.jpeg" -> "1523". */
+ *  "1523_img0002_-_hofbauerovi_18.7.2026.jpeg" -> "1523".
+ *
+ *  A book from a multi-book purchase carries a position suffix ("1234-2_img0001_-_…" -> "1234-2").
+ *  Without it in this pattern the match fails, every photo returns null, and `orderIdFor` falls
+ *  through to the folder name — the right answer by the wrong route, and silently the WRONG answer
+ *  the moment a folder holds photos named with the bare purchase number: filename consensus would
+ *  then derive "1234" and re-merge the two books that were just separated. */
 export function orderIdFromPhoto(filename) {
-  const m = /^(\d+)_img\d+/i.exec(basename(filename));
+  const m = /^(\d+(?:-\d+)?)_img\d+/i.exec(basename(filename));
   return m ? m[1] : null;
 }
 
