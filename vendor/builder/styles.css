@@ -7,13 +7,13 @@
     /* A4 dimensions */
     --a4-width: 210mm;
     --a4-height: 297mm;
-    --page-margin: 10mm;
+    --page-margin: 5mm;   /* was 10mm — keep in sync with A4.margin in app.js */
     --printable-width: calc(var(--a4-width) - 2 * var(--page-margin));
     --printable-height: calc(var(--a4-height) - 2 * var(--page-margin));
     
     /* Gallery layout */
     --gap: 6mm;
-    --svg-border: 1mm;
+    --svg-border: 0mm;    /* was 1mm — keep in sync with A4.border in app.js */
     
     /* Theme - Deep midnight aesthetic */
     --bg-primary: #0f0f1a;
@@ -320,7 +320,7 @@ main {
     object-fit: contain;
 }
 
-/* Coloring SVG gets a 1mm black border */
+/* Colouring SVG keyline — off (--svg-border: 0). The rule stays so turning it back on is one number. */
 .image-slot.coloring {
     border: var(--svg-border) solid #000;
     background: white;
