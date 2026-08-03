@@ -181,6 +181,34 @@ body {
     color: var(--bg-primary);
 }
 
+/* Output language toggle (CZ/DE branding on generated pages) */
+.lang-toggle {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.lang-btn {
+    padding: 0.75rem 1rem;
+    border: none;
+    background: var(--bg-card);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.lang-btn:hover {
+    color: var(--text-primary);
+}
+
+.lang-btn.active {
+    background: var(--accent);
+    color: var(--bg-primary);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Main Content
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -612,6 +640,13 @@ main {
     margin-bottom: 7mm;
 }
 
+/* DE logo renders at the same height as the CZ logo: it is wider per unit
+   height (viewBox 429×200 vs 403×200), so its width scales up by 429/403 */
+.title-logo.logo-de {
+    width: 106.5mm;
+    max-width: 394px;
+}
+
 .title-dedication {
     font-family: 'DM Sans', sans-serif;
     font-size: 24pt;
@@ -883,7 +918,8 @@ main {
 /* Hide title config, rotation controls, and pdf toggle initially */
 .title-config.hidden,
 .rotation-controls.hidden,
-.pdf-toggle.hidden {
+.pdf-toggle.hidden,
+.lang-toggle.hidden {
     display: none;
 }
 
