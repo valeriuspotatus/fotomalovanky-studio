@@ -5,7 +5,7 @@ import { loadConfig } from './config.js';
 import { ingestOrders } from './ingest.js';
 import { createGeneratorDriver } from './generator/factory.js';
 import { photoBase, writeOutputs } from './organize.js';
-import { autoCropColoring, deframe } from './autoCrop.js';
+import { tidyColoringPage } from './autoCrop.js';
 import { assessOutputFiles } from './qcFiles.js';
 import {
   STATES,
@@ -89,16 +89,10 @@ export async function generatePhoto({ config, photoPath, orderDir, manifest, ord
     // with wide white borders (config.builder.autoCrop, default on). Never fail a page the GPU already
     // paid for over a crop hiccup — the uncropped page is still perfectly usable.
     if (config.builder?.autoCrop !== false) {
-      try {
-        // First whiten any black border keyline (the model draws one on some wide pages) so the crop
-        // below removes it from both the PNG and the printed SVG instead of the frame defeating the crop.
-        const df = await deframe({ pngPath: out.coloringPng, svgPath: out.coloringSvg });
-        if (df.deframed) onEvent({ type: 'deframed', orderId, base });
-        const c = await autoCropColoring({ pngPath: out.coloringPng, svgPath: out.coloringSvg });
-        if (c.cropped) onEvent({ type: 'auto-cropped', orderId, base, kept: Number(c.kept.toFixed(2)) });
-      } catch (err) {
-        onEvent({ type: 'auto-crop-skipped', orderId, base, reason: err.message });
-      }
+      const t = await tidyColoringPage({ pngPath: out.coloringPng, svgPath: out.coloringSvg });
+      if (t.deframed) onEvent({ type: 'deframed', orderId, base });
+      if (t.cropped) onEvent({ type: 'auto-cropped', orderId, base, kept: Number(t.kept.toFixed(2)) });
+      if (t.error) onEvent({ type: 'auto-crop-skipped', orderId, base, reason: t.error });
     }
     const verdict = await qc(out);
     const next = verdict.verdict === 'ok' ? STATES.OK : STATES.FLAGGED;

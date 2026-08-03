@@ -724,3 +724,58 @@ test('a customer who wrote nothing gets no title page, whatever the file name hi
     f.cleanup();
   }
 });
+
+// ---- a replacement gets the same tidy-up a generated page gets ---------------
+
+/** A page as the generator's own web UI hands it back: a solid black keyline right at the edge,
+ *  a band of white paper, and the drawing in the middle. The studio pipeline strips that frame;
+ *  the web UI has no such step, so a page repaired there arrives carrying it. */
+async function framedPage(w, h) {
+  const inner = Math.round(w * 0.25);
+  return sharp({ create: { width: w, height: h, channels: 3, background: '#ffffff' } })
+    .composite([
+      { input: { create: { width: w, height: 2, channels: 3, background: '#000000' } }, left: 0, top: 0 },
+      { input: { create: { width: w, height: 2, channels: 3, background: '#000000' } }, left: 0, top: h - 2 },
+      { input: { create: { width: 2, height: h, channels: 3, background: '#000000' } }, left: 0, top: 0 },
+      { input: { create: { width: 2, height: h, channels: 3, background: '#000000' } }, left: w - 2, top: 0 },
+      { input: { create: { width: inner, height: inner, channels: 3, background: '#000000' } }, left: Math.round(w / 2 - inner / 2), top: Math.round(h / 2 - inner / 2) },
+    ])
+    .png()
+    .toBuffer();
+}
+
+test("a page repaired in the generator's web UI is deframed on the way in, not printed with its border", async () => {
+  const f = await seed(STATES.MANUAL_IN_PROGRESS);
+  try {
+    const W = 200, H = 260;
+    writeFileSync(join(f.orderDir, 'a_bw.png'), await framedPage(W, H));
+    writeFileSync(join(f.orderDir, 'a.svg'), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}"><rect x="80" y="110" width="40" height="40"/></svg>`);
+
+    const { tidy } = await acceptReplacement({ orderDir: f.orderDir, base: 'a', qc: OK_QC });
+    assert.ok(tidy, 'a replacement is tidied');
+    assert.ok(tidy.deframed || tidy.cropped, 'the border and the white margin are dealt with');
+
+    const after = await sharp(readFileSync(join(f.orderDir, 'a_bw.png'))).metadata();
+    assert.ok(after.width < W && after.height < H, `page was trimmed (${after.width}x${after.height} from ${W}x${H})`);
+
+    // The frame is gone, not merely cropped around: the outer row is no longer solid ink.
+    const { data, info } = await sharp(readFileSync(join(f.orderDir, 'a_bw.png'))).grayscale().raw().toBuffer({ resolveWithObject: true });
+    let dark = 0;
+    for (let x = 0; x < info.width; x++) if (data[x] < 120) dark++;
+    assert.ok(dark / info.width < 0.85, 'the top edge is no longer a solid keyline');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("the operator's own crop is never re-trimmed — their framing is the decision", async () => {
+  // applyPhotoEdit and revertPhotoEdit both exit through acceptReplacement. Auto-trimming there
+  // would quietly undo a crop the operator had just drawn, so those two paths opt out.
+  const f = await editableOrder();
+  try {
+    await applyPhotoEdit({ orderDir: f.orderDir, base: 'a', edits: { crop: { x: 0, y: 0, w: 50, h: 80 } }, qc: okQc });
+    assert.match(readFileSync(join(f.orderDir, 'a.svg'), 'utf8'), /viewBox="0 0 50 80"/, 'the crop the operator drew survives');
+  } finally {
+    f.cleanup();
+  }
+});

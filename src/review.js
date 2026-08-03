@@ -9,6 +9,7 @@ import { deriveDedication, deriveSlug } from './dedication.js';
 import { readOrderInfo } from './orderInfo.js';
 import { recallDedication, learnDedication, MEMORY_DIR } from './dedications.js';
 import { applyEdits, EditError } from './editor.js';
+import { tidyColoringPage } from './autoCrop.js';
 import {
   STATES,
   getStatus,
@@ -275,7 +276,7 @@ export function handoff(orderDir, base) {
 /** The operator saved a repaired file into the order folder. Re-run QC on what actually landed
  *  and put the tile back in the queue as pending_review — a handoff is a redo, not a shortcut
  *  past review, so this never approves and never marks a photo clean. */
-export async function acceptReplacement({ orderDir, base, qc = assessOutputFiles }) {
+export async function acceptReplacement({ orderDir, base, qc = assessOutputFiles, tidy = true }) {
   const manifest = readManifest(orderDir);
   const status = getStatus(manifest, base);
   if (status !== STATES.MANUAL_IN_PROGRESS && status !== STATES.PENDING_REVIEW) {
@@ -289,10 +290,27 @@ export async function acceptReplacement({ orderDir, base, qc = assessOutputFiles
     );
   }
 
+  // The same tidy-up a generated page gets, because a REPLACEMENT did not get one.
+  //
+  // A replacement is repaired somewhere the studio does not control — usually the generator's own
+  // web UI, which has no deframe and no auto-crop. Those pages arrived with the model's border
+  // keyline and its white margin intact and went straight into the book, which is why the borders
+  // kept appearing in print long after the generated pages had stopped showing them.
+  //
+  // `tidy: false` for the operator's own editor. This function is the shared exit of three paths,
+  // and only one of them wants trimming: applyPhotoEdit and revertPhotoEdit come out of the white
+  // pencil and the crop box, where the framing IS the operator's decision. Re-trimming there would
+  // silently undo a crop they just drew — caught by the editor's own tests, which is what this flag
+  // exists for.
+  //
+  // Runs BEFORE the QC verdict, so what the operator is asked to approve is the page that will
+  // actually print. Never throws — an untrimmed replacement still beats refusing the repair.
+  const trimmed = tidy ? await tidyColoringPage({ pngPath: out.coloringPng, svgPath: out.coloringSvg }) : null;
+
   const verdict = await qc(out);
   setStatus(manifest, base, STATES.PENDING_REVIEW, verdict.reason);
   writeManifest(orderDir, manifest);
-  return { status: STATES.PENDING_REVIEW, verdict };
+  return { status: STATES.PENDING_REVIEW, verdict, tidy: trimmed };
 }
 
 // ---- fixing a page by hand --------------------------------------------------
@@ -353,7 +371,7 @@ export async function applyPhotoEdit({ orderDir, base, edits, qc = assessOutputF
   writeFileSync(out.coloringPng, png);
 
   if (status !== STATES.MANUAL_IN_PROGRESS && status !== STATES.PENDING_REVIEW) handoff(orderDir, base);
-  return acceptReplacement({ orderDir, base, qc });
+  return acceptReplacement({ orderDir, base, qc, tidy: false });
 }
 
 /** Throw away every edit and put the generated page back. */
@@ -375,7 +393,8 @@ export async function revertPhotoEdit({ orderDir, base, qc = assessOutputFiles }
 
   const status = getStatus(readManifest(orderDir), base);
   if (status !== STATES.MANUAL_IN_PROGRESS && status !== STATES.PENDING_REVIEW) handoff(orderDir, base);
-  return acceptReplacement({ orderDir, base, qc });
+  // The generated page is being restored, and it was already trimmed when it was generated.
+  return acceptReplacement({ orderDir, base, qc, tidy: false });
 }
 
 /** Re-generate one photo. A redo always starts from flagged, so it runs the identical code path
