@@ -2,7 +2,7 @@
 // PAID photo orders, materialize them into the inbox, run the EXISTING pipeline over just those ids,
 // and write a night report the morning dashboard reads. It adds a trigger — no generation or delivery
 // logic of its own. The no-send invariant holds by construction: this module never imports or reaches
-// a delivery/WhatsApp path, and it calls runPipeline with force:false, which produces the PDF and stops.
+// a delivery path, and it calls runPipeline with force:false, which produces the PDF and stops.
 //
 // Detection is a SLIDING WINDOW, not a hard cursor: the poll asks for every order updated in the last
 // few days and the handled set (autopilotState.js) dedups the finished ones. That is deliberate — a

@@ -120,7 +120,6 @@ test('GET /api/settings reports wiring status without ever leaking a secret (N14
   assert.equal(s.integrations.shopify.configured, false);
   assert.equal(s.integrations.ai.configured, false);
   assert.equal(s.integrations.mail.configured, false);
-  assert.equal(s.whatsapp.state, 'disabled');
   assert.equal(s.autopilot.lastRun, null);
 
   // The hard invariant (verdict N14): no secret value appears anywhere in the payload — not the
