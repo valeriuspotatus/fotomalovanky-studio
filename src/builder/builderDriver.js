@@ -64,6 +64,24 @@ export function coverVariantFor({ coverVariant } = {}) {
   return v;
 }
 
+// The builder brands the generated pages in Czech or German (`.lang-btn[data-lang]`): "de" swaps
+// the cover/last/collage logo for the German mark and drops the Czech footer. The control is
+// UI-only state that resets to CZ on every page load, so an automated build gets Czech unless the
+// driver selects otherwise.
+const OUTPUT_LANGUAGES = new Set(['cz', 'de']);
+
+/** The output language to select in the builder, or null to leave its default (Czech).
+ *  A named-but-unknown language throws rather than silently falling back, so a typo in the
+ *  language map fails the order visibly instead of shipping a Czech book to a German customer. */
+export function languageFor({ language } = {}) {
+  if (language == null || language === '') return null;
+  const v = String(language).trim().toLowerCase();
+  if (!OUTPUT_LANGUAGES.has(v)) {
+    throw new BuilderError(`Unknown output language ${JSON.stringify(language)} — use "cz" or "de".`, { step: 'load' });
+  }
+  return v;
+}
+
 /** Find the builder's photo+SVG pairs in an order folder (mirrors its own pairing rules). */
 export function collectPairs(orderDir) {
   const names = readdirSync(orderDir);
@@ -150,6 +168,24 @@ export class BuilderDriver {
           );
         }
         await variantBtn.first().click();
+      }
+
+      // Output language (cz|de). Only touched for a non-Czech book: Czech is the builder's own
+      // default and the toggle resets to it on every load, so leaving the control alone keeps every
+      // existing order building exactly as before — including against a builder deploy that has no
+      // language toggle at all. A German order does reach for the control, and a missing one is a
+      // hard failure: quietly printing the Czech logo onto a German customer's book is the outcome
+      // this refuses to allow.
+      const language = languageFor(options);
+      if (language && language !== 'cz') {
+        const langBtn = page.locator(`.lang-btn[data-lang="${language}"]`);
+        if ((await langBtn.count()) === 0) {
+          throw new BuilderError(
+            `Builder has no "${language}" language control — the deployed builder may be out of date.`,
+            { step: 'load' },
+          );
+        }
+        await langBtn.first().click();
       }
 
       const title = options.dedication ?? options.title ?? '';

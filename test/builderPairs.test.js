@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { collectPairs, coverCountFor, coverVariantFor } from '../src/builder/builderDriver.js';
+import { collectPairs, coverCountFor, coverVariantFor, languageFor } from '../src/builder/builderDriver.js';
 
 /** Build a throwaway order folder containing exactly `names`. */
 function orderDir(names) {
@@ -97,4 +97,20 @@ test('an unknown cover variant throws rather than silently printing classic', ()
   // The exact bug class we are guarding: "pencil" (singular) must not quietly become classic.
   assert.throws(() => coverVariantFor({ coverVariant: 'pencil' }), /Unknown cover variant/);
   assert.throws(() => coverVariantFor({ coverVariant: 'fancy' }), /Unknown cover variant/);
+});
+
+// ---- output language (cz|de) -------------------------------------------------
+
+test('languageFor normalizes a named language and leaves the builder default alone when unset', () => {
+  assert.equal(languageFor({ language: 'de' }), 'de');
+  assert.equal(languageFor({ language: 'cz' }), 'cz');
+  assert.equal(languageFor({ language: '  DE ' }), 'de');
+  assert.equal(languageFor({}), null, 'unset means do not touch the control');
+  assert.equal(languageFor({ language: '' }), null);
+  assert.equal(languageFor(), null);
+});
+
+test('an unknown language throws rather than quietly printing a Czech book for a German customer', () => {
+  assert.throws(() => languageFor({ language: 'german' }), /Unknown output language/);
+  assert.throws(() => languageFor({ language: 'en' }), /Unknown output language/);
 });
