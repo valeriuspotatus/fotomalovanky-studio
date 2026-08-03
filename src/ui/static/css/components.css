@@ -2,6 +2,15 @@
    One implementation per component, driven by tokens.css. Imported by every screen. */
 
 *{box-sizing:border-box}
+/* `hidden` must actually hide, everywhere, whatever else the element matches.
+   The browser's own [hidden]{display:none} is the weakest rule there is, so any component rule
+   that sets display — .nav a{display:flex}, .sb-foot .mini{display:flex} — silently beat it, and
+   `el.hidden = true` set an attribute that changed nothing on screen. That is how the printer kept
+   seeing Kreativy, Kalendář, Blog, Pošta and Nastavení: the data-operator toggle was running and
+   having no effect. Three one-off patches for this already existed (.overnight, .mm-overlay,
+   .mm-toast); this is the rule they were each working around. Role ENFORCEMENT was never affected —
+   that is ROUTE_POLICY on the server, and it always refused. */
+[hidden]{display:none!important}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-ui);
   font-size:14px;line-height:1.45;font-weight:450;-webkit-font-smoothing:antialiased;min-height:100vh}

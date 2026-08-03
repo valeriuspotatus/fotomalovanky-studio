@@ -978,3 +978,36 @@ test('the original carries a cache-busting version, so a re-framed photo actuall
   assert.notEqual(after.originalVersion, before.originalVersion, 'a rewritten photo gets a new URL');
   assert.equal(after.originalVersion, statSync(path).mtimeMs);
 });
+
+test('the hidden attribute actually hides — the operator-only controls are not merely marked', async () => {
+  const f = await roleServer();
+  try {
+    // The sibling test above asserts `data-operator` is ON the control. That passed for months while
+    // the printer could see and click every operator control, because the attribute was doing
+    // nothing: applyIdentity sets `el.hidden = true`, and the browser's own [hidden]{display:none}
+    // is the weakest rule there is. `.nav a{display:flex}` and `.sb-foot .mini{display:flex}` both
+    // beat it. Marking a control hidden and hiding it are two different claims; this is the second.
+    const css = await (await f.get('/css/components.css', f.printer)).text();
+    assert.match(css, /\[hidden\]\s*\{[^}]*display\s*:\s*none\s*!important/, 'a [hidden] rule that outranks any component display rule');
+
+    const html = await (await f.get('/', f.printer)).text();
+    for (const view of ['creatives', 'calendar', 'blog', 'mail', 'settings']) {
+      assert.match(html, new RegExp(`data-view="${view}" data-operator`), `${view} is marked operator-only`);
+    }
+    // And the nav rules that made this necessary are still there, so the guard is not decorative.
+    assert.match(css, /\.nav a\{display:flex/, 'the display rule that outranks the default is still present');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the overview greets whoever is signed in, never a name baked into the page', async () => {
+  const f = await roleServer();
+  try {
+    const html = await (await f.get('/', f.printer)).text();
+    assert.doesNotMatch(html, /Dobrý den, David!/, 'the operator\'s name must not be hard-coded into the greeting');
+    assert.match(html, /Dobrý den, \$\{esc\(identity\.username\)\}!/, 'the greeting is built from the signed-in identity');
+  } finally {
+    f.cleanup();
+  }
+});
