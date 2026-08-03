@@ -198,9 +198,9 @@
       <a href="/#home"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>Přehled</a>
       <a href="/#orders"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>Objednávky</a>
       <a class="active" href="/review"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6"/><path d="m14 4 6 6"/><path d="M14.5 4.5 19 9l-9 9-4.5-4.5z"/><path d="M18 2v3M21 4h-3"/></svg>Generátor</a>
-      <a href="/#creatives"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg>Kreativy</a>
-      <a href="/#calendar"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Kalendář</a>
-      <a href="/#mail"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>Pošta</a>
+      <a data-operator hidden href="/#creatives"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg>Kreativy</a>
+      <a data-operator hidden href="/#calendar"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Kalendář</a>
+      <a data-operator hidden href="/#mail"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>Pošta</a>
       <a href="/#todo"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2a8 8 0 0 1-6.5-3.3L3 15"/></svg>Potřebuje vás</a>
     </nav>
     <div class="sb-art">
@@ -210,9 +210,11 @@
       </svg>
     </div>
     <div class="sb-foot">
-      <div class="user"><div class="avatar">D</div><div class="who"><b>David</b><br><span>Studio</span></div></div>
+      <!-- Filled from /api/state's identity. No name or initial baked in: this markup is what the
+           page shows before the first response, and a name here is somebody else's name until then. -->
+      <div class="user"><div class="avatar" id="userAvatar"></div><div class="who"><b id="userName">Studio</b><br><span id="userRole"></span></div></div>
       <button class="mini" id="themeBtn"><svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></svg><span id="themeLabel">Tmavý režim</span></button>
-      <a class="mini" href="/#settings"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Nastavení</a>
+      <a class="mini" id="settingsLink" data-operator hidden href="/#settings"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Nastavení</a>
     </div>
   </aside>
   <main class="main review">
@@ -1202,13 +1204,45 @@ function paintEarlier(earlier, locked) {
     earlier.map((o) => orderSection(o, locked)).join('');
 }
 
+/** Paint the signed-in person into the sidebar.
+ *
+ *  This page used to carry "D / David / Studio" as literal markup, so whoever opened the generator
+ *  was shown the operator's profile — the printer's own photo and name vanished the moment he left
+ *  the dashboard. /api/state has carried `identity` all along; nothing here was reading it.
+ *
+ *  Also drives [data-operator], because this page has its own sidebar with its own Nastavení link
+ *  and none of the dashboard's role handling reaches it. */
+function paintIdentity(identity) {
+  if (!identity) return;
+  const av = $('#userAvatar');
+  const initial = (identity.username || '?').trim().charAt(0).toUpperCase();
+  // An <img> when there is a photo, the initial when there is not — same as the dashboard.
+  if (identity.avatar) {
+    if (av.dataset.src !== identity.avatar) {
+      av.dataset.src = identity.avatar;
+      av.innerHTML = `<img alt="" src="${esc(identity.avatar)}">`;
+    }
+  } else if (av.dataset.src !== '') {
+    av.dataset.src = '';
+    av.textContent = initial;
+  } else if (av.textContent !== initial) {
+    av.textContent = initial;
+  }
+  $('#userName').textContent = identity.username || 'Studio';
+  $('#userRole').textContent = identity.role === 'printer' ? 'Tisk' : 'Studio';
+  const operator = identity.role !== 'printer';
+  document.querySelectorAll('[data-operator]').forEach((el) => { el.hidden = !operator; });
+}
+
 let inFlight = false;
 async function refresh(force) {
   if (inFlight) return;
   inFlight = true;
   try {
     const res = await fetch('/api/state');
-    render(await res.json(), force);
+    const data = await res.json();
+    paintIdentity(data.identity);
+    render(data, force);
     $('#c-live').textContent = 'živě';
   } catch {
     $('#c-live').textContent = 'odpojeno — běží ještě nástroj?';
