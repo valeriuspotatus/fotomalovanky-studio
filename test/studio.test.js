@@ -786,25 +786,47 @@ test('a book whose sibling is still held reports it, so half a parcel is not dis
     { pdfBuilt: (o) => o.orderId === '1234-1' },
   );
   const [first, second] = orders;
-  assert.equal(first.status, ORDER_BOARD_STATES.READY_TO_SEND);
+  assert.equal(first.status, ORDER_BOARD_STATES.READY_TO_PRINT);
   assert.equal(second.status, ORDER_BOARD_STATES.HELD);
   assert.deepEqual(
     first.siblingPending,
     [{ orderId: '1234-2', position: 2, status: ORDER_BOARD_STATES.HELD }],
     'the finished book warns that its parcel is not complete',
   );
-  assert.equal(second.siblingPending, null, 'the held book has nothing to wait for — its sibling is ready');
+  // Under the old lifecycle this read null: a built book was "ready to leave", because the terminal
+  // act was the print. Now the terminal act is the post, so a book that is only built is still
+  // unfinished and each book correctly names the other. Neither can go anywhere on its own.
+  assert.deepEqual(second.siblingPending, [
+    { orderId: '1234-1', position: 1, status: ORDER_BOARD_STATES.READY_TO_PRINT },
+  ]);
 });
 
-test('once both books are ready to leave, neither warns', () => {
+test('once both books are printed, neither warns — the parcel is whole', () => {
   const { orders } = buildBoard(
     [
       bookOf('1234-1', '1234', 1, 2, summary({ total: 1, eligible: 1, ready: true })),
       bookOf('1234-2', '1234', 2, 2, summary({ total: 1, eligible: 1, ready: true })),
     ],
-    { pdfBuilt: () => true },
+    { pdfBuilt: () => true, printed: () => true },
   );
   assert.deepEqual(orders.map((o) => o.siblingPending), [null, null]);
+});
+
+test('a built-but-unprinted sibling still holds the parcel back', () => {
+  // The case the warning exists for, and the one the lifecycle re-cut nearly lost: book 1 is off the
+  // press and about to be posted, book 2 is only a PDF. Posting now sends half a parcel.
+  const { orders } = buildBoard(
+    [
+      bookOf('1234-1', '1234', 1, 2, summary({ total: 1, eligible: 1, ready: true })),
+      bookOf('1234-2', '1234', 2, 2, summary({ total: 1, eligible: 1, ready: true })),
+    ],
+    { pdfBuilt: () => true, printed: (o) => o.orderId === '1234-1' },
+  );
+  const first = orders.find((o) => o.orderId === '1234-1');
+  assert.equal(first.status, ORDER_BOARD_STATES.PRINTED);
+  assert.deepEqual(first.siblingPending, [
+    { orderId: '1234-2', position: 2, status: ORDER_BOARD_STATES.READY_TO_PRINT },
+  ]);
 });
 
 test('a book already sent does not hold its sibling back', () => {
@@ -813,7 +835,9 @@ test('a book already sent does not hold its sibling back', () => {
       bookOf('1234-1', '1234', 1, 2, summary({ total: 1, eligible: 1, ready: true })),
       bookOf('1234-2', '1234', 2, 2, summary({ total: 1, eligible: 1, ready: true })),
     ],
-    { pdfBuilt: () => true, delivered: (o) => o.orderId === '1234-1' },
+    // `sent`, not the retired `delivered` — buildBoard ignores an unknown option, so the old spelling
+    // left book 1 merely built and this passed without ever exercising a dispatched sibling.
+    { pdfBuilt: () => true, printed: () => true, sent: (o) => o.orderId === '1234-1' },
   );
   const second = orders.find((o) => o.orderId === '1234-2');
   assert.equal(second.siblingPending, null, 'a sent book has left already — it is not pending');

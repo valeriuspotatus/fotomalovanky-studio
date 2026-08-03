@@ -290,13 +290,19 @@ function boardEntry(order, status) {
 }
 
 /** Board states in which a book is not yet ready to leave with its parcel. Dispatching one book
- *  while another is in any of these means half a parcel goes to the printer. */
+ *  while another is in any of these means half a parcel goes to the customer.
+ *
+ *  READY_TO_PRINT belongs here, and did not under the old lifecycle. Back then the terminal act was
+ *  the print and this state meant "about to be handed over"; now the terminal act is the POST, and a
+ *  book that exists as a PDF but has not been through the press cannot go in the parcel. Without it
+ *  the one case the warning exists for — book 1 printed, book 2 still only built — passed silently. */
 const NOT_READY_TO_LEAVE = new Set([
   ORDER_BOARD_STATES.QUEUED,
   ORDER_BOARD_STATES.GENERATING,
   ORDER_BOARD_STATES.HELD,
   ORDER_BOARD_STATES.PENDING_REVIEW,
   ORDER_BOARD_STATES.APPROVED,
+  ORDER_BOARD_STATES.READY_TO_PRINT,
   ORDER_BOARD_STATES.FAILED,
 ]);
 

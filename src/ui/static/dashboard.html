@@ -1049,7 +1049,10 @@
     const g=e.target.closest(".act-generate");if(g){startOrderRun(g.dataset.generate,false,g);return;}
     const bp=e.target.closest(".act-buildpdf");if(bp){startOrderRun(bp.dataset.buildpdf,true,bp);return;}
     const s=e.target.closest(".act-sent");if(s){if(!confirmDispatch(s.dataset.sent))return;markSent(s.dataset.sent,s);return;}
-    const p=e.target.closest(".act-printed");if(p){if(!confirmDispatch(p.dataset.printed))return;p.disabled=true;orderAction(p.dataset.printed,"printed");return;}
+    // No parcel check on the print: under this lifecycle printing is not the terminal act and sends
+    // nothing to anyone — Jirka works through a parcel one book at a time, and asking him to confirm
+    // each one would be noise. The check belongs on the dispatch below, which is what actually posts.
+    const p=e.target.closest(".act-printed");if(p){p.disabled=true;orderAction(p.dataset.printed,"printed");return;}
     const up=e.target.closest(".act-unprinted");if(up){up.disabled=true;orderAction(up.dataset.unprinted,"unprinted");return;}
     const u=e.target.closest(".act-unsent");if(u){u.disabled=true;orderAction(u.dataset.unsent,"unsent");return;}
     const del=e.target.closest(".act-delete");if(del){deleteOrder(del.dataset.delete);}
