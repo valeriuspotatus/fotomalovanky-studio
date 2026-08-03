@@ -549,10 +549,12 @@ function paintRun(run) {
   if (run.report) {
     const c = run.report.counts;
     parts.push(`\n<span class="hdr">${c.done} hotovo, ${c.held} čeká na vás, ${c.failed} selhalo.</span>`);
+    // Only what went WRONG is listed. A line per finished order was a wall of "hotovo — PDF
+    // vytvořeno" restating what the grid below already shows on every tile, and it pushed the one
+    // line that matters — a failure — off the top of a short scrolling panel. Held orders are left
+    // out for the same reason: they are the grid's "čeká na vás" chips.
     for (const o of run.report.orders) {
       if (o.status === 'failed') parts.push(`<span class="err">  ${esc(o.orderId)}  SELHALO  ${esc(o.reason)}</span>`);
-      else if (o.status === 'held') parts.push(`  ${esc(o.orderId)}  drženo   ${esc(o.reason)}`);
-      else parts.push(`  ${esc(o.orderId)}  hotovo   PDF vytvořeno${o.titled ? '' : ' (bez věnování)'}`);
     }
   }
   const html = parts.join('\n');
@@ -670,7 +672,10 @@ function tile(orderId, orderDir, p, locked) {
   const shot = (kind, cap) => {
     const has = kind === 'coloring' ? p.hasColoring : p.hasOriginal;
     if (!has) return `<figure><div class="ph">${kind === 'coloring' ? 'zatím bez omalovánky' : 'fotka smazána'}</div><figcaption>${cap}</figcaption></figure>`;
-    const v = kind === 'coloring' ? `?v=${p.coloringVersion}` : '';
+    // Both files can change under a redo now — the page from a re-roll, the photo from automatic
+    // framing — so both carry their mtime. An unversioned original showed the cached pre-crop photo
+    // next to the cropped page it was made from.
+    const v = `?v=${kind === 'coloring' ? p.coloringVersion : p.originalVersion}`;
     return `<figure><img loading="lazy" src="/img/${enc(orderId)}/${enc(p.base)}/${kind}${v}" alt="${esc(cap)}"><figcaption>${cap}</figcaption></figure>`;
   };
 

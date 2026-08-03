@@ -223,6 +223,12 @@ function forClient(orders, inFlight) {
       // The render's mtime versions its <img> URL, so a completed redo repaints the tile
       // instead of the browser showing the render the operator just rejected.
       coloringVersion: p.files.coloring ? statSync(p.files.coloring).mtimeMs : 0,
+      // The ORIGINAL needs the same treatment now that it can change. It could not before: the
+      // photo was written once and never touched again, so an unversioned URL was safe. Automatic
+      // framing rewrites it — a screenshot is cropped, a sideways photo turned — and without this
+      // the browser keeps serving the copy it cached, so the page shows a cropped colouring page
+      // beside an uncropped photo and the fix looks like it did not happen.
+      originalVersion: p.files.original ? statSync(p.files.original).mtimeMs : 0,
       busy: inFlight.get(`${o.orderId}/${p.base}`) ?? null,
     })),
   }));
