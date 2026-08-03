@@ -20,7 +20,6 @@ import { createBridgeClient, BridgeError } from '../proton/bridgeClient.js';
 import { createSmtpClient, SmtpError } from '../proton/smtpClient.js';
 import { summarizeInbox } from '../proton/mailbox.js';
 import { templateList, unfilledPlaceholders } from '../proton/templates.js';
-import { createWhatsAppClient, WhatsAppError, deliveryCaption } from '../whatsapp/whatsappClient.js';
 import { renderCreativePng, CreativeRenderError } from '../creatives/renderCreative.js';
 import { generateMarketingImage, describeImage, generateText, AiImageError } from '../creatives/aiImage.js';
 import { generateAdImages, describeAndGenerate, AdImageError, toDataUri } from '../creatives/adImages.js';
@@ -327,7 +326,7 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
  *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
  *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
  *  double-click launcher, where a real operator is watching, turns it on. */
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient, smtpClient, waClient, adImageFn } = {}) {
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient, smtpClient, adImageFn } = {}) {
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
   const inFlight = new Map(); // "order/base" -> { message }
@@ -351,11 +350,6 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   const mailLimit = config?.mail?.recentLimit ?? 6;
   let mailCache = null; // { at: epochMs, payload } — a successful read is reused briefly so the tile's
   const MAIL_TTL = 30_000; // poll doesn't reopen an IMAP session every few seconds.
-
-  // The one WhatsApp seam: deliver the finished book to Jirka on the operator's explicit "Odeslat
-  // Jirkovi" click. Built from config only when whatsapp is enabled (a caller/test may inject one);
-  // null → the deliver action is refused with a clear message. The session links lazily on first use.
-  const wa = waClient ?? (config?.whatsapp?.enabled ? createWhatsAppClient({ recipient: config.whatsapp.recipient, sessionDir: config.whatsapp.sessionDir, executablePath: config.whatsapp.executablePath }) : null);
 
   // Kreativy AI images: the operator uploads a reference photo, Nano Banana Pro reimagines it into a
   // marketing "before", and the existing RunPod generator turns that into the "after" line-art. The
@@ -625,7 +619,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     if (url.pathname === '/healthz') return json(res, 200, { ok: true, commit: process.env.RENDER_GIT_COMMIT ?? null });
     // Optional password gate for public hosting (Render has no built-in auth). Active only when both
     // STUDIO_USER + STUDIO_PASS are set, so local runs are unchanged. HTTPS at the host makes Basic
-    // Auth safe enough for one operator; without it the whole customer-book/WhatsApp panel is open.
+    // Auth safe enough for one operator; without it the whole customer-book/mail panel is open.
     if (!checkAuth(req)) {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Fotomalovanky"', 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('Přihlášení vyžadováno.');
@@ -762,43 +756,15 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         }
       }
 
-      // GET /api/whatsapp — the delivery channel's link state, so the board can show "propojeno" or a
-      // QR to scan. Always 200 with a stable shape; the session links lazily on the first read.
-      if (req.method === 'GET' && url.pathname === '/api/whatsapp') {
-        if (!wa) return json(res, 200, { available: false, state: 'disabled' });
-        try {
-          return json(res, 200, await wa.status());
-        } catch (err) {
-          return json(res, 200, { available: false, state: 'offline', detail: err.message });
-        }
-      }
-
-      // GET /api/whatsapp/groups — the groups the linked account is in, so delivery can target a stable
-      // group id ("…@g.us") instead of one person's number. Requires a linked session (409 if not).
-      if (req.method === 'GET' && url.pathname === '/api/whatsapp/groups') {
-        if (!wa?.listGroups) return json(res, 503, { error: 'WhatsApp odesílání není nastaveno.', code: 'not-configured' });
-        try {
-          return json(res, 200, { groups: await wa.listGroups() });
-        } catch (err) {
-          const code = err instanceof WhatsAppError ? err.code : 'unknown';
-          return json(res, code === 'not-linked' ? 409 : 503, { error: err.message, code });
-        }
-      }
-
       // GET /api/settings — the Nastavení screen's read-only status (N14). Reports what is wired and
       // where, never a secret value: tokens, passwords and the token-scoped generator URL are surfaced
       // only as configured-or-not (+ safe host/user), never rendered. Changing the input folder is a
       // separate POST /api/_scan, so this handler stays a pure read.
       if (req.method === 'GET' && url.pathname === '/api/settings') {
         const hostOf = (u) => { try { return new URL(u).host; } catch { return null; } };
-        let whatsapp = { available: false, state: wa ? 'offline' : 'disabled' };
-        if (wa) {
-          try { const s = await wa.status(); whatsapp = { available: s.available, state: s.state }; } catch { /* keep offline */ }
-        }
         const report = readReport(config.shopify?.dataDir ?? null);
         return json(res, 200, {
           folders: { inbox, outbox },
-          whatsapp,
           integrations: {
             generator: { configured: Boolean(config.generator?.baseUrl), host: hostOf(config.generator?.baseUrl), mode: config.generator?.mode ?? null },
             shopify: { configured: Boolean(config.shopify?.accessToken), enabled: Boolean(config.shopify?.enabled), storeDomain: config.shopify?.storeDomain ?? null, apiVersion: config.shopify?.apiVersion ?? null },
@@ -1073,13 +1039,13 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, { running: autopilot.running, lines: autopilot.lines, report: autopilot.report, error: autopilot.error });
       }
 
-      // POST /api/_shutdown — stop the server cleanly. Runs the graceful shutdown (closes WhatsApp's
-      // Chromium via client.destroy) BEFORE exiting, so the linked session flushes to disk and the next
-      // start restores it without a re-scan. This is how the server is restarted programmatically on
-      // Windows, where a background process can't be sent a real Ctrl-C/SIGINT. Localhost-only server.
+      // POST /api/_shutdown — stop the server cleanly. Runs the graceful shutdown (stops the polling
+      // timers) BEFORE exiting, so nothing fires into a half-torn-down process. This is how the server
+      // is restarted programmatically on Windows, where a background process can't be sent a real
+      // Ctrl-C/SIGINT. Localhost-only server.
       if (req.method === 'POST' && url.pathname === '/api/_shutdown') {
         json(res, 200, { stopping: true });
-        // Answer first, then close the browser and exit once the response has flushed.
+        // Answer first, then stop the timers and exit once the response has flushed.
         setTimeout(() => { shutdown().finally(() => process.exit(0)); }, 150);
         return;
       }
@@ -1155,49 +1121,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, overrideIntake(order.orderDir, { confirmCount }));
       }
 
-      // POST /api/whatsapp/test — send a test document to confirm the link works end-to-end, WITHOUT
-      // marking any order delivered. The server picks a built PDF (never a client-supplied path, so this
-      // can't be used to exfiltrate an arbitrary file). Optional body { to } overrides the destination —
-      // used to verify a group id ("…@g.us") before it's made the configured recipient.
-      if (req.method === 'POST' && url.pathname === '/api/whatsapp/test') {
-        if (!wa) return json(res, 503, { error: 'WhatsApp odesílání není nastaveno.', code: 'not-configured' });
-        const { to } = await readJson(req, 4096).catch(() => ({}));
-        const withPdf = state().map((o) => ({ o, pdf: pdfPathFor(o.orderDir, o.orderId) })).find((x) => existsSync(x.pdf));
-        if (!withPdf) return json(res, 400, { error: 'Není žádné hotové PDF k odeslání jako test.' });
-        try {
-          const sent = await wa.sendDocument({ filePath: withPdf.pdf, caption: 'Test z Fotomalovánky studia ✅ — WhatsApp spojení funguje.', to: to || undefined });
-          return json(res, 200, { sent: true, to: sent.to, order: withPdf.o.orderId });
-        } catch (err) {
-          const code = err instanceof WhatsAppError ? err.code : 'unknown';
-          return json(res, 502, { error: `Testovací odeslání selhalo — ${err.message}`, code });
-        }
-      }
-
-      // POST /api/<order>/deliver — the operator's explicit "Odeslat Jirkovi": send the finished
-      // <order> Final.pdf to Jirka's WhatsApp with the order number as caption, THEN mark it delivered.
-      // The order is written to 'sent' ONLY when the WhatsApp send resolves — a failed send leaves the
-      // order on the board with a visible error so the operator can retry. Sent regardless of payment.
-      // This is the sole point books leave for the printer; the overnight autopilot never reaches here.
-      if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'deliver') {
-        if (!wa) return json(res, 503, { error: 'WhatsApp odesílání není nastaveno.', code: 'not-configured' });
-        const order = state().find((o) => o.orderId === parts[1]);
-        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
-        const pdfPath = pdfPathFor(order.orderDir, order.orderId);
-        if (!existsSync(pdfPath)) return json(res, 409, { error: 'PDF ještě není hotové — nejdřív ho vytvořte.', code: 'no-pdf' });
-        try {
-          const sent = await wa.sendDocument({ filePath: pdfPath, caption: deliveryCaption(order.orderId) });
-          const status = markDelivered(order.orderDir, { by: 'whatsapp', to: sent.to, messageId: sent.id }); // marks 'sent' — only reached on a successful send
-          return json(res, 200, { status, sent: true, messageId: sent.id });
-        } catch (err) {
-          const code = err instanceof WhatsAppError ? err.code : 'unknown';
-          return json(res, 502, { error: `Odeslání Jirkovi selhalo — ${err.message}`, code });
-        }
-      }
-
       // POST /api/<order>/sent — the operator confirms the finished book has gone to Jirka. Writes
       // the delivery marker so the order derives to 'sent' and drops off the active board. Manual
-      // only: nothing here contacts anyone, it records that the operator already did (the fallback
-      // when WhatsApp isn't linked and David sent the book by hand).
+      // only: nothing here contacts anyone, it records that the operator already did — the book
+      // leaves this tool by hand, or by Jirka downloading it himself.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'sent') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
@@ -1393,14 +1320,12 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     log(`auto-run: watching inbox for new orders every ${autoRunSec}s`);
   }
 
-  // Graceful stop: close the WhatsApp session's Chromium cleanly + stop the auto-fetch timer. Without the
-  // clean WhatsApp close, killing the server (Ctrl-C, a restart) tears the browser down mid-flush and
-  // whatsapp-web.js's NEXT restore hangs in 'connecting' forever — the recurring "re-scan the QR after
-  // every restart" pain. Best-effort.
+  // Graceful stop: silence the background timers. Without this a Ctrl-C or a programmatic restart can
+  // fire an auto-fetch or an auto-run into a process that is already on its way out, which starts a
+  // generation nobody is left to watch. Best-effort; the process exits either way.
   async function shutdown() {
     if (autoFetchTimer) clearInterval(autoFetchTimer);
     if (autoRunTimer) clearInterval(autoRunTimer);
-    try { await wa?.close?.(); } catch { /* best-effort */ }
   }
 
   return { server, inFlight, shutdown };
@@ -1452,8 +1377,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
 
   const { server, shutdown } = createReviewServer({ config, inboxRoot, outboxRoot, revealFinished: true, log: (m) => console.log(`  ${m}`) });
-  // Close the WhatsApp Chromium cleanly on stop so the next start restores its session instead of
-  // hanging. Guard against double-fire (SIGINT then SIGTERM) and give the browser a moment to flush.
+  // Stop the background timers cleanly on the way out. Guard against double-fire (SIGINT then SIGTERM).
   let stopping = false;
   const stop = async () => {
     if (stopping) return;

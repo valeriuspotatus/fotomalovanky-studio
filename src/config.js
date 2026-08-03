@@ -13,24 +13,10 @@ function defaultConfigPath() {
   return process.env.FMA_CONFIG ?? resolve(process.cwd(), 'config.json');
 }
 
-/** A per-user data directory OUTSIDE the repo tree for the WhatsApp LocalAuth store. That store is
- *  a full-account bearer credential — anyone with it can send as this WhatsApp — so it must never
- *  be able to land in the working tree. Defaults to the OS per-user data dir; the operator can
- *  override with an absolute path in config.json. */
-export function defaultSessionDir(env = process.env, platform = process.platform, home = homedir()) {
-  if (platform === 'win32') {
-    return join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'fotomalovanky', 'whatsapp-session');
-  }
-  if (platform === 'darwin') {
-    return join(home, 'Library', 'Application Support', 'fotomalovanky', 'whatsapp-session');
-  }
-  return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'fotomalovanky', 'whatsapp-session');
-}
-
 /** A per-user data directory OUTSIDE the repo tree for the overnight autopilot's cursor, handled-order
- *  set, and the night report. Those files hold customer PII (order emails/names in the report), so —
- *  like the WhatsApp store — they must never be able to land in the working tree. Defaults to the OS
- *  per-user data dir; the operator can override with an absolute path in config.json. */
+ *  set, and the night report. Those files hold customer PII (order emails/names in the report), so
+ *  they must never be able to land in the working tree. Defaults to the OS per-user data dir; the
+ *  operator can override with an absolute path in config.json. */
 export function defaultAutopilotDir(env = process.env, platform = process.platform, home = homedir()) {
   if (platform === 'win32') {
     return join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'fotomalovanky', 'autopilot');
@@ -114,30 +100,6 @@ export function validateConfig(cfg) {
   const mode = cfg.generator.mode ?? null;
   if (mode !== null && mode !== 'api' && mode !== 'browser') {
     throw new ConfigError(`generator.mode must be "api", "browser", or null (unset); got ${JSON.stringify(mode)}.`);
-  }
-
-  // Jirka's WhatsApp handoff (Phase 2). Disabled by default so the tool runs with no delivery
-  // config at all; when the operator turns it on, a missing recipient is a clear error, not a
-  // silent no-op that quietly never delivers.
-  const wa = cfg.whatsapp && typeof cfg.whatsapp === 'object' && !Array.isArray(cfg.whatsapp) ? cfg.whatsapp : {};
-  const whatsappEnabled = wa.enabled === true;
-  const recipient = typeof wa.recipient === 'string' && wa.recipient.trim() ? wa.recipient.trim() : null;
-  if (whatsappEnabled && !recipient) {
-    throw new ConfigError("whatsapp.recipient is required when whatsapp.enabled is true (Jirka's WhatsApp number/id).");
-  }
-  // An explicit sessionDir is honoured but must land OUTSIDE the repo tree — the LocalAuth store is
-  // a full-account credential, and .gitignore can't catch an arbitrarily-named folder, so a path
-  // inside the tree is one `git add -A` away from committing it. Only the default is trusted blind.
-  let sessionDir = defaultSessionDir();
-  if (typeof wa.sessionDir === 'string' && wa.sessionDir.trim()) {
-    sessionDir = resolve(wa.sessionDir.trim());
-    const rel = relative(process.cwd(), sessionDir);
-    const outsideRepo = isAbsolute(rel) || rel === '..' || rel.startsWith('..' + sep);
-    if (!outsideRepo) {
-      throw new ConfigError(
-        `whatsapp.sessionDir (${sessionDir}) resolves inside the project tree. The LocalAuth store is a full-account credential and must never be committable — use an absolute path outside the repo, or omit it to use the safe default.`,
-      );
-    }
   }
 
   // The per-order build format (U9): a default layout, plus a product/variant -> layout map. The
@@ -277,7 +239,8 @@ export function validateConfig(cfg) {
       ? shopRaw.autoFetchMinutes
       : 10;
   // The cursor, handled-order set and night report land here — always an absolute path OUTSIDE the
-  // repo tree (it holds customer PII), same guard as whatsapp.sessionDir. Only the default is trusted blind.
+  // repo tree (it holds customer PII). Only the default is trusted blind: .gitignore can't catch an
+  // arbitrarily-named folder, so a path inside the tree is one `git add -A` away from committing it.
   let dataDir = defaultAutopilotDir();
   if (typeof shopRaw.dataDir === 'string' && shopRaw.dataDir.trim()) {
     dataDir = resolve(shopRaw.dataDir.trim());
@@ -389,10 +352,6 @@ export function validateConfig(cfg) {
     // over its own DEFAULT_INTAKE — so an absent block just means "use the defaults". Dropping it
     // here would silently ignore anything the operator tuned in config.json.
     intake: cfg.intake && typeof cfg.intake === 'object' && !Array.isArray(cfg.intake) ? cfg.intake : {},
-    // Jirka's WhatsApp handoff. `sessionDir` is always an absolute path outside the repo tree.
-    // `executablePath` optionally points puppeteer at an installed Chrome/Chromium when its own
-    // pinned build is missing; empty string when unset → puppeteer's default resolution.
-    whatsapp: { enabled: whatsappEnabled, recipient, sessionDir, executablePath: typeof wa.executablePath === 'string' ? wa.executablePath.trim() : '' },
     // Per-order build format (U9). `format` is the fallback layout; `formatMap` derives it per order.
     delivery: { format: deliveryFormat, formatMap },
     // The dashboard's read-only Proton inbox tile (via Proton Bridge over local IMAP). `enabled`

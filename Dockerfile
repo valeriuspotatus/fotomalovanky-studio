@@ -1,15 +1,14 @@
 # Fotomalovanky studio — always-on container image for Render (or any Docker host).
 #
-# The Playwright base image carries Node 20 + every system library that both the PDF builder (the
-# `playwright` dep) and the WhatsApp client (whatsapp-web.js -> puppeteer, launched with --no-sandbox)
-# need. The tag MUST match the `playwright` version in package-lock.json — a mismatch means the bundled
-# browser isn't the build the app drives, and the builder fails with "Executable doesn't exist".
+# The Playwright base image carries Node 20 + every system library the PDF builder (the `playwright`
+# dep) needs to drive headless Chromium. The tag MUST match the `playwright` version in
+# package-lock.json — a mismatch means the bundled browser isn't the build the app drives, and the
+# builder fails with "Executable doesn't exist".
 FROM mcr.microsoft.com/playwright:v1.61.1-jammy
 
 WORKDIR /app
 
-# Install deps first so this layer caches unless the lockfile changes. whatsapp-web.js pulls puppeteer,
-# which downloads its own Chromium during install.
+# Install deps first so this layer caches unless the lockfile changes.
 COPY package.json package-lock.json ./
 RUN npm ci
 # Belt-and-suspenders: install the exact Chromium the INSTALLED playwright wants, so the builder's
@@ -26,8 +25,8 @@ COPY . .
 #   - config.json arrives as a Render Secret File; FMA_CONFIG points the loader at it.
 #   - STUDIO_USER / STUDIO_PASS turn on the login gate (set them in the Render env — the public URL
 #     has no other auth).
-#   - Data dirs (WhatsApp session, inbox/outbox, creatives, blog, autopilot) must point under the
-#     mounted persistent disk in the cloud config.json, or they vanish on redeploy.
+#   - Data dirs (inbox/outbox, creatives, blog, autopilot) must point under the mounted persistent
+#     disk in the cloud config.json, or they vanish on redeploy.
 ENV HOST=0.0.0.0 \
     NODE_ENV=production
 

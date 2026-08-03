@@ -3,13 +3,6 @@ config.json
 .env
 .env.*
 
-# WhatsApp session store (whatsapp-web.js LocalAuth). A full-account bearer credential: anyone
-# with it can send as this WhatsApp. The configured whatsapp.sessionDir defaults OUTSIDE the repo,
-# but LocalAuth also writes .wwebjs_auth/ and .wwebjs_cache/ into the CWD by default — never commit
-# either, whatever folder the server is launched from.
-.wwebjs_auth/
-.wwebjs_cache/
-
 # Runtime data: customer photos, generated outputs, per-order state.json, PDFs
 /inbox/
 /outbox/
