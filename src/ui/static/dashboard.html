@@ -276,11 +276,15 @@
     <nav class="nav" id="nav">
       <a data-view="home" href="#home"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>Přehled</a>
       <a data-view="orders" href="#orders"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>Objednávky<span class="count" id="nav-orders">–</span></a>
+      <!-- Jirka's queue (R10, U12): the books whose PDF is built and which nobody has printed yet.
+           Both people see it — it is the operator's "what is waiting on the press" too — but it is
+           where a printer session LANDS, because printing is the whole of what he signs in to do. -->
+      <a data-view="queue" href="#queue"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="7" rx="2"/><path d="M7 16h10v5H7z"/></svg>Tisková fronta<span class="count" id="nav-queue">–</span></a>
       <a data-view="generator" href="/review"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6"/><path d="m14 4 6 6"/><path d="M14.5 4.5 19 9l-9 9-4.5-4.5z"/><path d="M18 2v3M21 4h-3"/></svg>Generátor<span class="count" id="nav-gen">–</span></a>
-      <a data-view="creatives" href="#creatives"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg>Kreativy</a>
-      <a data-view="calendar" href="#calendar"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Kalendář</a>
-      <a data-view="blog" href="#blog"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h10l6 6v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M14 4.5v6h6"/><path d="M8 13h8M8 16.5h5"/></svg>Blog</a>
-      <a data-view="mail" href="#mail"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>Pošta<span class="count" id="nav-mail">–</span></a>
+      <a data-view="creatives" data-operator href="#creatives"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg>Kreativy</a>
+      <a data-view="calendar" data-operator href="#calendar"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Kalendář</a>
+      <a data-view="blog" data-operator href="#blog"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h10l6 6v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M14 4.5v6h6"/><path d="M8 13h8M8 16.5h5"/></svg>Blog</a>
+      <a data-view="mail" data-operator href="#mail"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>Pošta<span class="count" id="nav-mail">–</span></a>
     </nav>
     <div class="sb-art">
       <svg width="150" height="80" viewBox="0 0 150 80" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
@@ -290,9 +294,13 @@
       </svg>
     </div>
     <div class="sb-foot">
-      <div class="user"><div class="avatar"><img src="avatar.png" alt=""></div><div class="who"><b>David</b><br><span>Studio</span></div></div>
+      <!-- Who is signed in. Painted from /api/studio's `identity`, never from anything in this file:
+           the name is the person's own (they can change it), and the role decides what the rest of
+           this sidebar even exists. `profileBtn` is hidden in ungated local mode (KTD11). -->
+      <div class="user"><div class="avatar"><img id="userAvatar" src="avatar.png" alt=""></div><div class="who"><b id="userName">Studio</b><br><span id="userRole">Studio</span></div></div>
+      <button class="mini" id="profileBtn" data-view="profile" hidden onclick="go('profile')"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>Můj profil</button>
       <button class="mini" id="themeBtn"><svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></svg><span id="themeLabel">Tmavý režim</span></button>
-      <button class="mini" data-view="settings" onclick="go('settings')"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Nastavení</button>
+      <button class="mini" data-view="settings" data-operator onclick="go('settings')"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Nastavení</button>
       <a class="mini" href="/review"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/></svg>Otevřít generátor</a>
     </div>
   </aside>
@@ -328,8 +336,8 @@
             <div class="sec-h"><h2>Nástroje studia</h2></div>
             <div class="tools">
               <a class="tool" href="/review"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/></svg></div><b>Generátor</b><span>Omalovánky z fotek</span></a>
-              <a class="tool" href="#creatives" onclick="go('creatives');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg></div><b>Kreativy</b><span>Vizuály pro marketing</span></a>
-              <a class="tool" href="#calendar" onclick="go('calendar');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></div><b>Kalendář</b><span>Plán kampaní</span></a>
+              <a class="tool" data-operator href="#creatives" onclick="go('creatives');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg></div><b>Kreativy</b><span>Vizuály pro marketing</span></a>
+              <a class="tool" data-operator href="#calendar" onclick="go('calendar');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></div><b>Kalendář</b><span>Plán kampaní</span></a>
               <a class="tool" href="#orders" onclick="go('orders');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16M16 10a4 4 0 0 1-8 0"/></svg></div><b>Objednávky</b><span>Přehled všech</span></a>
             </div>
           </section>
@@ -346,7 +354,7 @@
         </div>
 
         <aside class="rail">
-          <div class="card" style="padding:18px" id="mailCard">
+          <div class="card" style="padding:18px" id="mailCard" data-operator>
             <div class="sec-h"><h2>Pošta</h2><div class="mail-head-r"><button class="mail-write" id="mailCompose">Napsat</button><span class="chip c-neutral" id="mailUnread">–</span></div></div>
             <div id="mailBody"><div class="empty">Načítám…</div></div>
           </div>
@@ -373,6 +381,16 @@
         <tbody id="ordersBody"></tbody>
       </table></div>
       <div id="doneToggle" class="done-toggle"></div>
+    </section>
+
+    <!-- ===== TISKOVÁ FRONTA (U12, R10) — books built and not yet printed =====
+         Two controls per row and nothing else: the book to print, and the mark that it was printed.
+         Everything else an order can need belongs on the board; this view is a work list. -->
+    <section class="view" id="v-queue">
+      <div class="table"><table>
+        <thead><tr><th>Objednávka</th><th>Stránky</th><th>Titulek</th><th></th></tr></thead>
+        <tbody id="queueBody"></tbody>
+      </table></div>
     </section>
 
     <!-- ===== CREATIVES (Kreativy studio) — deterministic layered template engine ===== -->
@@ -474,6 +492,36 @@
 
     <!-- ===== NASTAVENÍ (N14) ===== -->
     <section class="view" id="v-settings"><div class="settings" id="settings">Načítám…</div></section>
+
+    <!-- ===== MŮJ PROFIL (R11) — both people reach this one; each only ever edits their own,
+             because the server reads the role off the session and ignores anything sent here. ===== -->
+    <section class="view" id="v-profile">
+      <div class="settings">
+        <div class="set-card">
+          <h3>Můj profil</h3>
+          <div class="set-note">Jméno se ukazuje u vašich záznamů — kdo objednávku vytiskl a kdo ji odeslal. Heslo se tady nemění; to nastavuje David mimo aplikaci.</div>
+          <div class="set-folder">
+            <input id="profName" spellcheck="false" aria-label="Jméno" maxlength="40">
+            <button class="btn" id="profSave">Uložit jméno</button>
+          </div>
+          <div class="set-msg" id="profMsg"></div>
+        </div>
+        <div class="set-card">
+          <h3>Profilová fotka</h3>
+          <div class="set-note">Fotka se před uložením zmenší a znovu uloží — z nahraného souboru se nepřenáší nic jiného než obraz (žádné EXIF, žádná poloha).</div>
+          <div class="set-folder">
+            <input type="file" id="profFile" accept="image/*" aria-label="Profilová fotka">
+            <button class="btn" id="profPhotoClear">Odebrat fotku</button>
+          </div>
+          <div class="set-msg" id="profPhotoMsg"></div>
+        </div>
+        <div class="set-card">
+          <h3>Odhlášení</h3>
+          <div class="set-note">Odhlášení ukončí relaci na serveru, ne jen v prohlížeči.</div>
+          <button class="btn" id="profSignOut">Odhlásit se</button>
+        </div>
+      </div>
+    </section>
 
     <!-- ===== BLOG ===== -->
     <section class="view" id="v-blog">
@@ -602,9 +650,12 @@
     "pending-review": {label:"ke kontrole",          chip:"c-warning"},
     held:             {label:"potřebuje vás",        chip:"c-danger"},
     approved:         {label:"schváleno",            chip:"c-info"},
-    "ready-to-send":  {label:"připraveno k odeslání",chip:"c-info"},
-    sent:             {label:"odesláno",             chip:"c-success"},
-    printed:          {label:"vytištěno",            chip:"c-success"},
+    /* The lifecycle, in the order it now happens: the book is built → Jirka prints it → David posts
+       it to the customer. "odesláno" therefore means POSTED TO THE CUSTOMER, and is the last word on
+       an order — it used to mean "handed to Jirka" and sat before the print. */
+    "ready-to-print": {label:"připraveno k tisku",   chip:"c-info"},
+    printed:          {label:"vytištěno",            chip:"c-info"},
+    sent:             {label:"odesláno zákazníkovi", chip:"c-success"},
     failed:           {label:"chyba",                chip:"c-danger"}
   };
   const statusMeta=s=>STATUS[s]||{label:s,chip:"c-neutral"};
@@ -629,12 +680,52 @@
   const VIEW_META={
     home:{t:'Dobrý den, David! <span aria-hidden="true">👋</span>',s:"Tady je přehled toho, co se dnes děje ve studiu."},
     orders:{t:"Objednávky",s:"Výrobní fronta — nejstarší nahoře, živě z generátoru."},
+    queue:{t:"Tisková fronta",s:"Hotové knihy čekající na tisk — stáhněte PDF a označte vytištěno."},
     creatives:{t:"Kreativy",s:"Reklamní vizuály z fotek — feed, story i wide."},
     calendar:{t:"Kalendář",s:"Sezóna a plán kreativ."},
     blog:{t:"Blog",s:"SEO články z kalendáře a aktuálních témat — koncept do Shopify."},
     mail:{t:"Pošta",s:"Schránka info@fotomalovanky.cz přes Proton Bridge."},
-    settings:{t:"Nastavení",s:"Složky, propojení a poslední noční běh — stav, nikdy hesla."}
+    settings:{t:"Nastavení",s:"Složky, propojení a poslední noční běh — stav, nikdy hesla."},
+    profile:{t:"Můj profil",s:"Jméno a fotka, které se ukazují u vašich záznamů."}
   };
+
+  /* ---- who is signed in (R8, KTD10) ----
+     The server decides this and refuses the routes on its own; everything here is reflection, never
+     enforcement. Two things it must still get right:
+       - the RESOLVER is guarded, not just the nav. go() reads the fragment on load, on popstate and
+         on Escape, so hiding the Nastavení button would leave "#settings" typed in the address bar
+         opening the view (the data would 403, but the screen should never appear at all);
+       - unknown identity counts as NOT operator. The board is polled every 2.5s, so "unknown" means
+         the very first paint or a server that stopped answering — in both, the closed answer is the
+         right one. */
+  let identity=null;
+  const isOperator=()=>identity!==null&&identity.role==="operator";
+  const OPERATOR_VIEWS=["creatives","calendar","blog","mail","settings"];
+  const viewAllowed=(v)=>isOperator()||!OPERATOR_VIEWS.includes(v);
+  const currentView=()=>(location.hash||"#home").slice(1);
+  /* Where a fresh load lands (R10, U12). A printer signs in to print, so he lands on the print
+     queue; the operator keeps landing on the board. An explicit fragment always wins — a bookmark,
+     a refresh or the back button must return you to the view you were on, not to a default. An
+     unknown identity (the very first paint, or a server that stopped answering) counts as
+     not-operator here, and the queue is a read-only work list, so that answer is harmless. */
+  const landingView=()=>(location.hash?currentView():(isOperator()?"home":"queue"));
+
+  function applyIdentity(next){
+    if(!next)return;
+    const same=identity&&identity.role===next.role&&identity.username===next.username&&identity.avatar===next.avatar&&identity.implicit===next.implicit;
+    identity=next;
+    if(same)return;
+    document.getElementById("userName").textContent=next.username||"Studio";
+    document.getElementById("userRole").textContent=next.role==="printer"?"Tisk":"Studio";
+    const img=document.getElementById("userAvatar");
+    img.src=next.avatar||"avatar.png";
+    document.querySelectorAll("[data-operator]").forEach(el=>{el.hidden=!isOperator();});
+    // No profile surface in ungated local mode: one implicit identity, nothing to tell apart (KTD11).
+    document.getElementById("profileBtn").hidden=next.implicit===true;
+    const nameField=document.getElementById("profName");
+    if(nameField&&document.activeElement!==nameField)nameField.value=next.username||"";
+    if(!viewAllowed(currentView())||(next.implicit&&currentView()==="profile"))go("home");
+  }
 
   /* ---- live board from /api/studio ---- */
   let studioData=null;
@@ -666,34 +757,42 @@
         // All photos approved, no book on disk yet: build it from the board. (Was a link to /review.)
         act=`<button class="btn btn-primary sm act-buildpdf" data-buildpdf="${esc(o.orderId)}"${busyAttr}>Vytvořit PDF</button>`;
       }
-      else if(o.status==="ready-to-send"){
-        // The book leaves this tool by hand (or Jirka fetches the PDF himself), so the board's job is
-        // to record that it went: "Označit odeslané" writes the delivery marker and the order drops
-        // off the active list. Nothing here contacts anyone.
-        act=`<button class="btn btn-primary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`;
+      else if(o.status==="ready-to-print"){
+        // The book is on disk and Jirka fetches it himself. The board's job is to record that he
+        // printed it: "Označit vytištěno" writes the printed marker and the order moves on to
+        // awaiting dispatch. Nothing here contacts anyone.
+        act=`<button class="btn btn-primary sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button>`;
       }
-      // Sent, awaiting Jirka's print confirmation: the operator closes the loop with "Označit vytištěno"
-      // (N3). A stale chip (N10) still warns that the PDF was rebuilt after it went out, so Jirka isn't
-      // left printing an older book — the fix is to hand him the current one again.
-      else if(o.status==="sent"){
-        act=`<button class="btn btn-primary sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button><button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`;
+      // Printed, awaiting the post: the OPERATOR closes the loop with "Označit odeslané", which now
+      // means posted to the customer (R14). A stale chip (N10) warns that the PDF was rebuilt after
+      // the print, so what was printed is no longer the book the decisions describe.
+      // Dispatch is David's act, not Jirka's, and the server refuses /sent and /unsent for a printer
+      // (ROUTE_POLICY). Reflected here so the printer is not offered a button that would only 403 —
+      // reflection, never enforcement: identity is resolved before every render, and unknown counts
+      // as not-operator.
+      else if(o.status==="printed"){
+        const post=isOperator()?`<button class="btn btn-primary sm act-sent" data-sent="${esc(o.orderId)}">Označit odeslané</button>`:"";
+        act=`${post}<button class="btn btn-ghost sm act-unprinted" data-unprinted="${esc(o.orderId)}">Vrátit</button>`;
       }
-      else if(o.status==="printed") act=`<button class="btn btn-ghost sm act-unprinted" data-unprinted="${esc(o.orderId)}">Vrátit</button>`;
-      // A "Zobrazit PDF" link for any order whose book is on disk, so the operator can open it in a new
-      // tab and check it before sending. Leads the actions — it's the "look before you send" step.
-      if(["ready-to-send","sent","printed"].includes(o.status))
+      else if(o.status==="sent") act=isOperator()?`<button class="btn btn-ghost sm act-unsent" data-unsent="${esc(o.orderId)}">Vrátit</button>`:"";
+      // A "Zobrazit PDF" link for any order whose book is on disk, so it can be opened in a new tab
+      // and checked before it is printed. Leads the actions — it's the "look before you print" step.
+      if(["ready-to-print","printed","sent"].includes(o.status))
         act=`<a class="btn btn-secondary sm" href="/api/${esc(o.orderId)}/pdf" target="_blank" rel="noopener">Zobrazit PDF</a>`+act;
       // Everything the order produced, in one file — originals, SVGs and the book. Offered on every
       // row regardless of status: the outbox lives on the server, so when the tool is hosted this is
       // the only way to get an order's files off the box, built or not.
       act+=`<a class="btn btn-secondary sm" href="/api/${esc(o.orderId)}/zip" title="Stáhnout originály, SVG a hotové PDF v jednom .zip">Stáhnout ZIP</a>`;
-      // Always offer a way to remove a finished/unwanted order from the board (recoverable on disk).
-      act+=`<button class="btn btn-ghost sm act-delete" data-delete="${esc(o.orderId)}" title="Odebrat objednávku z nástěnky">Smazat</button>`;
+      // Removing an order from the board is the OPERATOR's (recoverable on disk, but it is his
+      // board). /api/<order>/delete is operator-only in ROUTE_POLICY, so offering it to the printer
+      // would be offering a button whose only outcome is a 403 toast — reflection, never
+      // enforcement, exactly like the dispatch buttons above.
+      if(isOperator())act+=`<button class="btn btn-ghost sm act-delete" data-delete="${esc(o.orderId)}" title="Odebrat objednávku z nástěnky">Smazat</button>`;
     }
     // The permanent under-count warning (N2): shown beside the status chip on every board glance.
     const inc=o.incomplete?`<span class="chip c-danger" title="Operátor potvrdil knihu s méně stranami, než produkt obsahuje."><span class="dot"></span>neúplná ${o.incomplete.pages}/${o.incomplete.expected}</span>`:"";
-    // Sent-file staleness (N10): the PDF was rebuilt after it went to Jirka.
-    const staleChip=o.stale?`<span class="chip c-warning" title="PDF bylo po odeslání znovu sestaveno — Jirka má starší verzi."><span class="dot"></span>zastaralé</span>`:"";
+    // Printed-book staleness (N10, re-scoped with the lifecycle): the PDF was rebuilt after the print.
+    const staleChip=o.stale?`<span class="chip c-warning" title="PDF bylo po vytištění znovu sestaveno — vytištěná kniha už neodpovídá."><span class="dot"></span>zastaralé</span>`:"";
     // One purchase, several books: which book this is, and whether its parcel is still incomplete.
     // Both absent for an ordinary single-book order, so those rows look exactly as they always did.
     const linkChip=o.purchase?`<span class="chip" title="Objednávka ${esc(o.purchase.orderId)} obsahuje ${o.purchase.of} knihy — jdou v jedné zásilce."><span class="dot"></span>${o.purchase.position} z ${o.purchase.of}</span>`:"";
@@ -712,9 +811,11 @@
     document.getElementById("kpi-generating").textContent=d.counts.generating||0;
     document.getElementById("kpi-held").textContent=d.counts.held||0;
     document.getElementById("kpi-ready").textContent=d.counts.approved||0; // "Připraveno pro PDF" = all approved, awaiting the PDF build
-    document.getElementById("kpi-sent").textContent=d.counts.sent||0;
-    // sidebar counts — active orders (everything except the ones already sent to Jirka)
-    document.getElementById("nav-orders").textContent=(d.counts.total||0)-(d.counts.sent||0)-(d.counts.printed||0);
+    document.getElementById("kpi-sent").textContent=d.counts.sent||0; // "Odesláno" = posted to the customer
+    // sidebar counts — active orders. Only 'sent' comes off: a PRINTED order is not finished any
+    // more, it is waiting for the operator to post it, and hiding it from the count is how a packed
+    // parcel sits on a desk for a week.
+    document.getElementById("nav-orders").textContent=(d.counts.total||0)-(d.counts.sent||0);
     document.getElementById("nav-gen").textContent=d.counts.generating||0;
     renderContinue(d);
     // recent orders — newest first
@@ -730,13 +831,19 @@
     // board never disagree about what to do next (N1).
     // Feature the order being generated right now (the newest work) first, so the card jumps to a fresh
     // order the moment it starts; fall back to the most-actionable finished order when nothing is running.
-    const pick=d.orders.find(o=>o.status==="generating")||d.orders.find(o=>o.status==="ready-to-send")||d.orders.find(o=>o.status==="approved")||d.orders.find(o=>o.status==="pending-review");
+    // 'printed' is on the OPERATOR's list only: its one action is "Označit odeslané", and dispatch is
+    // refused for the printer on the server (ROUTE_POLICY). Featuring it for Jirka would put a CTA he
+    // cannot complete at the top of his first screen — same reflection rule as the row buttons.
+    const priority=isOperator()?["generating","printed","ready-to-print","approved","pending-review"]:["generating","ready-to-print","approved","pending-review"];
+    let pick=null;
+    for(const st of priority){pick=d.orders.find(o=>o.status===st);if(pick)break;}
     let c1;
     if(pick){
       // href, label + a one-word progress note keyed to the state.
       const CTA={
         generating:{href:"/review",label:"Zobrazit generátor",note:"generuje se"},
-        "ready-to-send":{href:"#orders",label:"Označit odeslané",note:"připraveno k odeslání"},
+        printed:{href:"#orders",label:"Označit odeslané",note:"vytištěno, čeká na odeslání"},
+        "ready-to-print":{href:"#orders",label:"Označit vytištěno",note:"připraveno k tisku"},
         approved:{href:"/review",label:"Vytvořit PDF",note:"schváleno"},
         "pending-review":{href:"/review",label:"Zkontrolovat",note:"zkontrolovat"}
       }[pick.status];
@@ -777,8 +884,10 @@
     row.innerHTML=c1+c2;
   }
 
-  // The active board hides finished orders — sent to Jirka or confirmed printed ("done"); a toggle reveals them.
-  const isDone=o=>o.status==="sent"||o.status==="printed";
+  // The active board hides finished orders; a toggle reveals them. "Done" is now ONLY 'sent' — the
+  // book is with the customer and there is nothing left to do. 'printed' used to be the terminal
+  // state and was hidden here; it now means "printed, still to post", which is work.
+  const isDone=o=>o.status==="sent";
   let showDone=false;
   function renderOrders(d){
     const b=document.getElementById("ordersBody");
@@ -793,6 +902,35 @@
     const tog=document.getElementById("doneToggle");
     tog.innerHTML=done.length?`<button class="btn btn-secondary sm" id="toggleDone">${showDone?"Skrýt dokončené":"Zobrazit dokončené ("+done.length+")"}</button>`:"";
   }
+
+  /* ---- Tisková fronta (U12, R10): what is waiting on the press ----
+     The server derives the list (studio.js printQueue) — a book on disk with no printed marker —
+     so the queue and the board can never disagree about an order. Oldest first: the press works the
+     queue in the order the customers sent it, unlike the board, which leads with the newest.
+     Exactly two controls per row. Anything else an order might need is on the board; adding a
+     third control here is how a work list turns back into the screen it was extracted from. */
+  function renderQueue(d){
+    const b=document.getElementById("queueBody");
+    if(!b)return;
+    const rows=d.printQueue||[];
+    document.getElementById("nav-queue").textContent=rows.length;
+    b.innerHTML=rows.length?rows.map(o=>{
+      const denom=o.expectedPages||o.photos.total;
+      const ph=o.photos.total?`${o.photos.eligible}/${denom}`:"–";
+      return `<tr>
+        <td><span class="oid">${esc(o.orderId)}</span></td>
+        <td class="mono">${ph}</td>
+        <td><span class="ded-cell">${o.dedication?"„"+esc(o.dedication)+"“":"—"}</span></td>
+        <td class="act-cell">
+          <a class="btn btn-secondary sm" href="/api/${esc(o.orderId)}/pdf" target="_blank" rel="noopener">Stáhnout PDF</a>
+          <button class="btn btn-primary sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button>
+        </td></tr>`;
+    }).join(""):'<tr><td colspan="4" class="empty">Žádná kniha nečeká na tisk.</td></tr>';
+  }
+  document.getElementById("queueBody").addEventListener("click",e=>{
+    const p=e.target.closest(".act-printed");
+    if(p){p.disabled=true;orderAction(p.dataset.printed,"printed");}
+  });
 
   // Waiting-since (N4): how long the ball has been in the customer's court, danger after 5 days.
   const plD=(n)=>(n===1?"den":n>=2&&n<=4?"dny":"dní");
@@ -833,13 +971,13 @@
 
   function renderStudio(){
     if(!studioData)return;
-    renderOvernight(studioData);renderHome(studioData);renderOrders(studioData);syncFetchButton(studioData);
+    renderOvernight(studioData);renderHome(studioData);renderOrders(studioData);renderQueue(studioData);syncFetchButton(studioData);
   }
   async function fetchStudio(){
-    try{const res=await fetch("/api/studio");if(!res.ok)return;studioData=await res.json();renderStudio();}
+    try{const res=await fetch("/api/studio");if(!res.ok)return;studioData=await res.json();applyIdentity(studioData.identity);renderStudio();}
     catch(e){/* offline / not the live server — keep the last board */}
   }
-  setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["home","orders"].includes(v))fetchStudio();},2500);
+  setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["home","orders","queue"].includes(v))fetchStudio();},2500);
 
   /* ---- Auto-fetch status: orders download from Shopify on a timer; the note shows activity + a
          one-time toast when a background fetch finishes. (The old manual "Načíst" button is gone.) ---- */
@@ -888,11 +1026,12 @@
       else toast(j.error||"Smazání selhalo.");
     }catch(e){toast("Server neodpovídá.");}
   }
-  // Mark a finished order as gone out. An incomplete book (N2) must not be recorded as dispatched on
-  // an unconfirmed click — the count mismatch is the operator's last chance to catch a short book.
+  // Mark a printed order as posted to the customer. An incomplete book (N2) must not be recorded as
+  // dispatched on an unconfirmed click — the count mismatch is the operator's last chance to catch a
+  // short book, and this is now the LAST such chance: dispatch is terminal.
   function markSent(id,btn){
     const o=(studioData&&studioData.orders||[]).find(x=>x.orderId===id);
-    if(o&&o.incomplete&&!confirm(`Objednávka ${id} je NEÚPLNÁ kniha (${o.incomplete.pages} z ${o.incomplete.expected} stran). Opravdu ji označit jako odeslanou?`)) return;
+    if(o&&o.incomplete&&!confirm(`Objednávka ${id} je NEÚPLNÁ kniha (${o.incomplete.pages} z ${o.incomplete.expected} stran). Opravdu ji označit jako odeslanou zákazníkovi?`)) return;
     if(btn)btn.disabled=true;
     orderAction(id,"sent");
   }
@@ -910,7 +1049,10 @@
     const g=e.target.closest(".act-generate");if(g){startOrderRun(g.dataset.generate,false,g);return;}
     const bp=e.target.closest(".act-buildpdf");if(bp){startOrderRun(bp.dataset.buildpdf,true,bp);return;}
     const s=e.target.closest(".act-sent");if(s){if(!confirmDispatch(s.dataset.sent))return;markSent(s.dataset.sent,s);return;}
-    const p=e.target.closest(".act-printed");if(p){if(!confirmDispatch(p.dataset.printed))return;p.disabled=true;orderAction(p.dataset.printed,"printed");return;}
+    // No parcel check on the print: under this lifecycle printing is not the terminal act and sends
+    // nothing to anyone — Jirka works through a parcel one book at a time, and asking him to confirm
+    // each one would be noise. The check belongs on the dispatch below, which is what actually posts.
+    const p=e.target.closest(".act-printed");if(p){p.disabled=true;orderAction(p.dataset.printed,"printed");return;}
     const up=e.target.closest(".act-unprinted");if(up){up.disabled=true;orderAction(up.dataset.unprinted,"unprinted");return;}
     const u=e.target.closest(".act-unsent");if(u){u.disabled=true;orderAction(u.dataset.unsent,"unsent");return;}
     const del=e.target.closest(".act-delete");if(del){deleteOrder(del.dataset.delete);}
@@ -948,6 +1090,7 @@
       <div class="mail-sub">${esc(x.subject)}</div></div>`).join("");
   }
   async function fetchMail(){
+    if(!isOperator())return; // the printer has no route to the mailbox; don't poll a 403 every minute
     try{const r=await fetch("/api/mail");if(!r.ok)return;renderMail(await r.json());}
     catch(e){/* offline / not the live server — keep the last state */}
   }
@@ -1091,7 +1234,10 @@
       <div class="set-card">
         <h3>Úklid</h3>
         ${settingsRow("Doba uchování",`${s.retentionDays!=null?s.retentionDays+" "+plD(s.retentionDays):"—"}`)}
-        <div class="set-note">Vytištěné objednávky se po této době mažou z výstupní složky.</div>
+        <div class="set-note">Fotky zákazníků se mažou až poté, co je objednávka označená jako <b>odeslaná zákazníkovi</b>, a po uplynutí doby uchování. Kresby a hotová PDF zůstávají.</div>
+        <div class="set-folder"><button class="btn" id="purgeReportBtn">Zobrazit, co by se smazalo</button></div>
+        <div class="set-msg" id="purgeMsg"></div>
+        <div id="purgeBox"></div>
       </div>`;
     const inp=document.getElementById("setInbox"), btn=document.getElementById("setInboxSave"), msg=document.getElementById("setInboxMsg");
     btn.addEventListener("click",async()=>{
@@ -1106,7 +1252,85 @@
       }catch{msg.textContent="Server neodpovídá.";msg.className="set-msg err";}
       finally{btn.disabled=false;}
     });
+    document.getElementById("purgeReportBtn").addEventListener("click",loadPurgeReport);
   }
+
+  /* ---- Úklid: report, then confirm (U11, R19) ----
+     Two requests, never one. The button asks the server what a purge WOULD do (a GET, a dry run)
+     and paints it; only a second, deliberate click on a button that appears with the report — and
+     a confirm() the operator has to read — sends the confirmation. There is no code path here that
+     deletes anything on the first click, because this deletes photographs of children and nothing
+     brings them back. */
+  let purgeState=null;
+  const purgeMb=(b)=>(b/1024/1024).toFixed(1)+" MB";
+
+  async function loadPurgeReport(){
+    const msg=document.getElementById("purgeMsg");
+    msg.textContent="Počítám…";msg.className="set-msg";
+    try{
+      const r=await fetch("/api/purge/report");
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok){msg.textContent=d.error||"Přehled se nepodařilo načíst.";msg.className="set-msg err";return;}
+      purgeState=d;msg.textContent="";renderPurge(d);
+    }catch{msg.textContent="Server neodpovídá.";msg.className="set-msg err";}
+  }
+
+  function renderPurge(d){
+    const box=document.getElementById("purgeBox");
+    const rows=d.orders||[];
+    const e=d.eligibility||{total:0,backfilled:0,dispatched:0};
+    let html="";
+    if(!rows.length){
+      html=`<div class="set-note">Nic ke smazání — žádná odeslaná objednávka není starší než ${d.days} ${plD(d.days)}.</div>`;
+    }else{
+      html=`<div class="set-note">Smazalo by se ${d.photos} ${plFotka(d.photos)} (${purgeMb(d.bytes)}) u ${rows.length} ${rows.length===1?"objednávky":"objednávek"}.</div>
+        <div class="table"><table><thead><tr><th>Objednávka</th><th>Fotek</th><th>Odesláno</th><th>Původ</th></tr></thead><tbody>${
+          rows.map(o=>`<tr><td><span class="oid">${esc(o.orderId)}</span></td><td class="mono">${o.photos}</td><td class="mono">${o.ageDays} ${plD(o.ageDays)}</td><td>${o.backfilled?'<span class="chip c-neutral"><span class="dot"></span>historické</span>':'<span class="chip c-success"><span class="dot"></span>odesláno ručně</span>'}</td></tr>`).join("")
+        }</tbody></table></div>`;
+      // Backfilled vs genuine, spelled out: the first purge on this box is almost all history, and
+      // an operator who cannot see that reads a big batch as a bug and never confirms it.
+      //
+      // The two numbers describe THE SAME SET as the sentence they belong to. `eligibility` counts
+      // every eligible order while the table above lists only this run's capped batch, so naming the
+      // eligible total explicitly is what stops the panel reading "25 objednávek — z toho 3 + 97".
+      // The CLI has always phrased it this way ("Eligible: N — X dispatched, Y backfilled").
+      html+=`<div class="set-note">Podmínky pro smazání splňuje celkem ${e.total} ${e.total===1?"objednávka":"objednávek"} — ${e.dispatched} ručně odeslaných a ${e.backfilled} historických (dopočítaných z dřívějšího tisku při změně životního cyklu).</div>`;
+      if((d.deferred||[]).length)
+        html+=`<div class="set-note">Jeden běh smaže nejvýš ${d.cap} objednávek — dalších ${d.deferred.length} zůstane na příště.</div>`;
+      html+=`<div class="set-folder"><button class="btn" id="purgeGoBtn">Smazat fotky (${rows.length})</button></div>`;
+    }
+    // The night report + handled-set go on the same clock and in the same confirmation. Listed here
+    // because the panel is supposed to be exactly what the button does — they used to be deleted
+    // without ever having been named.
+    if((d.autopilotFiles||[]).length)
+      html+=`<div class="set-note">Smažou se i zastaralé soubory noční služby: ${d.autopilotFiles.map(esc).join(", ")}.</div>`;
+    if((d.stalled||[]).length){
+      // The backstop (U11): printed, never dispatched. These never become eligible on their own.
+      html+=`<div class="set-note"><b>Vytištěné, ale nikdy neodeslané</b> — samy se nikdy nesmažou, rozhodněte o nich:<br>${
+        d.stalled.map(o=>`${esc(o.orderId)} — vytištěno před ${o.stalledDays} ${plD(o.stalledDays)}`).join("<br>")
+      }</div>`;
+    }
+    html+=`<div class="set-note">${esc(d.warning||"")}</div>`;
+    box.innerHTML=html;
+    const go=document.getElementById("purgeGoBtn");
+    if(go)go.addEventListener("click",confirmPurge);
+  }
+
+  async function confirmPurge(){
+    const d=purgeState;if(!d)return;
+    if(!confirm(`Opravdu smazat ${d.photos} ${plFotka(d.photos)} u ${d.orders.length} objednávek?\n\nFotky zákazníků zmizí z výstupní složky a nejdou obnovit. Kresby a hotová PDF zůstanou.`))return;
+    const msg=document.getElementById("purgeMsg");
+    msg.textContent="Mažu…";msg.className="set-msg";
+    try{
+      const r=await fetch("/api/purge/confirm",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirm:true})});
+      const res=await r.json().catch(()=>({}));
+      if(!r.ok){msg.textContent=res.error||"Mazání selhalo.";msg.className="set-msg err";return;}
+      msg.textContent=`Smazáno ${res.photos} ${plFotka(res.photos)} u ${res.orders.length} objednávek.`;msg.className="set-msg ok";
+      purgeState=null;
+      loadPurgeReport(); // re-read, so what is left (and what was deferred) is on screen
+    }catch{msg.textContent="Server neodpovídá.";msg.className="set-msg err";}
+  }
+
   const czDateTime=(iso)=>{try{return new Date(iso).toLocaleString("cs-CZ",{day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"});}catch{return iso;}};
 
   // Drop one from the nav badge and the home-tile chip. The server also marked the message \Seen, so
@@ -1645,17 +1869,22 @@
   paintEvergreen();
 
   /* ---- router ---- */
-  const views=["home","orders","creatives","calendar","blog","mail","settings"];
+  const views=["home","orders","queue","creatives","calendar","blog","mail","settings","profile"];
   function setActiveNav(v){document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.view===v));}
   function go(v){
-    if(!views.includes(v))v="home";
+    // The guard lives HERE, on the resolver, not on the nav control. Every way into a view goes
+    // through this line — the click, the fragment on first load, the back button, Escape — so a
+    // printer typing #settings lands on home instead of on a screen they cannot use (KTD10).
+    if(!views.includes(v)||!viewAllowed(v))v="home";
+    if(v==="profile"&&identity&&identity.implicit)v="home";
     views.forEach(x=>document.getElementById("v-"+x).classList.toggle("on",x===v));
     setActiveNav(v);
     const m=VIEW_META[v];document.getElementById("pageTitle").innerHTML=m.t;document.getElementById("pageSub").textContent=m.s;
     if(location.hash!=="#"+v)history.pushState(null,"","#"+v);
-    if(["home","orders"].includes(v))fetchStudio();
+    if(["home","orders","queue"].includes(v))fetchStudio();
     if(v==="mail")fetchMailTab();
     if(v==="settings")fetchSettings();
+    if(v==="profile")paintProfile();
     if(v==="creatives"){if(window.loadAdCal)loadAdCal();if(window.__cvFit)window.__cvFit();}
     if(v==="blog")loadBlog();
     window.scrollTo({top:0,behavior:"instant"});
@@ -1849,6 +2078,53 @@
     if(own)own.addEventListener("submit",e=>{e.preventDefault();const t=bg("blogOwnTitle").value.trim();if(!t)return;const k=bg("blogOwnKw").value.trim();generateBlogDraft({title:t,keyword:k||t,intent:"",source:"manual"});bg("blogOwnTitle").value="";bg("blogOwnKw").value="";});
   })();
 
+  /* ---- Můj profil (R11, R13) ----
+         The photo is sent as base64 in a JSON body, the same shape the AI-image route already uses,
+         so there is no multipart anything on either side. Nothing here validates the file: the
+         server decodes it, re-encodes it and stores that, and a file this page thinks is fine is
+         still refused if libvips cannot read it. */
+  function paintProfile(){
+    const f=document.getElementById("profName");
+    if(f&&identity)f.value=identity.username||"";
+    setProfMsg("profMsg","");setProfMsg("profPhotoMsg","");
+  }
+  function setProfMsg(id,text,bad){const e=document.getElementById(id);if(!e)return;e.textContent=text;e.className="set-msg"+(bad?" bad":"");}
+
+  async function saveProfile(patch,msgId){
+    try{
+      const r=await fetch("/api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){setProfMsg(msgId,j.error||"Uložení se nepovedlo.",true);return false;}
+      applyIdentity(j.identity);
+      setProfMsg(msgId,"Uloženo ✓");
+      return true;
+    }catch(e){setProfMsg(msgId,"Server neodpovídá.",true);return false;}
+  }
+
+  (function(){
+    const save=document.getElementById("profSave");
+    if(!save)return;
+    save.addEventListener("click",()=>{
+      const name=document.getElementById("profName").value.trim();
+      if(!name){setProfMsg("profMsg","Jméno nemůže být prázdné.",true);return;}
+      saveProfile({username:name},"profMsg");
+    });
+    document.getElementById("profFile").addEventListener("change",ev=>{
+      const file=ev.target.files&&ev.target.files[0];
+      if(!file)return;
+      setProfMsg("profPhotoMsg","Nahrávám…");
+      const r=new FileReader();
+      r.onload=()=>{saveProfile({image:String(r.result)},"profPhotoMsg").finally(()=>{ev.target.value="";});};
+      r.onerror=()=>{setProfMsg("profPhotoMsg","Soubor se nepodařilo přečíst.",true);ev.target.value="";};
+      r.readAsDataURL(file);
+    });
+    document.getElementById("profPhotoClear").addEventListener("click",()=>saveProfile({image:null},"profPhotoMsg"));
+    document.getElementById("profSignOut").addEventListener("click",async()=>{
+      try{await fetch("/api/logout",{method:"POST"});}catch(e){}
+      location.href="/login"; // the server has dropped the session; this is only where to send them
+    });
+  })();
+
   /* ---- theme ---- */
   (function(){
     const root=document.documentElement,label=document.getElementById("themeLabel"),icon=document.getElementById("themeIcon");
@@ -1864,6 +2140,9 @@
     sync();
   })();
 
-  go((location.hash||"#home").slice(1));
-  fetchStudio();
+  // Identity BEFORE the first view resolution: fetchStudio is what answers "who is this?", and
+  // resolving #settings first and correcting afterwards would flash the view at somebody who may not
+  // have it. If the request fails there is no identity, isOperator() is false, and the closed answer
+  // is the one that gets painted. It is also what decides where a printer lands (landingView).
+  fetchStudio().finally(()=>go(landingView()));
 </script>

@@ -45,6 +45,17 @@ export function defaultBlogDir(env = process.env, platform = process.platform, h
   return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'fotomalovanky', 'blog');
 }
 
+/** A per-user data directory OUTSIDE the repo tree for the account file (who the two people are:
+ *  display username + avatar reference) and their stored avatars. It is about PEOPLE, so it must
+ *  never land in the working tree — the same guard as shopify.dataDir, not the repo-rooted MEMORY_DIR
+ *  pattern. Never holds a password or a hash: those live only in the environment (KTD1). Defaults to
+ *  the OS per-user data dir; overridable with an absolute path in config.json (accounts.dataDir). */
+export function defaultAccountsDir(env = process.env, platform = process.platform, home = homedir()) {
+  if (platform === 'win32') return join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'fotomalovanky', 'accounts');
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'fotomalovanky', 'accounts');
+  return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'fotomalovanky', 'accounts');
+}
+
 /** The product/variant -> build-mode map (U9), dropping anything malformed and rejecting a typoed
  *  mode rather than silently building the wrong layout. */
 function normalizeFormatMap(raw) {
@@ -296,6 +307,25 @@ export function validateConfig(cfg) {
     );
   }
 
+  // Where the two people's account file lives (display username + avatar reference, plus the stored
+  // avatar images) — always an absolute path OUTSIDE the repo tree, same guard as shopify.dataDir.
+  // This one is about people rather than bulk: a username and a photograph of the person using the
+  // tool are exactly what must not be one `git add -A` away from a public repo. On Render this points
+  // under the mounted disk, or both accounts reset to their defaults on every redeploy. Passwords
+  // never come near it — they are scrypt hashes in the environment (KTD1).
+  const accountsRaw = cfg.accounts && typeof cfg.accounts === 'object' && !Array.isArray(cfg.accounts) ? cfg.accounts : {};
+  let accountsDir = defaultAccountsDir();
+  if (typeof accountsRaw.dataDir === 'string' && accountsRaw.dataDir.trim()) {
+    accountsDir = resolve(accountsRaw.dataDir.trim());
+    const rel = relative(process.cwd(), accountsDir);
+    const outsideRepo = isAbsolute(rel) || rel === '..' || rel.startsWith('..' + sep);
+    if (!outsideRepo) {
+      throw new ConfigError(
+        `accounts.dataDir (${accountsDir}) resolves inside the project tree. It holds the two people's usernames and profile photos and must never be committable — use an absolute path outside the repo, or omit it to use the safe default.`,
+      );
+    }
+  }
+
   // Board display: the first REAL order number. Older ids are test orders and are hidden from the
   // board and its counts. Null (default) shows everything, so nothing changes until the operator
   // sets it.
@@ -394,6 +424,9 @@ export function validateConfig(cfg) {
     // The Blog Creator. `enabled` false means the tab shows a "not configured" state and nothing
     // publishes. `dataDir` is absolute, outside the repo. Publishing reuses shopify.contentToken.
     blog: { enabled: blogEnabled, dataDir: blogDir, blogId, author: blogAuthor, wordCountMin, wordCountMax },
+    // Where the account file and the stored avatars live. Absolute, outside the repo. Usernames and
+    // avatar references only — the password hashes stay in the environment.
+    accounts: { dataDir: accountsDir },
     // Board display. `firstLiveOrder` hides older test orders; null shows everything.
     studio: { firstLiveOrder },
     retentionDays,

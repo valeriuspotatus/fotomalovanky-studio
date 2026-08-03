@@ -1,5 +1,5 @@
 {
-  "__comment": "CLOUD config for Render. Paste your real values (copy the token URLs + API key + Shopify token straight from your LOCAL config.json), then add this whole file as a Render Secret File named config.json (mounted at /etc/secrets/config.json). See docs/RENDER.md. Differences from local: mail is OFF (Proton Bridge is PC-only), every data dir lives under the mounted /data disk, and the image model is the working gemini-3.1-flash-image.",
+  "__comment": "CLOUD config for Render. Paste your real values (copy the token URLs + API key + Shopify token straight from your LOCAL config.json), then add this whole file as a Render Secret File named config.json (mounted at /etc/secrets/config.json). See docs/RENDER.md. Differences from local: mail is OFF (Proton Bridge is PC-only), every data dir lives under the mounted /data disk, and the image model is the working gemini-3.1-flash-image. Passwords are NOT in this file — each role's scrypt hash goes in the Render environment as STUDIO_OPERATOR_PASS_HASH / STUDIO_PRINTER_PASS_HASH; generate one with `node src/auth/credentials.js <password>`.",
   "generator": {
     "baseUrl": "COPY_FROM_LOCAL_config.json (the token-scoped generator URL)",
     "mode": "api",
@@ -44,6 +44,9 @@
   },
   "creatives": {
     "dataDir": "/data/creatives"
+  },
+  "accounts": {
+    "dataDir": "/data/accounts"
   },
   "delivery": {
     "format": "gallery",

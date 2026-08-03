@@ -1,10 +1,12 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import sharp from 'sharp';
-import { createReviewServer, openCommand, powershellPath, openExternally, pickFolder, pickFolderScript } from '../src/ui/server.js';
+import { createReviewServer, openCommand, powershellPath, openExternally, pickFolder, pickFolderScript, ANY_METHOD, ROUTE_POLICY, routeAudience, routePolicyFor } from '../src/ui/server.js';
+import { hashPassword, ROLE_ENV_VARS } from '../src/auth/credentials.js';
+import { LOGIN_PAGE_PATH, SIGN_IN_PATH, SIGN_OUT_PATH } from '../src/auth/sessions.js';
 import { STATES, readManifest, getStatus, setStatus, setIntake, writeManifest, emptyManifest } from '../src/manifest.js';
 import { writeReport } from '../src/autopilotReport.js';
 
@@ -599,4 +601,363 @@ test('POST /api/<order>/delete hides the order from the board (marker on disk, f
     s.close();
     rmSync(r, { recursive: true, force: true });
   }
+});
+
+// --- WHO MAY REACH WHAT (R8, U6) -------------------------------------------------------------
+//
+// The rule is an ALLOWLIST and these tests are what keeps it one. Jirka's session is a real session
+// minted through the real sign-in, not a fabricated identity, so what is asserted here is what a
+// browser holding his cookie would actually get.
+//
+// The last test in this file is the one that matters most in a year's time: it reads the dispatcher's
+// own source and fails when a route exists there with no line in ROUTE_POLICY. A deny-list is what
+// let the mail, blog-publish and AI-spend routes be reachable in the first draft — every one of them
+// added AFTER the rule was written. This is the thing that makes that impossible to repeat quietly.
+
+/** A real scrypt hash at a cheap cost — the stored string is self-describing, so it verifies through
+ *  the production path. credentials.test.js is where the production parameters are exercised. */
+const cheapHash = (password) => hashPassword(password, { logN: 14, r: 8, p: 1 });
+const PASSWORD = 'correct horse battery staple';
+
+/** A gated studio over its own fixture, plus a signed-in cookie for each person. */
+async function roleServer() {
+  const r = mkdtempSync(join(tmpdir(), 'fma-role-'));
+  const inb = join(r, 'inbox');
+  const outb = join(r, 'outbox');
+  const dir = join(outb, '1510');
+  mkdirSync(join(inb, '1510'), { recursive: true });
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(inb, '1510', 'clean.jpeg'), 'photo');
+  await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).jpeg().toFile(join(dir, 'clean.jpg'));
+  writeFileSync(join(dir, 'clean.svg'), SVG);
+  await sharp(LINE_ART, RAW_8).png().toFile(join(dir, 'clean_bw.png'));
+  writeFileSync(join(dir, '1510 Final.pdf'), '%PDF-1.4\n');
+  writeManifest(dir, setStatus(emptyManifest('1510'), 'clean', STATES.OK, 'ok'));
+
+  const hash = await cheapHash(PASSWORD);
+  const { server: s } = createReviewServer({
+    config: { ...CONFIG, accounts: { dataDir: join(r, 'accounts') } },
+    inboxRoot: inb,
+    outboxRoot: outb,
+    memoryRoot: outb,
+    driver: { generate: async () => {} },
+    authEnv: { [ROLE_ENV_VARS.operator]: hash, [ROLE_ENV_VARS.printer]: hash },
+  });
+  await new Promise((done) => s.listen(0, '127.0.0.1', done));
+  const o = `http://127.0.0.1:${s.address().port}`;
+
+  const signIn = async (username) => {
+    const res = await fetch(`${o}${SIGN_IN_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password: PASSWORD }),
+    });
+    assert.equal(res.status, 200, `${username} signs in`);
+    return String(res.headers.get('set-cookie')).split(';')[0];
+  };
+
+  return {
+    origin: o,
+    dir,
+    operator: await signIn('David'),
+    printer: await signIn('Jirka'),
+    get: (p, cookie) => fetch(o + p, { headers: { cookie } }),
+    post: (p, cookie, body) =>
+      fetch(o + p, { method: 'POST', headers: { cookie, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }),
+    cleanup: () => { s.close(); rmSync(r, { recursive: true, force: true }); },
+  };
+}
+
+test('a malformed percent-escape is a 404, and the studio is still answering afterwards', async () => {
+  const f = await roleServer();
+  try {
+    // ONE UNAUTHENTICATED REQUEST USED TO KILL THE PROCESS. The dispatcher decoded the path segments
+    // on its first line — before /healthz, before the gate, and outside the try — and
+    // decodeURIComponent('%zz') throws URIError. In an async request listener that is an unhandled
+    // rejection, and Node exits: no session needed, no route needed, the whole studio down.
+    for (const path of ['/%zz', '/api/%e0%a4%a/printed', '/img/%C0%80/x/coloring', '/%']) {
+      const res = await fetch(f.origin + path);
+      assert.ok(res.status >= 400 && res.status < 500, `${path} is refused (${res.status}), not fatal`);
+      assert.ok(res.status !== 500, `${path} is a client error, not a crash reported as one`);
+    }
+
+    // The point of the test is what comes after it.
+    const health = await fetch(`${f.origin}/healthz`);
+    assert.equal(health.status, 200, 'the server is still up');
+    assert.equal((await health.json()).ok, true);
+    assert.equal((await f.get('/api/studio', f.operator)).status, 200, 'and still serving real requests');
+
+    // A percent-escape that IS valid still decodes and reaches its route, so this is not a blanket
+    // refusal of encoded paths.
+    assert.equal((await f.get('/api/1510%2Fnope', f.operator)).status, 404, 'a decodable path is routed, and simply is not one');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('AE5 — settings is refused for the printer and served for the operator', async () => {
+  const f = await roleServer();
+  try {
+    const refused = await f.get('/api/settings', f.printer);
+    assert.equal(refused.status, 403, 'Jirka cannot read the settings screen');
+    assert.equal((await refused.json()).code, 'forbidden', 'and is told why, in a code the page can act on');
+
+    const allowed = await f.get('/api/settings', f.operator);
+    assert.equal(allowed.status, 200, 'David can');
+    assert.ok((await allowed.json()).integrations, 'and gets the real payload');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the printer is refused every route that spends money, writes to a customer, or touches the box', async () => {
+  const f = await roleServer();
+  try {
+    // GETs.
+    for (const path of [
+      '/api/settings', '/api/mail', '/api/mail/message?uid=1', '/api/mail/templates',
+      '/api/blog/topics', '/api/blog/posts', '/api/blog/blogs',
+      '/api/creatives/calendar', '/api/studio/templates', '/api/studio/validate', '/studio/preview', '/studio/render',
+      '/api/autopilot/status', '/creatives/ad/12-24-vanoce/x.png',
+    ]) {
+      const res = await f.get(path, f.printer);
+      assert.equal(res.status, 403, `GET ${path} is refused for the printer`);
+    }
+
+    // POSTs. /api/_shutdown is deliberately only ever exercised as the REFUSED case — the allowed
+    // case would stop the process running this suite.
+    for (const path of [
+      '/api/_scan', '/api/_pick-folder', '/api/_shutdown', '/api/_open/generator', '/api/_open/folder/1510',
+      '/api/mail/send', '/api/mail/delete', '/api/mail/flag',
+      '/api/blog/draft', '/api/blog/posts', '/api/blog/publish',
+      '/api/creative/ai-image', '/api/autopilot/run',
+      '/api/1510/delete', '/api/1510/sent', '/api/1510/unsent', '/api/1510/emailed',
+    ]) {
+      const res = await f.post(path, f.printer, {});
+      assert.equal(res.status, 403, `POST ${path} is refused for the printer`);
+      assert.equal((await res.json()).code, 'forbidden', `POST ${path} refuses with the role code`);
+    }
+
+    // The refusals are refusals, not silent no-ops: the order is still on the board, undeleted.
+    const board = await (await f.get('/api/studio', f.operator)).json();
+    assert.ok(board.orders.some((o) => o.orderId === '1510'), 'nothing the printer was refused took effect');
+    assert.ok(!existsSync(join(f.dir, 'hidden.json')), 'the delete it was refused wrote no marker');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the printer reaches everything printing a book needs, end to end', async () => {
+  const f = await roleServer();
+  try {
+    for (const path of ['/', '/review', '/api/state', '/api/studio', '/img/1510/clean/coloring', '/svg/1510/clean', '/api/1510/pdf', '/api/1510/zip']) {
+      const res = await f.get(path, f.printer);
+      assert.equal(res.status, 200, `GET ${path} is served for the printer`);
+    }
+
+    assert.equal((await f.post('/api/1510/clean/approve', f.printer)).status, 200, 'a photo verdict is the printer\'s to give');
+    assert.equal((await f.post('/api/1510/dedication', f.printer, { text: 'Pro Barču' })).status, 200, 'so is the title page');
+
+    // The marks, asserted on the DISK and on the board rather than on a 200. A route that answers
+    // 200 and writes nothing passes a status check and fails the printer — and it was an unasserted
+    // `unprinted` that hid a purge deleting the photographs of the book it re-queued (see
+    // test/retention.test.js). What these two do is remove and restore a file; check the file.
+    assert.equal((await f.post('/api/1510/printed', f.printer)).status, 200, 'and the printed mark (R10)');
+    assert.ok(existsSync(join(f.dir, 'printed.json')), 'which really writes the marker');
+    const printedBy = JSON.parse(readFileSync(join(f.dir, 'printed.json'), 'utf8'));
+    assert.equal(printedBy.byRole, 'printer', 'signed by the person who clicked, which is the point of two accounts');
+    assert.equal(printedBy.by, 'Jirka');
+    assert.equal((await (await f.get('/api/studio', f.printer)).json()).orders.find((o) => o.orderId === '1510').status, 'printed', 'and the board moves the order on');
+
+    assert.equal((await f.post('/api/1510/unprinted', f.printer)).status, 200, 'and undoing it');
+    assert.equal(existsSync(join(f.dir, 'printed.json')), false, 'really removes the marker, not just answers 200');
+    const board = await (await f.get('/api/studio', f.printer)).json();
+    assert.equal(board.orders.find((o) => o.orderId === '1510').status, 'ready-to-print', 'so the book goes back into the print queue');
+    assert.ok(board.printQueue.some((o) => o.orderId === '1510'), 'where Jirka will find it again');
+    assert.equal((await f.post('/api/_select', f.printer, { orders: null })).status, 200, 'ticking orders for a run');
+    assert.equal((await f.post('/api/_stop', f.printer)).status, 200, 'and stopping one');
+
+    // Generation: with WhatsApp gone Jirka fetches the book himself, so he must be able to make one.
+    // `only: []` makes startRun refuse before it spends anything — a 409 here proves the route was
+    // REACHED, which is what this test is about, without starting a pipeline.
+    const run = await f.post('/api/_run', f.printer, { only: [] });
+    assert.equal(run.status, 409, 'the run route is reached (and then refuses an empty selection)');
+    assert.match((await run.json()).error, /[Tt]ick at least one order/, 'refused by the run rule, not by the role rule');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the state endpoint names the signed-in person and carries no credential material', async () => {
+  const f = await roleServer();
+  try {
+    const res = await f.get('/api/state', f.printer);
+    const body = await res.text();
+    const state = JSON.parse(body);
+    assert.equal(state.identity.role, 'printer', 'the page is told which role it is painting for');
+    assert.equal(state.identity.username, 'Jirka', 'and the name that person answers to');
+    assert.equal(state.identity.implicit, false, 'a real session, not the local-mode implicit operator');
+
+    for (const secret of ['scrypt$', 'PASS_HASH', 'password', PASSWORD, f.printer.split('=')[1]]) {
+      assert.ok(!body.includes(secret), `no ${secret} reaches the page`);
+    }
+
+    const board = await (await f.get('/api/studio', f.operator)).json();
+    assert.equal(board.identity.role, 'operator', 'the board carries it too, so the first paint is right');
+    assert.equal(board.identity.username, 'David');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('AE6 — the dashboard guards the view RESOLVER, not just the nav control', async () => {
+  const f = await roleServer();
+  try {
+    const html = await (await f.get('/', f.printer)).text();
+    // go() is reached by a click, by the fragment on first load, by the back button and by Escape.
+    // The guard has to be inside it, or "#settings" typed into the address bar opens the view.
+    assert.match(html, /function go\(v\)\{[\s\S]{0,600}?!viewAllowed\(v\)/, 'the resolver itself refuses a view the role may not reach');
+    assert.match(html, /OPERATOR_VIEWS=\[[^\]]*"settings"[^\]]*\]/, 'settings is named as an operator-only view');
+    assert.match(html, /window\.addEventListener\("popstate",\(\)=>go\(/, 'history navigation goes through the guarded resolver');
+    assert.match(html, /data-view="settings" data-operator/, 'and the control is hidden as well, so it is not offered at all');
+
+    // The page is only ever the second line of defence: the data behind that view is refused anyway.
+    assert.equal((await f.get('/api/settings', f.printer)).status, 403, 'and the screen would have nothing to show');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('no route in the dispatcher is undecided: every one has a line in ROUTE_POLICY, for the VERB it answers', () => {
+  // The drift guard. It reads the DISPATCHER's own source — everything inside createServer — pulls
+  // out every route it branches on WITH THE VERB it branches on, and fails when one of them is not
+  // recorded in the policy table for that verb.
+  //
+  // It used to flatten every entry's tokens into one Set and ask only "does this literal appear
+  // somewhere?". That passed for a route nobody had decided about, as long as it reused an existing
+  // word: `GET /api/<order>/printed` beside the POST, or a new verb on /img. Green suite, printer
+  // reaches it, nobody made a decision. A NEW VERB ON AN OLD PATH IS A NEW ROUTE.
+  const source = readFileSync(new URL('../src/ui/server.js', import.meta.url), 'utf8');
+  const start = source.indexOf('const server = createServer(');
+  assert.ok(start > 0, 'the dispatcher is still one createServer call — this test reads its source');
+  const dispatcher = source.slice(start); // deliberately excludes ROUTE_POLICY itself: no circularity
+
+  /** Constants the dispatcher routes on, resolved to the paths they hold. */
+  const PATH_CONSTANTS = { LOGIN_PAGE_PATH, SIGN_IN_PATH, SIGN_OUT_PATH };
+  /** `api` is the prefix nearly every route shares, not a route. It is the only such segment, and
+   *  naming it here is cheaper than teaching the scan to understand path shapes. */
+  const STRUCTURAL = new Set(['api']);
+
+  /** Every literal a single source line routes on, and the verb that line guards (null when the
+   *  branch is nested inside one that already did — `if (parts[2] === 'generator')`). */
+  const literalsOn = (line) => {
+    const out = [];
+    for (const m of line.matchAll(/url\.pathname === (?:'([^']*)'|([A-Za-z_$][\w$]*))/g)) {
+      if (m[1] !== undefined) {
+        out.push(m[1]);
+        continue;
+      }
+      const resolved = PATH_CONSTANTS[m[2]];
+      assert.ok(resolved, `the dispatcher routes on the constant ${m[2]}, which this scan cannot resolve — add it to PATH_CONSTANTS and record the route in ROUTE_POLICY`);
+      out.push(resolved);
+    }
+    for (const m of line.matchAll(/parts\[\d\] === '([^']*)'/g)) out.push(m[1]);
+    for (const m of line.matchAll(/\baction === '([^']*)'/g)) out.push(m[1]);
+    return out.filter((t) => !STRUCTURAL.has(t));
+  };
+
+  const found = new Set();
+  /** "GET printed" — the pairs that make a reused word a new decision. */
+  const verbed = new Set();
+  for (const line of dispatcher.split('\n')) {
+    const literals = literalsOn(line);
+    if (!literals.length) continue;
+    const verb = /req\.method === '([A-Z]+)'/.exec(line)?.[1] ?? null;
+    for (const token of literals) {
+      found.add(token);
+      if (verb) verbed.add(`${verb} ${token}`);
+    }
+  }
+
+  const decided = new Set(ROUTE_POLICY.flatMap((r) => r.tokens));
+  const undecided = [...found].filter((t) => !decided.has(t)).sort();
+  assert.deepEqual(
+    undecided,
+    [],
+    `these routes exist in the dispatcher with nobody having decided who may reach them: ${undecided.join(', ')}. ` +
+      `Add a line to ROUTE_POLICY in src/ui/server.js — an unrecorded route is refused for the printer, but ` +
+      `refused-by-accident is not a decision.`,
+  );
+
+  // The same question again, per verb: a token decided for POST does not decide the GET beside it.
+  const claims = new Set(ROUTE_POLICY.flatMap((r) => (r.methods === ANY_METHOD ? ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD'] : r.methods).flatMap((m) => r.tokens.map((t) => `${m} ${t}`))));
+  const undecidedVerbs = [...verbed].filter((pair) => !claims.has(pair)).sort();
+  assert.deepEqual(
+    undecidedVerbs,
+    [],
+    `the dispatcher answers these verb+route pairs and no ROUTE_POLICY line claims that VERB: ${undecidedVerbs.join(', ')}. ` +
+      `A new verb on an existing path is a new route — give it its own line, or add the verb to the line it belongs to.`,
+  );
+
+  const stale = [...decided].filter((t) => !found.has(t)).sort();
+  assert.deepEqual(stale, [], `ROUTE_POLICY records routes the dispatcher no longer has: ${stale.join(', ')}`);
+});
+
+test('every ROUTE_POLICY line resolves its own sample, and only the verbs it declares', () => {
+  // Per ENTRY, not per flattened token. Two properties, and the table is only an allowlist if both
+  // hold: an entry must be the line a request for its own route actually lands on (so a later line
+  // cannot be shadowed into never mattering), and it must not answer verbs it never claimed (so a
+  // POST cannot inherit a GET's audience by sharing a path shape).
+  const ALL_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD'];
+
+  for (const entry of ROUTE_POLICY) {
+    assert.ok(['anyone', 'both', 'operator'].includes(entry.audience), `${entry.id} names a real audience`);
+    assert.equal(typeof entry.match, 'function', `${entry.id} can be matched against a request`);
+    assert.equal(typeof entry.sample, 'string', `${entry.id} carries a concrete sample path to check itself against`);
+    assert.ok(entry.methods === ANY_METHOD || (Array.isArray(entry.methods) && entry.methods.length), `${entry.id} names the verbs it answers`);
+
+    const methods = entry.methods === ANY_METHOD ? ALL_METHODS : entry.methods;
+    for (const method of methods) {
+      assert.equal(
+        routePolicyFor(method, entry.sample),
+        entry,
+        `${method} ${entry.sample} should resolve to ${entry.id} — it resolves to ${routePolicyFor(method, entry.sample)?.id ?? 'no line at all'}`,
+      );
+    }
+    for (const method of ALL_METHODS.filter((m) => !methods.includes(m))) {
+      assert.notEqual(
+        routePolicyFor(method, entry.sample),
+        entry,
+        `${entry.id} answers ${method} ${entry.sample} as well — a verb it never declared`,
+      );
+    }
+  }
+
+  // One line per route, so "who may reach this?" has one answer to read and one place to change.
+  const owners = new Map();
+  for (const entry of ROUTE_POLICY) {
+    for (const token of entry.tokens) {
+      assert.equal(owners.get(token), undefined, `${token} is claimed by both ${owners.get(token)} and ${entry.id}`);
+      owners.set(token, entry.id);
+    }
+  }
+});
+
+test('the guard bites: a new verb on an existing path is refused until somebody decides', () => {
+  // Proof that the two tests above are not decoration. `POST /img/<order>/<base>/rotate` and
+  // `GET /api/<order>/printed` are the exact shapes the old flattened-token guard let through: both
+  // reuse words the table already contains, so the token scan stays green for both.
+  for (const [method, path] of [['POST', '/img/1510/clean/rotate'], ['GET', '/api/1510/printed'], ['DELETE', '/api/1510/zip']]) {
+    assert.equal(
+      routePolicyFor(method, path),
+      null,
+      `${method} ${path} matches no policy line — an undeclared verb is undecided, not inherited`,
+    );
+    assert.equal(routeAudience(method, path), 'operator', `and therefore closed: ${method} ${path} is operator-only until a line is written`);
+  }
+
+  // While the verbs that ARE declared on those same paths keep their audience — the guard is about
+  // the new verb, not about the path.
+  assert.equal(routeAudience('GET', '/img/1510/clean/coloring'), 'both', 'the printer still sees the photographs');
+  assert.equal(routeAudience('POST', '/api/1510/printed'), 'both', 'and still marks a book printed');
 });

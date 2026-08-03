@@ -8,8 +8,8 @@
 // against it, and asserts the things only a browser can prove: that Objednávky renders the queue
 // newest-first from /api/studio (no static analytics), that a held order surfaces under Potřebuje
 // vás with its draft email and a copy button, that the marketing tabs still render their static
-// content, that the board's Generovat / Vytvořit PDF buttons run one order via /api/_run, and
-// that the Generátor tile opens /review.
+// content, that the board's Generovat / Vytvořit PDF buttons run one order via /api/_run, that the
+// re-cut lifecycle runs print-then-post from the board (U9), and that the Generátor tile opens /review.
 
 import { mkdirSync, writeFileSync, rmSync, mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -27,13 +27,17 @@ const shot = shotAt >= 0 ? argv[shotAt + 1] : null;
 const TOKEN = 'studio-smoke-token-never-in-the-page';
 
 /** One order on disk: inbox photos, outbox manifest statuses, optional intake hold + draft email,
- *  optional built PDF and delivery marker — exactly the facts the board derives its status from. */
-function seedOrder(root, id, { photos = [], statuses = {}, intake = null, draftEmail = null, pdf = false, delivered = false }) {
+ *  optional built PDF and lifecycle markers — exactly the facts the board derives its status from.
+ *
+ *  The markers follow the re-cut lifecycle (U9): `printed.json` is Jirka's, `sent.json` is the
+ *  operator posting the book to the customer, and it comes AFTER the print. The retired
+ *  `delivered.json` is deliberately not seeded anywhere — nothing reads it any more. */
+function seedOrder(root, id, { photos = [], statuses = {}, intake = null, draftEmail = null, pdf = false, printed = false, sent = false }) {
   const inboxDir = join(root, 'inbox', id);
   mkdirSync(inboxDir, { recursive: true });
   for (const base of photos) writeFileSync(join(inboxDir, `${base}.jpeg`), 'jpeg-bytes');
 
-  if (Object.keys(statuses).length || intake || pdf || delivered) {
+  if (Object.keys(statuses).length || intake || pdf || printed || sent) {
     const outDir = join(root, 'outbox', id);
     mkdirSync(outDir, { recursive: true });
     const m = emptyManifest(id);
@@ -42,7 +46,8 @@ function seedOrder(root, id, { photos = [], statuses = {}, intake = null, draftE
     writeManifest(outDir, m);
     if (draftEmail) writeFileSync(join(outDir, 'draft-email.txt'), draftEmail);
     if (pdf) writeFileSync(join(outDir, `${id} Final.pdf`), '%PDF-1.4\nstub\n');
-    if (delivered) writeFileSync(join(outDir, 'delivered.json'), JSON.stringify({ at: 'smoke' }));
+    if (printed) writeFileSync(join(outDir, 'printed.json'), JSON.stringify({ at: 'smoke', by: 'Jirka' }));
+    if (sent) writeFileSync(join(outDir, 'sent.json'), JSON.stringify({ at: 'smoke', by: 'David' }));
   }
 }
 
@@ -52,13 +57,17 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'fma-studio-smoke-'));
   // Deliberately seeded out of order to prove the board sorts oldest-first, not insertion order.
   seedOrder(root, '1600', { photos: ['a'] }); // queued — nothing generated
-  seedOrder(root, '1523', { photos: ['a'], statuses: { a: STATES.OK }, pdf: true, delivered: true }); // sent
+  // Printed AND posted to the customer: the only terminal state now, and the only one the board hides.
+  seedOrder(root, '1523', { photos: ['a'], statuses: { a: STATES.OK }, pdf: true, printed: true, sent: true }); // sent
+  // Printed but NOT yet posted. Under the old lifecycle this was the end of the line and was hidden;
+  // it is now the operator's next job, so it has to be visible on the active board with a "send" action.
+  seedOrder(root, '1525', { photos: ['a'], statuses: { a: STATES.OK }, pdf: true, printed: true }); // printed
   seedOrder(root, '1479', {
     photos: ['a', 'b'],
     intake: { verdict: 'hold', override: false, unique: 1, expected: 2, findings: [{ check: 'count', verdict: 'hold' }] },
     draftEmail: DRAFT,
   }); // held -> Potřebuje vás
-  seedOrder(root, '1522', { photos: ['a'], statuses: { a: STATES.OK }, pdf: true }); // ready-to-send
+  seedOrder(root, '1522', { photos: ['a'], statuses: { a: STATES.OK }, pdf: true }); // ready-to-print
   seedOrder(root, '1521', { photos: ['a', 'b'], statuses: { a: STATES.OK, b: STATES.FLAGGED } }); // pending-review
   // Every photo approved but no book on disk yet => APPROVED, the N1 split's other half. The fixture
   // had no order in this state, so nothing covered the "Vytvořit PDF" CTA or the #kpi-ready binding.
@@ -97,7 +106,7 @@ try {
   await page.goto(`${origin}/`);
   await page.waitForSelector('#v-home.on .kpis .kpi');
   // The KPI strip is live from /api/studio. #kpi-ready is "Připraveno pro PDF" = counts.approved
-  // (renderHome), NOT ready-to-send — the N1 split rebound it and this smoke was never updated, which
+  // (renderHome), NOT ready-to-print — the N1 split rebound it and this smoke was never updated, which
   // is why it timed out here. The fixture now seeds exactly one approved order (1524).
   await page.waitForFunction(() => document.querySelector('#kpi-ready')?.textContent === '1');
 
@@ -204,14 +213,21 @@ try {
   };
 
   const activeIds = await page.$$eval('#v-orders.on #ordersBody .oid', (ns) => ns.map((n) => n.textContent.trim()));
-  // 1523 is delivered (sent); the active board hides it and lists the rest NEWEST-first (renderOrders'
-  // byNewest — "the one you just made is right there"). This smoke asserted oldest-first, from before
-  // that change; Potřebuje vás is the view that stayed oldest-first.
-  check('the active board hides sent orders, newest-first', activeIds.join() === '1600,1524,1522,1521,1479', activeIds.join(' > '));
-  check('a built, undelivered order reads ready-to-send', (await badgeIn(activeIds, '1522')) === 'připraveno k odeslání');
+  // 1523 is posted to the customer (sent); the active board hides that and nothing else — 1525 is
+  // printed but still to post, which is work, so it stays. The rest list NEWEST-first (renderOrders'
+  // byNewest — "the one you just made is right there"); Potřebuje vás is the view that stayed oldest-first.
+  check('the active board hides only dispatched orders, newest-first', activeIds.join() === '1600,1525,1524,1522,1521,1479', activeIds.join(' > '));
+  check('a built, unprinted order reads ready-to-print', (await badgeIn(activeIds, '1522')) === 'připraveno k tisku');
+  check('a printed but undispatched order stays on the board as vytištěno', (await badgeIn(activeIds, '1525')) === 'vytištěno');
   check('a flagged order reads pending-review', (await badgeIn(activeIds, '1521')) === 'ke kontrole');
   check('an ungenerated order reads queued', (await badgeIn(activeIds, '1600')) === 've frontě');
   check('an all-approved order with no book reads approved', (await badgeIn(activeIds, '1524')) === 'schváleno');
+  // The two actions in their new order: a built book offers the PRINT mark, a printed one the POST mark.
+  check(
+    'the board offers Označit vytištěno on a built book and Označit odeslané on a printed one',
+    (await page.locator('#v-orders.on #ordersBody tr', { has: page.locator('.oid', { hasText: '1522' }) }).locator('.act-printed').count()) === 1 &&
+      (await page.locator('#v-orders.on #ordersBody tr', { has: page.locator('.oid', { hasText: '1525' }) }).locator('.act-sent').count()) === 1,
+  );
 
   // --- the board drives the generator itself: the two states that used to dead-end at /review ---
   // /api/_run is intercepted, not served: startRun's `only` path is unit-covered, and a real run here
@@ -234,27 +250,42 @@ try {
   check('Vytvořit PDF runs only that order, with the build', JSON.stringify(runCalls[1]) === '{"only":["1524"],"buildPdfs":true}', JSON.stringify(runCalls[1]));
   await page.unroute('**/api/_run');
 
-  // The "show done" toggle counts and reveals the sent orders.
-  check('a toggle counts the sent orders', (await page.locator('#doneToggle #toggleDone').textContent()).includes('(1)'));
+  // The "show done" toggle counts and reveals the dispatched orders. Only 1523 is done — 1525 is
+  // printed, which is no longer the end of the line.
+  check('a toggle counts only the dispatched orders', (await page.locator('#doneToggle #toggleDone').textContent()).includes('(1)'));
   await page.locator('#doneToggle #toggleDone').click();
-  await page.waitForFunction(() => document.querySelectorAll('#v-orders.on #ordersBody .oid').length === 6);
+  await page.waitForFunction(() => document.querySelectorAll('#v-orders.on #ordersBody .oid').length === 7);
   const allIds = await page.$$eval('#v-orders.on #ordersBody .oid', (ns) => ns.map((n) => n.textContent.trim()));
-  check('revealing done shows the delivered order as sent', (await badgeIn(allIds, '1523')) === 'odesláno');
+  check('revealing done shows the dispatched order as sent to the customer', (await badgeIn(allIds, '1523')) === 'odesláno zákazníkovi');
 
   check('the board carries no hardcoded order data', !(await page.locator('#v-orders.on #ordersBody').textContent()).includes('218k'));
 
-  // --- mark-as-sent: a ready-to-send order can be marked delivered straight from the board ---
+  // --- the re-ordered lifecycle, driven from the board: print first, then post ---
   await page.locator('#doneToggle #toggleDone').click(); // hide done again
-  await page.waitForFunction(() => document.querySelectorAll('#v-orders.on #ordersBody .oid').length === 5);
+  await page.waitForFunction(() => document.querySelectorAll('#v-orders.on #ordersBody .oid').length === 6);
+
+  // 1. A built book is marked PRINTED. It stays on the board — printed is not terminal any more.
   await page
     .locator('#v-orders.on #ordersBody tr', { has: page.locator('.oid', { hasText: '1522' }) })
+    .locator('.act-printed')
+    .click();
+  await page.waitForFunction(
+    () => (Array.from(document.querySelectorAll('#v-orders.on #ordersBody tr')).find((tr) => tr.querySelector('.oid')?.textContent.trim() === '1522')?.textContent || '').includes('vytištěno'),
+  );
+  check('marking a built book printed writes printed.json and keeps it on the board', existsSync(join(fx.outbox, '1522', 'printed.json')));
+  check('marking printed does not write the dispatch marker', !existsSync(join(fx.outbox, '1522', 'sent.json')));
+
+  // 2. A printed book is marked SENT — posted to the customer — and only then leaves the board.
+  await page
+    .locator('#v-orders.on #ordersBody tr', { has: page.locator('.oid', { hasText: '1525' }) })
     .locator('.act-sent')
     .click();
   await page.waitForFunction(
-    () => !Array.from(document.querySelectorAll('#v-orders.on #ordersBody .oid')).some((n) => n.textContent.trim() === '1522'),
+    () => !Array.from(document.querySelectorAll('#v-orders.on #ordersBody .oid')).some((n) => n.textContent.trim() === '1525'),
   );
-  check('marking a ready order sent removes it from the active board', true);
-  check('marking sent writes the delivery marker to the outbox', existsSync(join(fx.outbox, '1522', 'delivered.json')));
+  check('marking a printed order sent removes it from the active board', true);
+  check('marking sent writes sent.json to the outbox', existsSync(join(fx.outbox, '1525', 'sent.json')));
+  check('and never resurrects the retired delivered.json', !existsSync(join(fx.outbox, '1525', 'delivered.json')));
 
   // --- held orders still surface, but not where this smoke used to look ---
   // The standalone "Potřebuje vás" page is gone: the dashboard's views are home/orders/creatives/

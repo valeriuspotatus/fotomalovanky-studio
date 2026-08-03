@@ -1,5 +1,5 @@
-import { existsSync, writeFileSync, rmSync, statSync, readFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { existsSync, writeFileSync, rmSync, statSync, readFileSync, utimesSync } from 'node:fs';
+import { join } from 'node:path';
 import { reviewState } from './review.js';
 import { pdfPathFor } from './orchestrator.js';
 import { intakeSummary } from './intake.js';
@@ -9,81 +9,188 @@ import { readReport } from './autopilotReport.js';
 //
 // Every order-level status is DERIVED on read, never stored: the review grid already owns the
 // per-photo truth in state.json, and a second mutable "order status" field beside it would be one
-// more thing to keep in sync. The aggregation is a pure function over the review state plus three
+// more thing to keep in sync. The aggregation is a pure function over the review state plus a few
 // facts that state cannot see on its own — is the run generating this order right now, is its PDF
-// built, and has it been delivered to Jirka — so a test drives it with fakes and never touches disk.
+// built, has Jirka printed it, has it been posted to the customer — so a test drives it with fakes
+// and never touches disk.
+//
+// THE LIFECYCLE WAS RE-CUT (R14, R15, KTD6). It used to read ready → sent (handed to Jirka) →
+// printed. It now reads ready-to-print → printed (Jirka prints it) → sent (the operator posts the
+// book to the CUSTOMER). `sent` therefore means something different from what it meant when the
+// orders on the live disk were written, which is why it has a NEW marker file rather than the old
+// one re-interpreted.
+//
+// `delivered.json` — the retired marker — is left exactly where it is on every order folder that
+// carries it, and is NEVER READ AGAIN. It recorded "handed to Jirka", a state that now sits BEFORE
+// printing; reading it here would derive a book still waiting for the printer as already posted to
+// the customer, drop it off the operator's board, and (once retention moves onto this marker) make
+// a live customer's photographs purge-eligible. Deleting it would be equally wrong: it is the only
+// record those handoffs ever happened. So: left alone, never consulted.
 
-/** The Jirka-delivery marker written into an order's outbox folder once the book is on its way to
- *  the printer (Phase 2). Its presence is the single source of truth for 'sent'. */
-export const deliveredMarkerPath = (orderDir) => join(orderDir, 'delivered.json');
+// WHO WROTE THE MARKER (R9, U8).
+//
+// `by: 'operator'` used to be a constant: both writers accepted caller-supplied info and every call
+// site omitted it, so a marker written by Jirka and one written by David were byte-identical in the
+// one field that was supposed to tell them apart. Splitting `printed` (the printer's act) from
+// `sent` (the operator's) is pointless if the audit trail cannot say who did which — that split IS
+// the reason there are two accounts at all.
+//
+// Two fields, not one. `by` is the DISPLAY NAME the person chose and may change tomorrow (R11);
+// `byRole` is the role, which cannot change and is therefore the field anything mechanical should
+// read. Storing only the name would leave a renamed account's old markers unattributable; storing
+// only the role would lose the person.
 
-/** The operator confirms a finished book has gone to Jirka: write the terminal delivery marker so
- *  the order derives to 'sent' and drops off the active board. This is a MANUAL acknowledgement and
- *  the ONLY way the marker is ever written — nothing in this tool hands a book to anyone; it only
- *  records that the operator already did. Idempotent. */
-export function markDelivered(orderDir, info = {}) {
-  // Stamp the mtime of the exact PDF that went out (N10): if the book is rebuilt after this, the
-  // board can tell the sent file is now stale and offer to re-send. mtime, not a hash — a rebuild
-  // always rewrites the file, and hashing every sent PDF on each board poll would be wasteful.
-  const pdf = pdfPathFor(orderDir, basename(orderDir));
-  const sentPdfMtime = existsSync(pdf) ? statSync(pdf).mtimeMs : null;
-  writeFileSync(
-    deliveredMarkerPath(orderDir),
-    JSON.stringify({ at: new Date().toISOString(), by: 'operator', ...info, sentPdfMtime }, null, 2),
-  );
+/** The one identity a local ungated studio has (KTD11). Nobody signs in there, so there is no
+ *  display name to record and the marker reads exactly as it always did before per-user logins. */
+export const IMPLICIT_ACTOR = Object.freeze({ by: 'operator', byRole: 'operator' });
+
+/** The actor fields for a marker, from a resolved request identity (`{ role, username, implicit }`).
+ *  Total: an absent, implicit or unrecognisable identity falls back to the implicit operator rather
+ *  than throwing — a marker that cannot be attributed must still be writable, because refusing to
+ *  record that a book was printed is worse than recording it against nobody in particular. */
+export function markerActor(identity = null) {
+  if (!identity || identity.implicit === true) return { ...IMPLICIT_ACTOR };
+  const byRole = identity.role === 'printer' ? 'printer' : 'operator';
+  const named = typeof identity.username === 'string' ? identity.username.trim() : '';
+  return { by: named || byRole, byRole };
+}
+
+/** What a marker file says about who wrote it, or null when there is nothing recognisable there.
+ *
+ *  Every failure mode answers null rather than throwing: markers written before this change carry
+ *  `by: 'operator'` and no role, markers on the live disk may predate even that, and a hand-edited
+ *  or truncated file is not an error the board should die of. A caller that wants "somebody, we
+ *  don't know who" gets it as null and can say so. */
+export function readMarkerActor(markerPath) {
+  if (!existsSync(markerPath)) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(markerPath, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const by = typeof parsed.by === 'string' && parsed.by.trim() ? parsed.by.trim() : null;
+  if (!by) return null;
+  const byRole = parsed.byRole === 'printer' || parsed.byRole === 'operator' ? parsed.byRole : null;
+  return { by, byRole };
+}
+
+/** The dispatch marker: the finished book was posted to the CUSTOMER (R14). A DISTINCT filename
+ *  from the retired `delivered.json` — see the note above; the two mean different things and must
+ *  never share a path. Its presence is the source of truth for 'sent'. */
+export const sentMarkerPath = (orderDir) => join(orderDir, 'sent.json');
+
+/** The operator confirms a printed book has gone into the post: write the terminal dispatch marker
+ *  so the order derives to 'sent' and drops off the active board. This is a MANUAL acknowledgement
+ *  and the ONLY way the marker is ever written — nothing in this tool posts anything to anyone; it
+ *  only records that the operator already did. Idempotent.
+ *
+ *  `identity` is the resolved request identity of whoever clicked (R9). Omitted → the implicit
+ *  operator, which is what an ungated local studio and every non-HTTP caller are. */
+export function markSent(orderDir, identity = null) {
+  const path = sentMarkerPath(orderDir);
+
+  // THE RETENTION CLOCK SURVIVES THE CONFIRMATION (R17, KTD7).
+  //
+  // retention.js measures an order's age from this file's MTIME, and the U10 migration `utimesSync`d
+  // every backfilled marker back to the print date precisely so the historical backlog kept the
+  // eligibility date it already had. But a backfilled order renders as `printed` with exactly one
+  // CTA — "Označit odeslané" — so the moment the operator works that backlog he passes through here.
+  // A plain write would stamp today's mtime on every one of them and restart the whole backlog's
+  // retention window at zero: R17 undone by the operator doing the thing the board asked him to do.
+  //
+  // So when the marker being replaced was backfilled, its mtime is put back afterwards. The file's
+  // CONTENT is the new truth (the operator's name, and no `backfilled` flag — this dispatch is now
+  // confirmed); the file's DATE is the old truth, and it is still true: confirming that a book left
+  // does not change when it left.
+  //
+  // Only for a backfilled marker. Re-confirming an ordinary dispatch is the operator correcting who
+  // or when, and that legitimately re-dates the marker.
+  const previous = readSentMarker(orderDir);
+  const keepClock = previous?.backfilled === true ? statSync(path) : null;
+
+  writeFileSync(path, JSON.stringify({ at: new Date().toISOString(), ...markerActor(identity) }, null, 2));
+  if (keepClock) utimesSync(path, keepClock.atime, keepClock.mtime);
   return ORDER_BOARD_STATES.SENT;
 }
 
-/** Undo a delivery mark set by mistake — removes the marker so the order returns to the active
- *  board (usually back to 'ready-to-send'). Safe when no marker is present. */
-export function unmarkDelivered(orderDir) {
-  rmSync(deliveredMarkerPath(orderDir), { force: true });
+/** Undo a dispatch mark set by mistake — removes the marker so the order returns to 'printed'.
+ *  Safe when no marker is present. */
+export function unmarkSent(orderDir) {
+  rmSync(sentMarkerPath(orderDir), { force: true });
   return true;
 }
 
-/** The 'printed' marker: the operator confirms Jirka actually printed the book (N3). This single
- *  manual bit closes the lifecycle past 'sent' — a handoff can go astray, so 'odesláno' is not proof
- *  of print — and it is what gates the photo purge: a customer's photos are only ever
- *  deleted once their book is confirmed printed (see retention.js). Its presence is the source of
- *  truth for 'printed'. */
+/** What an order's dispatch marker says, or null when there is none.
+ *
+ *  `backfilled` is the load-bearing bit (KTD7, U10). A backfilled marker was derived from
+ *  `printed.json` by the migration purely to preserve the order's purge-eligibility date (R17) —
+ *  nobody confirmed the book was ever posted. So it is NOT a dispatch as far as the board is
+ *  concerned; see deriveOrderStatus.
+ *
+ *  An unreadable marker is reported as `backfilled: true` for the same reason: the safe reading of
+ *  "there is a file here I cannot understand" is "this dispatch is unconfirmed", which keeps the
+ *  order in front of the operator instead of quietly retiring it. */
+export function readSentMarker(orderDir) {
+  const path = sentMarkerPath(orderDir);
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8'));
+    if (!parsed || typeof parsed !== 'object') return { backfilled: true };
+    return { backfilled: parsed.backfilled === true };
+  } catch {
+    return { backfilled: true }; // present but unreadable → unconfirmed, never terminal
+  }
+}
+
+/** The 'printed' marker: Jirka confirms he actually printed the book (N3, R15). It now sits BEFORE
+ *  dispatch — a printed book is not yet in the post — and it is what the migration dates the
+ *  backfilled dispatch marker from (KTD7). Its presence is the source of truth for 'printed'. */
 export const printedMarkerPath = (orderDir) => join(orderDir, 'printed.json');
 
-/** Operator marks a sent order printed once Jirka confirms. Terminal + idempotent; the timestamp is
- *  the clock the purge measures retention from. */
-export function markPrinted(orderDir, info = {}) {
+/** Jirka marks a ready book printed. Idempotent. The marker's own mtime is the clock the U10
+ *  migration copies onto a backfilled dispatch marker, so retention cannot restart at zero.
+ *
+ *  `identity` is who clicked (R9) — normally the printer here, which is the whole point of
+ *  recording it: this marker and the dispatch marker must name different people. */
+export function markPrinted(orderDir, identity = null) {
   writeFileSync(
     printedMarkerPath(orderDir),
-    JSON.stringify({ at: new Date().toISOString(), by: 'operator', ...info }, null, 2),
+    JSON.stringify({ at: new Date().toISOString(), ...markerActor(identity) }, null, 2),
   );
   return ORDER_BOARD_STATES.PRINTED;
 }
 
-/** Undo a printed mark set by mistake — the order returns to 'sent'. Safe when no marker is present. */
+/** Undo a printed mark set by mistake — the order returns to 'ready-to-print'. Safe when no marker
+ *  is present. */
 export function unmarkPrinted(orderDir) {
   rmSync(printedMarkerPath(orderDir), { force: true });
   return true;
 }
 
 /** The order-level board statuses. Distinct from the per-photo STATES and from the photo-level
- *  `handoff` (manual repair) — this is where the whole order sits on its way to Jirka. The client
- *  `STATUS` map in src/ui/static/dashboard.html must carry a label for each of these values. */
+ *  `handoff` (manual repair) — this is where the whole order sits on its way to the customer. The
+ *  client `STATUS` map in src/ui/static/dashboard.html must carry a label for each of these values. */
 export const ORDER_BOARD_STATES = Object.freeze({
   QUEUED: 'queued',
   GENERATING: 'generating',
   HELD: 'held',
   PENDING_REVIEW: 'pending-review',
   APPROVED: 'approved', // every photo approved, but no Final.pdf on disk yet → CTA "Vytvořit PDF"
-  READY_TO_SEND: 'ready-to-send', // the book exists on disk → CTA "Označit odeslané"
-  SENT: 'sent', // delivered to Jirka, awaiting his print confirmation → CTA "Označit vytištěno"
-  PRINTED: 'printed', // Jirka confirmed the print; terminal, and the only state a purge will touch
+  READY_TO_PRINT: 'ready-to-print', // the book exists on disk → Jirka's queue, CTA "Označit vytištěno"
+  PRINTED: 'printed', // Jirka printed it; awaiting the operator's post → CTA "Označit odeslané"
+  SENT: 'sent', // posted to the CUSTOMER; terminal, and the only state a purge will ever touch
   FAILED: 'failed',
 });
 
-/** One order's board status from its review state plus the three injected facts. Pure.
+/** One order's board status from its review state plus the injected facts. Pure.
  *
- *  Order matters: the delivery marker is terminal, an intake hold outranks generation (a held
- *  order never generates), and a live run on this order beats any half-finished photo state. */
-export function deriveOrderStatus(order, { generating = false, pdfBuilt = false, delivered = false, printed = false } = {}) {
+ *  Order matters: dispatch to the customer is terminal and outranks printing (R14 — the reverse of
+ *  the old machine, where 'sent' meant "handed to Jirka" and printing came after), an intake hold
+ *  outranks generation (a held order never generates), and a live run on this order beats any
+ *  half-finished photo state. */
+export function deriveOrderStatus(order, { generating = false, pdfBuilt = false, sent = false, sentBackfilled = false, printed = false } = {}) {
   const s = order.summary ?? { total: 0, eligible: 0, held: 0, manual: 0, failed: 0, pending: 0, ready: false };
   // A stored intake hold only means "held" while nothing has generated past it. Generation is
   // skipped entirely for a held order, so a genuine hold has every photo still pending; once the
@@ -91,16 +198,29 @@ export function deriveOrderStatus(order, { generating = false, pdfBuilt = false,
   // the next run, but guarded here too) must not keep a finished book under "needs you".
   const intakeHeld = order.intake?.verdict === 'hold' && order.intake?.override !== true && s.pending === s.total;
 
-  if (printed) return ORDER_BOARD_STATES.PRINTED; // terminal — outranks sent, the lifecycle is closed
-  if (delivered) return ORDER_BOARD_STATES.SENT; // the marker is idempotent — a sent order stays sent
+  // Dispatch is terminal and outranks printing — but ONLY a dispatch somebody actually performed.
+  //
+  // A backfilled marker (KTD7) was written by the U10 migration from an order's `printed.json`, to
+  // keep the purge-eligibility date it already had (R17). It asserts a dispatch that may never have
+  // happened: those books were printed under the old lifecycle, where nothing recorded posting them
+  // to the customer. So the board reads a backfilled marker as "printed, dispatch unknown" and
+  // keeps the order in the operator's worklist until he confirms it by hand.
+  //
+  // This is the ONE place where what retention counts and what the board shows deliberately part
+  // company: retention (a later unit) measures its window from the marker's date, backfilled or
+  // not, because that date is the truth about when the book left the studio's hands. The board
+  // ignores the same marker, because "we think this was probably posted" is not something to tell
+  // an operator who still has the parcel on his desk. Do not "simplify" these into one rule.
+  if (sent && !sentBackfilled) return ORDER_BOARD_STATES.SENT;
+  if (printed) return ORDER_BOARD_STATES.PRINTED; // Jirka printed it; it still has to be posted
   if (intakeHeld) return ORDER_BOARD_STATES.HELD; // surfaces under Potřebuje vás with its draft email
   if (generating) return ORDER_BOARD_STATES.GENERATING; // the run is on this order right now
   if (s.failed > 0) return ORDER_BOARD_STATES.FAILED;
   if (s.held > 0 || s.manual > 0) return ORDER_BOARD_STATES.PENDING_REVIEW; // a photo awaits the operator
-  // Split the old "připraveno" collision (N1): a book already on disk is ready to SEND; an order with
+  // Split the old "připraveno" collision (N1): a book already on disk is ready to PRINT; an order with
   // every photo approved but no PDF yet is APPROVED and needs "Vytvořit PDF". One state → one CTA, so
   // the home card and the board can never disagree about whether the PDF exists.
-  if (pdfBuilt) return ORDER_BOARD_STATES.READY_TO_SEND; // the finished book is on disk → send it
+  if (pdfBuilt) return ORDER_BOARD_STATES.READY_TO_PRINT; // the finished book is on disk → Jirka prints it
   if (s.ready) return ORDER_BOARD_STATES.APPROVED; // all photos approved, PDF not built yet → build it
   // Anything left is unfinished with nothing flagged: an untouched order, or one a stopped run left
   // part-generated (some photos ok, the rest still to run). Both just need Go pressed to finish —
@@ -170,13 +290,19 @@ function boardEntry(order, status) {
 }
 
 /** Board states in which a book is not yet ready to leave with its parcel. Dispatching one book
- *  while another is in any of these means half a parcel goes to the printer. */
+ *  while another is in any of these means half a parcel goes to the customer.
+ *
+ *  READY_TO_PRINT belongs here, and did not under the old lifecycle. Back then the terminal act was
+ *  the print and this state meant "about to be handed over"; now the terminal act is the POST, and a
+ *  book that exists as a PDF but has not been through the press cannot go in the parcel. Without it
+ *  the one case the warning exists for — book 1 printed, book 2 still only built — passed silently. */
 const NOT_READY_TO_LEAVE = new Set([
   ORDER_BOARD_STATES.QUEUED,
   ORDER_BOARD_STATES.GENERATING,
   ORDER_BOARD_STATES.HELD,
   ORDER_BOARD_STATES.PENDING_REVIEW,
   ORDER_BOARD_STATES.APPROVED,
+  ORDER_BOARD_STATES.READY_TO_PRINT,
   ORDER_BOARD_STATES.FAILED,
 ]);
 
@@ -203,9 +329,9 @@ function linkSiblings(board) {
 }
 
 /** Build the whole board from review-state orders plus injected fact-providers. Pure over its
- *  inputs — `pdfBuilt`/`delivered` are predicates, `runningOrderId` a plain id — so the whole
+ *  inputs — `pdfBuilt`/`sent`/`printed` are predicates, `runningOrderId` a plain id — so the whole
  *  status machine is testable without a filesystem or a running server. */
-export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => false, delivered = () => false, printed = () => false, createdAt = () => null, stale = () => false, firstLiveOrder = null } = {}) {
+export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => false, sent = () => false, sentBackfilled = () => false, printed = () => false, createdAt = () => null, stale = () => false, firstLiveOrder = null } = {}) {
   // Hide old test orders: everything below the first real order number never reaches the board or
   // its counts. Non-numeric ids are always kept — the floor only judges what it can compare.
   const live =
@@ -219,13 +345,19 @@ export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => fal
     const status = deriveOrderStatus(order, {
       generating: runningOrderId != null && order.orderId === runningOrderId,
       pdfBuilt: pdfBuilt(order),
-      delivered: delivered(order),
+      sent: sent(order),
+      sentBackfilled: sentBackfilled(order),
       printed: printed(order),
     });
     const entry = boardEntry(order, status);
     entry.createdAt = createdAt(order); // ms since epoch, or null — drives the Stáří column (N8)
-    // Only a sent order can be stale: its PDF was rebuilt after it went to Jirka (N10).
-    entry.stale = status === ORDER_BOARD_STATES.SENT && stale(order);
+    // Stale, RE-SCOPED with the lifecycle (N10): only an order whose book has been PRINTED can be
+    // stale, and it means the PDF was rebuilt after that print — so the physical book in Jirka's
+    // hands, or already in the post, is not the book the decisions on disk now describe. Under the
+    // old machine this hung off 'sent' because 'sent' was the moment a file left for the printer;
+    // that moment is now the print itself. It stays true once the order is dispatched, where it is
+    // the operator's cue that the customer may need a corrected copy.
+    entry.stale = (status === ORDER_BOARD_STATES.PRINTED || status === ORDER_BOARD_STATES.SENT) && stale(order);
     return entry;
   });
 
@@ -240,7 +372,23 @@ export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => fal
   for (const entry of board) counts[entry.status] += 1;
 
   const needsYou = board.filter((entry) => entry.status === ORDER_BOARD_STATES.HELD);
-  return { orders: board, counts, needsYou };
+  return { orders: board, counts, needsYou, printQueue: printQueue(board) };
+}
+
+/** Jirka's queue (R10, U12): every order whose book is BUILT and which nobody has printed yet.
+ *
+ *  Derived from the board's own status rather than re-reading the markers, so the queue can never
+ *  disagree with the board about an order — READY_TO_PRINT already means exactly "the PDF is on
+ *  disk and no printed marker exists", and it already loses to every state that should keep a book
+ *  off the press: a dispatched or printed order has left the queue, an intake hold or a flagged
+ *  photo means the book on disk is not the book to print, and an order with no PDF yet is not a
+ *  book at all.
+ *
+ *  This is what replaced "Odeslat Jirkovi". With WhatsApp gone nothing hands a finished book to the
+ *  printer, so without this view an order awaiting print is just one status among nine on a board
+ *  he has no other reason to read. */
+export function printQueue(entries) {
+  return entries.filter((entry) => entry.status === ORDER_BOARD_STATES.READY_TO_PRINT);
 }
 
 /** The compact overnight rollup the dashboard banner reads, distilled from the night report the
@@ -262,7 +410,7 @@ export function overnightSummary(report) {
 }
 
 /** The live board over a real inbox/outbox: reads the review state and stats each order's PDF and
- *  delivery marker. `state` is injected so a test can drive the wiring with a fake review state.
+ *  its two lifecycle markers. `state` is injected so a test can drive the wiring with a fake review state.
  *  `dataDir` (config.shopify.dataDir) is where the overnight report lives; when set and a report is
  *  present, the board carries the morning rollup. `readReportFn` is injected for tests. */
 export function studioBoard({ inboxRoot, outboxRoot, runningOrderId = null, only = null, memoryRoot, firstLiveOrder = null, dataDir = null, state = reviewState, readReportFn = readReport } = {}) {
@@ -271,7 +419,9 @@ export function studioBoard({ inboxRoot, outboxRoot, runningOrderId = null, only
     runningOrderId,
     firstLiveOrder,
     pdfBuilt: (o) => existsSync(pdfPathFor(o.orderDir, o.orderId)),
-    delivered: (o) => existsSync(deliveredMarkerPath(o.orderDir)),
+    // `delivered.json` is deliberately absent from this list — see the note at the top of the file.
+    sent: (o) => readSentMarker(o.orderDir) !== null,
+    sentBackfilled: (o) => readSentMarker(o.orderDir)?.backfilled === true,
     printed: (o) => existsSync(printedMarkerPath(o.orderDir)),
     // Order age (N8): the folder's creation time, best proxy for when the order arrived. birthtime is
     // unreliable on some filesystems (reads 0) — fall back to mtime there.
@@ -283,14 +433,19 @@ export function studioBoard({ inboxRoot, outboxRoot, runningOrderId = null, only
         return null;
       }
     },
-    // Sent-file staleness (N10): the current PDF is newer than the one recorded at send time.
+    // Printed-book staleness (N10, re-scoped): the book on disk is newer than the print of it.
+    //
+    // Measured against the printed marker's own MTIME rather than a PDF mtime stamped inside it —
+    // which is how the retired delivery marker did it. Two reasons: the printed markers already on
+    // the live disk carry no such stamp, so a stamped field would read false for every order that
+    // exists today; and the marker file's mtime IS the moment the print was recorded, which is the
+    // fact being compared against.
     stale: (o) => {
-      const marker = deliveredMarkerPath(o.orderDir);
+      const marker = printedMarkerPath(o.orderDir);
       const pdf = pdfPathFor(o.orderDir, o.orderId);
       if (!existsSync(marker) || !existsSync(pdf)) return false;
       try {
-        const { sentPdfMtime } = JSON.parse(readFileSync(marker, 'utf8'));
-        return typeof sentPdfMtime === 'number' && statSync(pdf).mtimeMs > sentPdfMtime + 1000; // 1s epsilon
+        return statSync(pdf).mtimeMs > statSync(marker).mtimeMs + 1000; // 1s epsilon
       } catch {
         return false;
       }

@@ -4,14 +4,15 @@ import { readFileSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSy
 import { join, dirname, resolve, sep, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { timingSafeEqual } from 'node:crypto';
 import sharp from 'sharp';
 import { ZipArchive } from 'archiver';
 import { loadConfig } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent, pdfPathFor } from '../orchestrator.js';
-import { studioBoard, markDelivered, unmarkDelivered, markPrinted, unmarkPrinted } from '../studio.js';
+import { studioBoard, markSent, unmarkSent, markPrinted, unmarkPrinted } from '../studio.js';
+import { backfillSentMarkers, SentMarkerMigrationError } from '../migrations/sentMarker.js';
+import { purgeAutopilotData, purgeOriginals, purgeWarning } from '../retention.js';
 import { readReport } from '../autopilotReport.js';
 import { runAutopilot } from '../autopilot.js';
 import { hiddenMarkerPath } from '../review.js';
@@ -51,6 +52,35 @@ import {
   ReviewError,
 } from '../review.js';
 import { migrateDedications, MEMORY_DIR } from '../dedications.js';
+import { verifyRolePassword } from '../auth/credentials.js';
+import { AccountError, readAccount, readAccounts, updateAccount } from '../auth/accounts.js';
+import {
+  AVATAR_BODY_LIMIT,
+  AVATAR_MIME,
+  AVATAR_TOO_LARGE_MESSAGE,
+  AvatarError,
+  avatarFilePath,
+  removeAvatar,
+  storeAvatar,
+} from '../auth/avatar.js';
+import {
+  AUTH_MODES,
+  AuthConfigError,
+  IMPLICIT_OPERATOR,
+  LOGIN_PAGE_PATH,
+  SIGN_IN_PATH,
+  SIGN_OUT_PATH,
+  assertLocalModeIsSafe,
+  clearedSessionCookie,
+  createSessionStore,
+  isLoopbackHost,
+  isPreGate,
+  resolveAuthMode,
+  sessionCookie,
+  tokenFromRequest,
+  wantsSignInPage,
+} from '../auth/sessions.js';
+import { SignInBusyError, isSameOrigin, sharedSignInThrottle } from '../auth/throttle.js';
 
 // The U4 review grid: a local page over state.json. Bound to 127.0.0.1 only — it can approve
 // photos and spend GPU, and it serves customer faces.
@@ -97,23 +127,45 @@ const json = (res, code, body) => {
   res.end(JSON.stringify(body));
 };
 
-/** Serve a file from the studio's static tree, and only from there. The resolved path must stay
- *  inside static/, so a crafted request (../../config.json) resolves outside it and gets a 404
- *  rather than the file — no secret, source, or order data is reachable through here. */
-function serveStatic(pathname, res) {
+/** The file this pathname names inside the studio's static tree, or null. The resolved path must
+ *  stay inside static/, so a crafted request (../../config.json) resolves outside it and is nothing
+ *  — no secret, source, or order data is reachable through here.
+ *
+ *  Split out from `serveStatic` because the route policy needs the same answer without serving
+ *  anything: "is this GET a real asset?" is what keeps the dispatcher's static fallback from
+ *  swallowing a newly added route into the printer's allowlist (see ROUTE_POLICY). */
+function staticAssetPath(pathname) {
   let candidate;
   try {
     const rel = decodeURIComponent(pathname).replace(/^\/+/, '');
     candidate = resolve(STATIC_DIR, rel);
   } catch {
-    return json(res, 404, { error: 'Not found.' }); // a malformed/percent-encoded path is just not found
+    return null; // a malformed/percent-encoded path is just not found
   }
-  if (candidate !== STATIC_DIR && !candidate.startsWith(STATIC_DIR + sep)) {
-    return json(res, 404, { error: 'Not found.' });
+  if (candidate !== STATIC_DIR && !candidate.startsWith(STATIC_DIR + sep)) return null;
+  if (!existsSync(candidate) || !statSync(candidate).isFile()) return null;
+  return candidate;
+}
+
+/** The decoded path segments of a request, or null when the path cannot be decoded at all.
+ *
+ *  TOTAL, like staticAssetPath's decode and for the same reason: `decodeURIComponent('%zz')` throws
+ *  a URIError, and the caller of this runs inside an async request listener where a throw is an
+ *  unhandled rejection and the process exits. A malformed path must be a 404, not an outage — it
+ *  cannot name a route either way. */
+export function pathSegments(pathname) {
+  const raw = pathname.split('/').filter(Boolean);
+  try {
+    return raw.map(decodeURIComponent);
+  } catch {
+    return null;
   }
-  if (!existsSync(candidate) || !statSync(candidate).isFile()) {
-    return json(res, 404, { error: 'Not found.' });
-  }
+}
+
+/** Serve a file from the studio's static tree, and only from there. */
+function serveStatic(pathname, res) {
+  const candidate = staticAssetPath(pathname);
+  if (!candidate) return json(res, 404, { error: 'Not found.' });
   const ext = candidate.slice(candidate.lastIndexOf('.')).toLowerCase();
   res.writeHead(200, { 'Content-Type': MIME[ext] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
   return res.end(readFileSync(candidate));
@@ -125,7 +177,9 @@ async function readJson(req, limit = 64 * 1024) {
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > limit) throw new ReviewError('Request body too large.');
+    // `code` so a caller can answer 413 for its own seam instead of the blanket 409 a ReviewError
+    // gets: an avatar over the cap is "too big", not "the studio refused your request".
+    if (size > limit) throw Object.assign(new ReviewError('Request body too large.'), { code: 'too-large' });
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
@@ -327,13 +381,291 @@ export function openExternally(target, [bin, args] = openCommand(target)) {
   });
 }
 
+// --- WHO MAY REACH WHAT (R8, KTD10) ------------------------------------------------------------
+//
+// An ALLOWLIST, and the distinction is the whole point. Written as a deny-list — "the printer may
+// not reach settings and shutdown" — the first draft of this left Jirka able to send and delete
+// customer mail from the business Proton account, publish articles to the live storefront, and spend
+// money on AI image generation, because none of those routes existed when the deny-list was written.
+// A route added tomorrow would join them. So the table below names what a printer MAY reach and
+// `routeAudience` answers OPERATOR for everything else, including a path that matches no entry at
+// all. A new route is refused for the printer until somebody writes down a decision about it.
+//
+// The table is also the record of that decision, one line per route, and `test/reviewServer.test.js`
+// reads BOTH this table and the dispatcher's source and fails when a route exists with no entry
+// here. That test is the thing that stops this boundary drifting: it makes "I added a route and
+// forgot the policy" a red suite rather than a quiet hole. It finds routes by their idiom —
+// `url.pathname === '<literal>'` and `parts[n] === '<segment>'` — so a new route must keep to those
+// or declare itself here; `tokens` on each entry is what links a line in this table to the literals
+// in the dispatcher.
+//
+// Enforced on the server, before dispatch. The dashboard hides what a printer cannot use, but that
+// is cosmetics: hiding a control does not close a route (KTD10).
+
+export const AUDIENCES = Object.freeze({
+  /** No session needed — the gate answers these before an identity exists. */
+  ANYONE: 'anyone',
+  /** Both people. Everything printing a book needs, and nothing else. */
+  BOTH: 'both',
+  /** David only: settings, money, customer correspondence, publishing, dispatch, the box itself. */
+  OPERATOR: 'operator',
+});
+
+/** Match one exact pathname. */
+const atPath = (wanted) => (method, pathname) => pathname === wanted;
+/** Match /api/<order>/<name> — the three-segment per-order actions. */
+const orderAction = (name) => (method, pathname, parts) =>
+  parts[0] === 'api' && parts.length === 3 && parts[2] === name;
+
+/** `methods: ANY_METHOD` — this route answers every verb, on purpose. Only /healthz does: a host's
+ *  health check may probe with HEAD, and losing the probe is how an instance gets killed. */
+export const ANY_METHOD = '*';
+
+/** Does this entry claim that verb? Every other entry names its verbs, and that is load-bearing:
+ *  `POST /img/<order>/<base>/rotate` must not inherit the audience of `GET /img/<order>/<base>/<kind>`
+ *  just because the path shape matches. A NEW VERB ON AN OLD PATH IS A NEW ROUTE, and it falls
+ *  through to the operator-only default until somebody writes a line for it. */
+const answersMethod = (entry, method) => entry.methods === ANY_METHOD || entry.methods.includes(method);
+
+/**
+ * Route -> who may reach it. Ordered: the FIRST match wins, so an operator-only entry that overlaps
+ * a broader printer pattern is listed above it and the overlap resolves closed.
+ *
+ * Every entry carries four things: `methods` (see above), `match` (the path shape), `tokens` (the
+ * literals the dispatcher branches on, which is how the drift test links a line here to a route
+ * there) and `sample` — one concrete pathname this line is meant to catch. `sample` is not
+ * documentation: the drift test drives every entry's own sample back through this table and fails
+ * unless it lands on that entry and on no earlier one, and unless every verb the entry does NOT
+ * declare lands somewhere else.
+ */
+export const ROUTE_POLICY = Object.freeze([
+  // -- Before there is an identity at all ---------------------------------------------------------
+  // Every verb, deliberately: the dispatcher answers /healthz without asking the method, because a
+  // host's health check may probe with HEAD and a probe that 404s kills the instance.
+  { id: 'ANY /healthz', audience: AUDIENCES.ANYONE, methods: ANY_METHOD, tokens: ['/healthz'], match: atPath('/healthz'), sample: '/healthz' },
+  { id: 'GET /login', audience: AUDIENCES.ANYONE, methods: ['GET'], tokens: [LOGIN_PAGE_PATH], match: atPath(LOGIN_PAGE_PATH), sample: LOGIN_PAGE_PATH },
+  { id: 'POST /api/login', audience: AUDIENCES.ANYONE, methods: ['POST'], tokens: [SIGN_IN_PATH], match: atPath(SIGN_IN_PATH), sample: SIGN_IN_PATH },
+  { id: 'POST /api/logout', audience: AUDIENCES.ANYONE, methods: ['POST'], tokens: [SIGN_OUT_PATH], match: atPath(SIGN_OUT_PATH), sample: SIGN_OUT_PATH },
+
+  // -- Operator only. Listed first so nothing below can accidentally widen one of them -------------
+  // Settings names the folders, the integrations and the retention window (AE5).
+  { id: 'GET /api/settings', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/settings'], match: atPath('/api/settings'), sample: '/api/settings' },
+  // The box and the filesystem around it: re-pointing the inbox, the native folder dialog, and the
+  // button that stops the server everybody else is using.
+  { id: 'POST /api/_scan', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/_scan'], match: atPath('/api/_scan'), sample: '/api/_scan' },
+  { id: 'POST /api/_pick-folder', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/_pick-folder'], match: atPath('/api/_pick-folder'), sample: '/api/_pick-folder' },
+  { id: 'POST /api/_shutdown', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/_shutdown'], match: atPath('/api/_shutdown'), sample: '/api/_shutdown' },
+  // /api/_open/<generator|folder> spawns a desktop process on the SERVER and hands out the
+  // token-scoped generator URL. Four segments, so it must sit above the per-photo action pattern.
+  {
+    id: 'POST /api/_open/*',
+    audience: AUDIENCES.OPERATOR,
+    methods: ['POST'],
+    tokens: ['_open', 'generator', 'folder'],
+    match: (method, pathname, parts) => parts[0] === 'api' && parts[1] === '_open',
+    sample: '/api/_open/folder/1510',
+  },
+  // The business mailbox: reading customers' mail, sending as info@, deleting it, flagging it.
+  { id: 'GET /api/mail', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/mail'], match: atPath('/api/mail'), sample: '/api/mail' },
+  { id: 'GET /api/mail/message', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/mail/message'], match: atPath('/api/mail/message'), sample: '/api/mail/message' },
+  { id: 'GET /api/mail/templates', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/mail/templates'], match: atPath('/api/mail/templates'), sample: '/api/mail/templates' },
+  { id: 'POST /api/mail/send', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/mail/send'], match: atPath('/api/mail/send'), sample: '/api/mail/send' },
+  { id: 'POST /api/mail/delete', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/mail/delete'], match: atPath('/api/mail/delete'), sample: '/api/mail/delete' },
+  { id: 'POST /api/mail/flag', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/mail/flag'], match: atPath('/api/mail/flag'), sample: '/api/mail/flag' },
+  // Publishing to the live storefront blog, and the AI that writes it.
+  { id: 'GET /api/blog/topics', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/blog/topics'], match: atPath('/api/blog/topics'), sample: '/api/blog/topics' },
+  { id: 'POST /api/blog/draft', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/blog/draft'], match: atPath('/api/blog/draft'), sample: '/api/blog/draft' },
+  // The one route in the table that answers three verbs: list, save and remove a draft post.
+  { id: 'GET|POST|DELETE /api/blog/posts', audience: AUDIENCES.OPERATOR, methods: ['GET', 'POST', 'DELETE'], tokens: ['/api/blog/posts'], match: atPath('/api/blog/posts'), sample: '/api/blog/posts' },
+  { id: 'GET /api/blog/blogs', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/blog/blogs'], match: atPath('/api/blog/blogs'), sample: '/api/blog/blogs' },
+  { id: 'POST /api/blog/publish', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/blog/publish'], match: atPath('/api/blog/publish'), sample: '/api/blog/publish' },
+  // Marketing: the ad calendar, the studio renderer, and the one route that spends money per click.
+  { id: 'GET /api/creatives/calendar', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/creatives/calendar'], match: atPath('/api/creatives/calendar'), sample: '/api/creatives/calendar' },
+  {
+    id: 'GET /creatives/ad/<key>/<file>',
+    audience: AUDIENCES.OPERATOR,
+    methods: ['GET'],
+    tokens: ['creatives', 'ad'],
+    match: (method, pathname, parts) => parts[0] === 'creatives' && parts[1] === 'ad',
+    sample: '/creatives/ad/12-24-vanoce/x.png',
+  },
+  { id: 'POST /api/creative/ai-image', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/creative/ai-image'], match: atPath('/api/creative/ai-image'), sample: '/api/creative/ai-image' },
+  { id: 'GET /api/studio/templates', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/studio/templates'], match: atPath('/api/studio/templates'), sample: '/api/studio/templates' },
+  { id: 'GET /api/studio/validate', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/studio/validate'], match: atPath('/api/studio/validate'), sample: '/api/studio/validate' },
+  { id: 'GET /studio/preview', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/studio/preview'], match: atPath('/studio/preview'), sample: '/studio/preview' },
+  { id: 'GET /studio/render', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/studio/render'], match: atPath('/studio/render'), sample: '/studio/render' },
+  // The unattended fetch: it pulls new paid orders from Shopify and generates them, which is spend.
+  { id: 'POST /api/autopilot/run', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/autopilot/run'], match: atPath('/api/autopilot/run'), sample: '/api/autopilot/run' },
+  { id: 'GET /api/autopilot/status', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/autopilot/status'], match: atPath('/api/autopilot/status'), sample: '/api/autopilot/status' },
+  // Order actions that are the operator's act, not the printer's: dispatch to the customer and
+  // undoing it, writing to the customer, and taking an order off the board for good.
+  { id: 'POST /api/<order>/sent', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['sent'], match: orderAction('sent'), sample: '/api/1510/sent' },
+  { id: 'POST /api/<order>/unsent', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['unsent'], match: orderAction('unsent'), sample: '/api/1510/unsent' },
+  { id: 'POST /api/<order>/emailed', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['emailed'], match: orderAction('emailed'), sample: '/api/1510/emailed' },
+  // The one-shot marker migration (U10). It writes into live customer order folders, so it belongs
+  // to the person who owns the disk — and it must be decided here rather than fall through to the
+  // table's operator-by-default, which would be refused-by-accident rather than a decision.
+  {
+    id: 'POST /api/migrate/sent-markers',
+    audience: AUDIENCES.OPERATOR,
+    methods: ['POST'],
+    tokens: ['/api/migrate/sent-markers'],
+    match: atPath('/api/migrate/sent-markers'),
+    sample: '/api/migrate/sent-markers',
+  },
+  { id: 'POST /api/<order>/delete', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['delete'], match: orderAction('delete'), sample: '/api/1510/delete' },
+  // The retention purge (U11, R19). Both halves are the operator's: the report because it enumerates
+  // what is on the disk, and the confirmation because it deletes photographs of customers' children
+  // and nothing gets them back. Jirka prints books; this is not printing a book.
+  { id: 'GET /api/purge/report', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/purge/report'], match: atPath('/api/purge/report'), sample: '/api/purge/report' },
+  { id: 'POST /api/purge/confirm', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/purge/confirm'], match: atPath('/api/purge/confirm'), sample: '/api/purge/confirm' },
+
+  // -- Both people: printing a book, end to end ---------------------------------------------------
+  { id: 'GET /', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['/'], match: atPath('/'), sample: '/' },
+  { id: 'GET /review', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['/review'], match: atPath('/review'), sample: '/review' },
+  { id: 'GET /api/state', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['/api/state'], match: atPath('/api/state'), sample: '/api/state' },
+  { id: 'GET /api/studio', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['/api/studio'], match: atPath('/api/studio'), sample: '/api/studio' },
+  // Each person's OWN profile — the route reads the role off the session and ignores any role in the
+  // body, so "both" here can never mean "either one's".
+  { id: 'POST /api/profile', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['/api/profile'], match: atPath('/api/profile'), sample: '/api/profile' },
+  {
+    id: 'GET /api/avatar/<file>',
+    audience: AUDIENCES.BOTH,
+    methods: ['GET'],
+    tokens: ['avatar'],
+    match: (method, pathname, parts) => parts[0] === 'api' && parts[1] === 'avatar',
+    sample: '/api/avatar/operator-0123456789abcdef.webp',
+  },
+  // An order's photographs and its two downloads: the book itself and the archive Jirka prints from.
+  {
+    id: 'GET /img/<order>/<base>/<kind>',
+    audience: AUDIENCES.BOTH,
+    methods: ['GET'],
+    tokens: ['img', 'coloring'],
+    match: (method, pathname, parts) => parts[0] === 'img',
+    sample: '/img/1510/clean/coloring',
+  },
+  { id: 'GET /svg/<order>/<base>', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['svg'], match: (method, pathname, parts) => parts[0] === 'svg', sample: '/svg/1510/clean' },
+  { id: 'GET /api/<order>/pdf', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['pdf'], match: orderAction('pdf'), sample: '/api/1510/pdf' },
+  { id: 'GET /api/<order>/zip', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['zip'], match: orderAction('zip'), sample: '/api/1510/zip' },
+  // Generation. Jirka runs it: with WhatsApp gone he fetches the book himself, and a book that never
+  // generated is a book he cannot fetch.
+  { id: 'POST /api/_run', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['/api/_run'], match: atPath('/api/_run'), sample: '/api/_run' },
+  { id: 'POST /api/_stop', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['/api/_stop'], match: atPath('/api/_stop'), sample: '/api/_stop' },
+  { id: 'POST /api/_select', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['/api/_select'], match: atPath('/api/_select'), sample: '/api/_select' },
+  // The book's title page, and clearing an intake hold so a flagged order can be generated anyway.
+  { id: 'POST /api/<order>/dedication', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['dedication'], match: orderAction('dedication'), sample: '/api/1510/dedication' },
+  { id: 'POST /api/<order>/intake-override', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['intake-override'], match: orderAction('intake-override'), sample: '/api/1510/intake-override' },
+  // Printing, and undoing a mis-click on it (R10).
+  { id: 'POST /api/<order>/printed', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['printed'], match: orderAction('printed'), sample: '/api/1510/printed' },
+  { id: 'POST /api/<order>/unprinted', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['unprinted'], match: orderAction('unprinted'), sample: '/api/1510/unprinted' },
+  // The per-photo review verdicts. Four segments, so every four-segment operator route above must
+  // stay above this line.
+  {
+    id: 'POST /api/<order>/<base>/<action>',
+    audience: AUDIENCES.BOTH,
+    methods: ['POST'],
+    tokens: ['approve', 'reject', 'handoff', 'replaced', 'redo', 'edit', 'revert'],
+    match: (method, pathname, parts) => parts[0] === 'api' && parts.length === 4,
+    sample: '/api/1510/clean/approve',
+  },
+  // The dashboard's own CSS, JS, fonts and graphics — the dispatcher's static fallback. Deliberately
+  // matched by "a file of that name really exists under static/" rather than by "it is a GET":
+  // a bare catch-all here would swallow the next GET route somebody adds into the printer's
+  // allowlist by accident — the exact drift this table exists to stop.
+  // Nothing under static/ is secret; everything that is lives behind a route above.
+  {
+    id: 'GET <static asset>',
+    audience: AUDIENCES.BOTH,
+    methods: ['GET'],
+    tokens: [],
+    match: (method, pathname) => staticAssetPath(pathname) !== null,
+    sample: '/dashboard.html',
+  },
+]);
+
+/**
+ * Who may reach this request? OPERATOR when nothing matches — that default IS the allowlist, and it
+ * is why an unrecorded route is refused rather than open.
+ */
+export function routeAudience(method, pathname, parts = pathname.split('/').filter(Boolean)) {
+  return routePolicyFor(method, pathname, parts)?.audience ?? AUDIENCES.OPERATOR;
+}
+
+/** The single table line that answers this request, or null when none does (→ operator-only). The
+ *  method is part of the question: an entry only answers the verbs it declares, so a new verb on an
+ *  existing path is undecided rather than inherited. Exported for the drift test, which drives every
+ *  entry's own `sample` back through here. */
+export function routePolicyFor(method, pathname, parts = pathname.split('/').filter(Boolean)) {
+  return ROUTE_POLICY.find((r) => answersMethod(r, method) && r.match(method, pathname, parts)) ?? null;
+}
+
+/** May this role reach that audience? The operator reaches everything; the printer reaches what the
+ *  table named for both of them, and nothing it did not. */
+export function mayReach(role, audience) {
+  if (audience === AUDIENCES.ANYONE || audience === AUDIENCES.BOTH) return true;
+  return role === 'operator';
+}
+
+/** A purge result as the PAGE is allowed to see it (U11).
+ *
+ *  Counts and reasons, never a path. `inspectOutbox` carries absolute filesystem paths — the order
+ *  folder and every photograph inside it — because the deletion needs them; the browser needs none
+ *  of that and the board already refuses to hand out paths for the same reason (see boardEntry).
+ *  `backfilled` and `stalledDays` DO cross, because they are the two things the operator has to be
+ *  able to see: whether a large batch is historical, and which orders will never age out at all. */
+export function purgeReportForClient(result, autopilot = null) {
+  const row = (o) => ({
+    orderId: o.orderId,
+    photos: o.photos.length,
+    bytes: o.bytes,
+    ageDays: o.ageDays,
+    backfilled: o.backfilled,
+    stalledDays: o.stalledDays,
+    skip: o.skip,
+  });
+  return {
+    dryRun: result.dryRun,
+    days: result.days,
+    cap: result.cap,
+    photos: result.photos,
+    bytes: result.bytes,
+    eligibility: result.eligibility,
+    orders: result.orders.map(row),
+    deferred: result.deferred.map(row),
+    stalled: result.stalled.map(row),
+    skipped: result.skipped.filter((o) => o.stalledDays == null).map(row),
+    // The overnight report and handled-set, which age out on the same clock and are cleared by the
+    // same confirmation. Names only, no paths — and present on BOTH routes: the report is supposed
+    // to be exactly what confirming does, and a confirmation that also deleted two files the report
+    // never mentioned would make that a lie (see the routes).
+    autopilotFiles: (autopilot?.removed ?? []).map((f) => f.name),
+    warning: purgeWarning,
+  };
+}
+
 /** `revealFinished` opens the finished book's folder on the desktop. It defaults to off: a test
  *  or a smoke that constructs a server must never spawn a File Explorer window — and one that
  *  did, pointed at a temp folder the test then deleted, is how this default was chosen. Only the
  *  double-click launcher, where a real operator is watching, turns it on. */
-export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient, smtpClient, adImageFn } = {}) {
+export function createReviewServer({ config, inboxRoot, outboxRoot, driver, builder, qc, intake, revealFinished = false, reveal = openExternally, log = () => {}, memoryRoot = MEMORY_DIR, mailClient, smtpClient, adImageFn, authEnv = process.env, bindHost = authEnv.HOST, sessions = createSessionStore(), signInThrottle = sharedSignInThrottle() } = {}) {
   let inbox = inboxRoot ?? config.paths.inbox; // the Go bar can point the tool at another folder
   const outbox = outboxRoot ?? config.paths.outbox;
+
+  // --- Sign-in, decided ONCE, here, from the environment this server was built with ---------------
+  //
+  // Snapshotted rather than re-read per request: the mode is a property of the deployment, and
+  // re-reading process.env on every request would let a later mutation silently open a server that
+  // started closed. It also keeps two servers in one process (the test suite) independent.
+  //
+  // `assertLocalModeIsSafe` is the guard that makes the ungated path survivable. It throws — before
+  // a socket exists — when no password hashes are configured AND the server would bind an address
+  // beyond this machine. The Dockerfile sets HOST=0.0.0.0, so a Render deploy that forgot the
+  // hashes stops here instead of publishing the studio.
+  assertLocalModeIsSafe({ env: authEnv, bindHost });
+  const auth = resolveAuthMode(authEnv);
+  const accountsDir = config?.accounts?.dataDir ?? null;
+  if (auth.mode === AUTH_MODES.MISCONFIGURED) log(auth.message);
   const inFlight = new Map(); // "order/base" -> { message }
   // `orderId` is the order the run is generating right now, so the board can tell 'generating' from
   // 'queued' — the review state alone shows both as all-null photo statuses.
@@ -610,9 +942,115 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       .finally(() => inFlight.delete(key));
   }
 
+  /** The role that answers to a typed username, or null. Usernames live in the account file and can
+   *  be renamed at runtime; the password hash is keyed by ROLE, so a rename can never lock anybody
+   *  out (KTD1). Compared the same case-insensitive way accounts.js refuses a colliding name. */
+  function roleForUsername(username) {
+    const wanted = String(username ?? '').trim().toLocaleLowerCase('cs');
+    if (!wanted) return null;
+    const match = readAccounts(accountsDir).find((a) => a.username.toLocaleLowerCase('cs') === wanted);
+    return match ? match.role : null;
+  }
+
+  /**
+   * The signed-in person as the PAGE is allowed to see them (R8 step 3, R11).
+   *
+   * Three fields and a flag, assembled here rather than spread across the endpoints that return it,
+   * so there is exactly one place to check what crosses to the browser. What is deliberately absent
+   * is the point: no session token, no password hash, no environment variable name, nothing that
+   * helps anybody become this person. The role is included because the UI reflects it; it is not
+   * what enforces it (the check above is).
+   */
+  function identityFor(req) {
+    if (!req.identity) return null;
+    const account = readAccount(accountsDir, req.identity.role); // defaults when no account file exists yet
+    return {
+      role: req.identity.role,
+      username: account.username,
+      // A URL, never the file name on disk: the page has no business knowing how the accounts dir
+      // is laid out, and the route is the only way into it anyway.
+      avatar: account.avatar ? `/api/avatar/${account.avatar}` : null,
+      // KTD11: ungated local mode resolves ONE implicit operator. The page hides the profile surface
+      // on this flag — there is no second identity to tell apart and nothing to sign out of.
+      implicit: req.identity.implicit === true,
+    };
+  }
+
+  /**
+   * POST /api/login — verify a password and mint a session.
+   *
+   * Three things are load-bearing and none of them are obvious from the happy path:
+   *
+   *   - EVERY answer is the same. Unknown username, wrong password and a role whose hash is missing
+   *     all return the identical 401 after the identical scrypt work (credentials.js derives against
+   *     a dummy hash rather than returning early), so the response cannot be used to enumerate who
+   *     has an account here.
+   *   - The token is minted fresh by the session store and never adopted from the request. There is
+   *     no code path that turns a client-supplied cookie into a live session, which is session
+   *     fixation closed by construction.
+   *   - The attempt is logged — outcome, attempted username, timestamp — and NOTHING else. The
+   *     password, the stored hash and the new token never reach the log line.
+   */
+  async function handleSignIn(req, res) {
+    const body = await readJson(req, 8 * 1024);
+    const username = typeof body?.username === 'string' ? body.username.trim() : '';
+    const password = typeof body?.password === 'string' ? body.password : '';
+    const at = new Date().toISOString();
+    /** Never interpolate anything but the typed username here. */
+    const attempt = (outcome, detail = '') => log(`sign-in ${outcome} for ${JSON.stringify(username)} at ${at}${detail ? ` — ${detail}` : ''}`);
+
+    if (auth.mode !== AUTH_MODES.GATED) {
+      attempt('unavailable', 'no passwords are configured; this studio runs ungated');
+      return json(res, 409, { error: 'Přihlášení není v místním režimu potřeba.', code: 'ungated' });
+    }
+    if (!username || !password) {
+      attempt('rejected', 'missing username or password');
+      return json(res, 400, { error: 'Vyplňte jméno i heslo.' });
+    }
+
+    const role = roleForUsername(username);
+    let ok;
+    try {
+      // The throttle owns the pacing AND the global cap on concurrent derivations; the callback is
+      // the only thing inside it that sees a password. An unknown username still runs a full
+      // derivation (verifyRolePassword against no hash) so it costs what a real one costs.
+      ok = await signInThrottle.run(username, () => verifyRolePassword(role ?? '__unknown__', password, { env: authEnv }));
+    } catch (err) {
+      if (err instanceof SignInBusyError) {
+        attempt('deferred', 'too many verifications in flight');
+        res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': String(err.retryAfterSeconds) });
+        return res.end(JSON.stringify({ error: err.message, code: 'busy' }));
+      }
+      throw err;
+    }
+
+    if (!ok) {
+      attempt('failed');
+      return json(res, 401, { error: 'Jméno nebo heslo nesouhlasí.' });
+    }
+
+    const token = sessions.create(role);
+    attempt('ok', `role ${role}`);
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Set-Cookie': sessionCookie(token),
+    });
+    return res.end(JSON.stringify({ ok: true, role }));
+  }
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
-    const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    const parts = pathSegments(url.pathname);
+    // A path this server cannot even decode is a 404, decided here, before anything else runs.
+    //
+    // `decodeURIComponent` THROWS on a malformed escape ("/%zz"), and it used to be called on this
+    // line outside the try/catch below — in an async listener, where an unhandled rejection takes the
+    // whole process down. One unauthenticated GET, no session, no route: the studio stops. Total
+    // decoding (see pathSegments) turns that into the only honest answer — a path that is not valid
+    // UTF-8 percent-encoding names no route, no order and no asset — and it mirrors what
+    // staticAssetPath has always done with its own decode.
+    if (parts === null) return json(res, 404, { error: 'Not found.' });
 
     // Unauthenticated liveness probe for a cloud host's health check — must answer before the gate.
     // Reports the deployed commit so "is my fix actually live?" is answerable from outside, without
@@ -622,15 +1060,156 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     // locally. It is the commit only, no repo/branch/env — nothing worth gating behind auth, and this
     // route must stay unauthenticated or the host's health check kills the instance.
     if (url.pathname === '/healthz') return json(res, 200, { ok: true, commit: process.env.RENDER_GIT_COMMIT ?? null });
-    // Optional password gate for public hosting (Render has no built-in auth). Active only when both
-    // STUDIO_USER + STUDIO_PASS are set, so local runs are unchanged. HTTPS at the host makes Basic
-    // Auth safe enough for one operator; without it the whole customer-book/mail panel is open.
-    if (!checkAuth(req)) {
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Fotomalovanky"', 'Content-Type': 'text/plain; charset=utf-8' });
-      return res.end('Přihlášení vyžadováno.');
+    // Same-origin check on anything that can change something (KTD4). Ahead of the gate because the
+    // sign-in POST is itself mutating and itself pre-gate; a GET is never affected.
+    if (!isSameOrigin(req)) {
+      return json(res, 403, { error: 'Požadavek přišel z jiné stránky a byl odmítnut.' });
+    }
+
+    // --- THE REQUEST GATE (KTD9) -----------------------------------------------------------------
+    //
+    // Exactly where checkAuth stood: after the /healthz early return, once per request. Deliberately
+    // REQUEST-scoped and not stream-scoped — /api/<order>/zip streams for minutes after its headers
+    // are sent, and a session expiring mid-download must not truncate the operator's archive. There
+    // are no per-chunk checks anywhere downstream, and there must not be.
+    //
+    // The identity it resolves hangs off the request for handlers to read (role enforcement is U6).
+    if (auth.mode === AUTH_MODES.MISCONFIGURED) {
+      // Half-configured: one role has a hash, the other's env var is missing or misspelled. This is
+      // the case the old boolean would have collapsed into "not configured" and served the whole
+      // studio for. It refuses everything but /healthz instead, and says what is missing. Logged
+      // once at construction, not here — a refusal per request would bury the reason in noise.
+      return json(res, 503, { error: auth.message, code: 'auth-misconfigured' });
+    }
+    if (auth.mode === AUTH_MODES.UNGATED) {
+      // No role has a password at all: the desktop workflow. Safe only because the constructor
+      // already refused to build this server on a non-loopback bind (assertLocalModeIsSafe).
+      req.identity = IMPLICIT_OPERATOR; // KTD11 — role checks need a defined answer
+    } else {
+      const session = sessions.get(tokenFromRequest(req));
+      if (session) {
+        req.identity = { role: session.role, implicit: false };
+      } else if (!isPreGate(req.method, url.pathname)) {
+        // Anonymous. A page request gets the sign-in form; an API call is refused where it stands
+        // rather than redirected, so fetch() reports "signed out" instead of choking on HTML.
+        if (wantsSignInPage(req.method, url.pathname)) return serveStatic('/login.html', res);
+        return json(res, 401, { error: 'Přihlaste se prosím.', code: 'signed-out' });
+      }
+    }
+
+    // --- THE ROLE CHECK (R8, KTD10) ---------------------------------------------------------------
+    //
+    // One table-driven check, ahead of every handler, so no route can be reached by a role the table
+    // did not name — including a route whose own handler forgot to ask. `req.identity` is undefined
+    // only on the pre-gate paths (the sign-in POST, the two branded assets), which the table records
+    // as reachable by anyone; in ungated local mode it is the implicit operator (KTD11), so the
+    // answer here is defined in every mode rather than "no identity, therefore no check".
+    //
+    // The refusal is logged with the route and the role and nothing else — a refused printer is
+    // either a stale tab or somebody typing URLs, and the operator should be able to tell which.
+    if (req.identity && !mayReach(req.identity.role, routeAudience(req.method, url.pathname, parts))) {
+      log(`refused ${req.method} ${url.pathname} for role ${req.identity.role}`);
+      return json(res, 403, { error: 'Tahle část studia je jen pro operátora.', code: 'forbidden' });
     }
 
     try {
+      // --- Sign in / sign out ---------------------------------------------------------------------
+      // The only endpoint in the app that touches a password, and the only one that mints a session.
+      if (req.method === 'POST' && url.pathname === SIGN_IN_PATH) {
+        return await handleSignIn(req, res);
+      }
+      // Sign-out is NOT pre-gate: destroying a session requires holding one. It deletes the SERVER
+      // entry — clearing the cookie alone would leave a copied token live (KTD3).
+      if (req.method === 'POST' && url.pathname === SIGN_OUT_PATH) {
+        sessions.destroy(tokenFromRequest(req));
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': clearedSessionCookie() });
+        return res.end(JSON.stringify({ ok: true }));
+      }
+      // The sign-in page for someone who already has a session: send them to the studio rather than
+      // showing a form they do not need.
+      // In ungated local mode this is every visit to /login, and it is why that mode has no sign-in
+      // page at all (KTD11): there is nothing to sign in to and nobody to distinguish.
+      if (req.method === 'GET' && url.pathname === LOGIN_PAGE_PATH) {
+        if (req.identity) {
+          res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
+          return res.end();
+        }
+        return serveStatic('/login.html', res);
+      }
+
+      // POST /api/profile { username?, image? } — a person changes their OWN display name or photo
+      // (R11, R13). The role comes off the SESSION and a `role` in the body is never read, so "may I
+      // change this account?" is not a check that can be forgotten — there is no code path here that
+      // writes to the other person's record. The username goes through accounts.js's mutator, so the
+      // collision rule (two people who cannot be told apart) applies to this route for free.
+      //
+      // `image` is base64 in the JSON body (KTD8), read under AVATAR_BODY_LIMIT — the cap is applied
+      // BY THE READER, so an oversized upload is refused mid-stream rather than after it has already
+      // been buffered. `image: null` clears the photo.
+      if (req.method === 'POST' && url.pathname === '/api/profile') {
+        // Ungated local mode has one implicit identity and no sign-in (KTD11). Renaming an account
+        // nobody signs in as would change a label with no way back through the UI, so it is refused
+        // here and the surface is hidden in the page.
+        if (!req.identity || req.identity.implicit) {
+          return json(res, 409, { error: 'V místním režimu se profil nenastavuje — nikdo se nepřihlašuje.', code: 'ungated' });
+        }
+        if (!accountsDir) return json(res, 503, { error: 'Účty nejsou nastavené (accounts.dataDir).', code: 'not-configured' });
+
+        const role = req.identity.role;
+        // The size refusal is the READER's (it stops mid-stream, before the memory is spent), so it
+        // is the reader's error that has to become the 413 the page expects — it used to fall through
+        // to the blanket ReviewError 409 and told the operator nothing about what was wrong.
+        let body;
+        try {
+          body = await readJson(req, AVATAR_BODY_LIMIT);
+        } catch (err) {
+          if (err?.code === 'too-large') return json(res, 413, { error: AVATAR_TOO_LARGE_MESSAGE, code: 'too-large' });
+          throw err;
+        }
+        const before = readAccount(accountsDir, role);
+        const patch = {};
+        if (typeof body?.username === 'string') patch.username = body.username;
+
+        let written = null; // the file this request created, for the rollback below
+        try {
+          if (typeof body?.image === 'string' && body.image.trim()) {
+            // Stored BEFORE the account is updated, and the previous file is kept until the update
+            // lands: a colliding username must not leave the record pointing at a deleted photo.
+            written = await storeAvatar({ dataDir: accountsDir, role, payload: body.image });
+            patch.avatar = written.file;
+          } else if (body?.image === null) {
+            patch.avatar = null;
+          }
+          if (!('username' in patch) && !('avatar' in patch)) return json(res, 400, { error: 'Není co změnit.' });
+          updateAccount(accountsDir, role, patch);
+        } catch (err) {
+          if (written) removeAvatar(accountsDir, written.file); // roll back the orphan
+          if (err instanceof AvatarError) {
+            return json(res, err.code === 'not-configured' ? 503 : err.code === 'too-large' ? 413 : 400, { error: err.message, code: err.code });
+          }
+          if (err instanceof AccountError) return json(res, 409, { error: err.message, code: 'account' });
+          throw err;
+        }
+        // The record now points at the new file (or at nothing), so the old one is safe to drop.
+        if ('avatar' in patch && before.avatar && before.avatar !== patch.avatar) removeAvatar(accountsDir, before.avatar);
+        return json(res, 200, { identity: identityFor(req) });
+      }
+
+      // GET /api/avatar/<file> — a stored profile photo, from the accounts data dir and nowhere else.
+      // The name is matched against the shape THIS SERVER generates (avatarFilePath), so a path from
+      // the URL cannot reach the filesystem; the Content-Type is the one the re-encode chose, never
+      // one the upload claimed; and nosniff stops a browser deciding it knows better.
+      if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'avatar' && parts.length === 3) {
+        const path = avatarFilePath(accountsDir, parts[2]);
+        if (!path || !existsSync(path)) return json(res, 404, { error: 'Not found.' });
+        res.writeHead(200, {
+          'Content-Type': AVATAR_MIME,
+          'X-Content-Type-Options': 'nosniff',
+          'Cache-Control': 'no-store',
+        });
+        return res.end(readFileSync(path));
+      }
+
       // Home is the studio dashboard; the review grid moved to /review. Both are served from the
       // static tree through the same contained path.
       if (req.method === 'GET' && url.pathname === '/') {
@@ -641,7 +1220,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       }
 
       if (req.method === 'GET' && url.pathname === '/api/state') {
-        return json(res, 200, { orders: forClient(state(), inFlight), inbox, outbox, run, selected, queue });
+        // `identity` rides along on the state read the review grid already makes, so the page never
+        // needs a second round trip to know who is signed in (R8 step 3). Credential material never
+        // appears in it — see identityFor.
+        return json(res, 200, { orders: forClient(state(), inFlight), inbox, outbox, run, selected, queue, identity: identityFor(req) });
       }
 
       // GET /api/studio — the live order board behind the dashboard's Objednávky + Potřebuje vás
@@ -656,7 +1238,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           firstLiveOrder: config.studio?.firstLiveOrder ?? null,
           dataDir: config.shopify?.dataDir ?? null,
         });
-        return json(res, 200, { ...board, inbox, run: { active: run.active, orderId: run.orderId }, autopilot: { running: autopilot.running, error: autopilot.error, report: autopilot.report } });
+        // The dashboard polls this one, so the identity travels here too: the page decides which
+        // views to build from it, and it must not paint an operator's nav for a printer for the
+        // 2.5 seconds before a second request answers.
+        return json(res, 200, { ...board, inbox, identity: identityFor(req), run: { active: run.active, orderId: run.orderId }, autopilot: { running: autopilot.running, error: autopilot.error, report: autopilot.report } });
       }
 
       // GET /api/mail — the read-only Proton inbox tile. Always 200 with a stable shape: the tile
@@ -1126,14 +1711,18 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, overrideIntake(order.orderDir, { confirmCount }));
       }
 
-      // POST /api/<order>/sent — the operator confirms the finished book has gone to Jirka. Writes
-      // the delivery marker so the order derives to 'sent' and drops off the active board. Manual
-      // only: nothing here contacts anyone, it records that the operator already did — the book
-      // leaves this tool by hand, or by Jirka downloading it himself.
+      // POST /api/<order>/sent — the operator confirms the PRINTED book has gone into the post to
+      // the CUSTOMER (R14). Writes the dispatch marker (sent.json — a different file from the
+      // retired delivered.json, KTD6) so the order derives to 'sent', becomes terminal and drops off
+      // the active board. Manual only: nothing here posts anything, it records that the operator
+      // already did. Operator-only in ROUTE_POLICY — Jirka prints, David posts.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'sent') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
-        return json(res, 200, { status: markDelivered(order.orderDir) });
+        // Signed by the person who clicked (R9, U8). `identityFor` is the same resolved identity the
+        // page is shown, so the name on the marker is the name in the sidebar of whoever wrote it —
+        // and in ungated local mode it is the implicit operator (KTD11), where nobody signed in.
+        return json(res, 200, { status: markSent(order.orderDir, identityFor(req)) });
       }
 
       // GET /api/<order>/pdf — the finished <order> Final.pdf, inline, so the operator can open it in a
@@ -1210,11 +1799,12 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, { deleted: order.orderId });
       }
 
-      // POST /api/<order>/unsent — undo a delivery mark set by mistake; the order returns to the board.
+      // POST /api/<order>/unsent — undo a dispatch mark set by mistake; the order returns to
+      // 'printed' and back onto the active board.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'unsent') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
-        unmarkDelivered(order.orderDir);
+        unmarkSent(order.orderDir);
         return json(res, 200, { ok: true });
       }
 
@@ -1227,20 +1817,91 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, { emailedAt: markCustomerEmailed(order.orderDir, on) });
       }
 
-      // POST /api/<order>/printed — the operator confirms Jirka printed the book (N3). Terminal marker
-      // that closes the lifecycle past 'sent' and makes the order's photos purge-eligible. Manual only.
+      // POST /api/<order>/printed — Jirka confirms he printed the book (N3, R15). It now precedes
+      // dispatch: a printed book is not finished, it is waiting for the operator to post it.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'printed') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
-        return json(res, 200, { status: markPrinted(order.orderDir) });
+        // Signed by the printer who clicked it (R9, U8) — the marker this route writes and the
+        // dispatch marker above must be able to name two different people, or the split between the
+        // two acts records nothing.
+        return json(res, 200, { status: markPrinted(order.orderDir, identityFor(req)) });
       }
 
-      // POST /api/<order>/unprinted — undo a printed mark set by mistake; the order returns to 'sent'.
+      // POST /api/<order>/unprinted — undo a printed mark set by mistake; the order returns to
+      // 'ready-to-print'.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'unprinted') {
         const order = state().find((o) => o.orderId === parts[1]);
         if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         unmarkPrinted(order.orderDir);
         return json(res, 200, { ok: true });
+      }
+
+      // POST /api/migrate/sent-markers { confirm? } — the one-shot U10 backfill (KTD7, R17).
+      //
+      // REPORTS by default and writes only on a separate, explicit `confirm: true`, mirroring the
+      // purge's report-then-confirm shape: it writes markers into live customer order folders on the
+      // mounted disk, and the operator gets to read what it intends to do first.
+      //
+      // Deliberately NOT run at startup. A deploy would then write into every order folder before
+      // anyone could read a report, on an instance nobody was watching — and a migration over
+      // customer data is not something to discover after the fact. Operator-only in ROUTE_POLICY.
+      if (req.method === 'POST' && url.pathname === '/api/migrate/sent-markers') {
+        const { confirm = false } = await readJson(req);
+        try {
+          return json(res, 200, backfillSentMarkers({ outboxRoot: outbox, apply: confirm === true }));
+        } catch (err) {
+          if (err instanceof SentMarkerMigrationError) return json(res, 409, { error: err.message, seam: err.seam });
+          throw err;
+        }
+      }
+
+      // --- THE PURGE, REPORT THEN CONFIRM (R19, U11) ----------------------------------------------
+      //
+      // Retention has existed since the first commit and has never once run on the hosted box: it
+      // was a CLI on a machine nobody has a shell into. These two routes are the whole of R19, and
+      // they are deliberately two:
+      //
+      //   GET  /api/purge/report   — what a purge would delete, and why every other order is kept.
+      //   POST /api/purge/confirm  — the deletion, and only on an explicit `confirm: true`.
+      //
+      // The report is a GET and a dry run (purgeOriginals' default posture), so there is no code
+      // path through it that opens an order folder for writing. A test asserts the fixture tree is
+      // byte-identical afterwards, because "read-only" is a claim about photographs of children and
+      // it should be checked rather than asserted in a comment.
+      //
+      // Both are operator-only in ROUTE_POLICY. Jirka prints books; he does not delete customers'
+      // photographs.
+      if (req.method === 'GET' && url.pathname === '/api/purge/report') {
+        const days = config.retentionDays;
+        if (!Number.isInteger(days) || days <= 0) {
+          return json(res, 503, { error: 'Doba uchování (retentionDays) není nastavená — úklid je vypnutý.', code: 'not-configured' });
+        }
+        // The autopilot files are reported DRY here for the same reason the photographs are: this
+        // route's whole contract is "what would confirming do", and it was quietly incomplete —
+        // confirm cleared the night report and handled-set as well, and the report said nothing
+        // about them. Same call, same clock, `dryRun` the only difference between the two routes.
+        const autopilot = purgeAutopilotData({ dataDir: config.shopify?.dataDir ?? null, days });
+        return json(res, 200, purgeReportForClient(purgeOriginals({ outboxRoot: outbox, days }), autopilot));
+      }
+      if (req.method === 'POST' && url.pathname === '/api/purge/confirm') {
+        const days = config.retentionDays;
+        if (!Number.isInteger(days) || days <= 0) {
+          return json(res, 503, { error: 'Doba uchování (retentionDays) není nastavená — úklid je vypnutý.', code: 'not-configured' });
+        }
+        // A separate, explicit confirmation, not a flag on the report route. The dry run stays the
+        // default posture everywhere: a purge must be something somebody asked for twice.
+        const { confirm = false } = await readJson(req).catch(() => ({}));
+        if (confirm !== true) {
+          return json(res, 409, { error: 'Smazání je potřeba potvrdit.', code: 'confirm-required' });
+        }
+        const result = purgeOriginals({ outboxRoot: outbox, days, dryRun: false });
+        log(`purge: deleted ${result.photos} photograph(s) across ${result.orders.length} order(s); ${result.deferred.length} left for the next run`);
+        // The night report and handled-set age out on the same clock (they carry order numbers), so
+        // the confirmed run clears them too — the CLI has always done both in one pass, and the
+        // REPORT route above now lists them for exactly this reason.
+        const auto = purgeAutopilotData({ dataDir: config.shopify?.dataDir ?? null, days, dryRun: false });
+        return json(res, 200, purgeReportForClient(result, auto));
       }
 
       // POST /api/<order>/<base>/<action>
@@ -1284,6 +1945,22 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       console.error(err);
       return json(res, 500, { error: err.message ?? 'Something went wrong.' });
     }
+  });
+
+  // The last word on the fail-open guard, checked against the address the socket ACTUALLY bound.
+  // `assertLocalModeIsSafe` above reads the declared HOST, which is what a deploy gets wrong; this
+  // catches a caller that passed a different address to listen() and would otherwise publish an
+  // ungated studio anyway. Closing and re-raising is a refusal to start, not a degraded mode.
+  server.on('listening', () => {
+    if (auth.mode !== AUTH_MODES.UNGATED) return;
+    const address = server.address();
+    const bound = address && typeof address === 'object' ? address.address : null;
+    if (isLoopbackHost(bound)) return;
+    server.close();
+    server.emit('error', new AuthConfigError(
+      `Refusing to serve: no password hashes are configured and the server bound ${bound}, which is not ` +
+        `loopback. Set the role password hashes, or bind 127.0.0.1.`,
+    ));
   });
 
   // Auto-fetch: poll Shopify for new orders on a timer so they land on the board on their own, without
@@ -1338,33 +2015,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
 
 // CLI: node src/ui/server.js [inbox] [outbox] [--port 4173] [--no-open]
 // This is what the double-click launcher runs: the operator's whole tool is this page.
-/** Optional HTTP Basic Auth gate for public hosting. Returns true when the request is allowed: either
- *  no gate is configured (STUDIO_USER/STUDIO_PASS unset → local runs unchanged) or the request carries
- *  matching credentials. Timing-safe compare so the check can't be probed by response timing. */
-export function checkAuth(req) {
-  const user = process.env.STUDIO_USER;
-  const pass = process.env.STUDIO_PASS;
-  if (!user || !pass) return true; // no gate configured — local/dev
-  const m = /^Basic (.+)$/.exec(req.headers.authorization || '');
-  if (!m) return false;
-  let decoded;
-  try {
-    decoded = Buffer.from(m[1], 'base64').toString('utf8');
-  } catch {
-    return false;
-  }
-  const i = decoded.indexOf(':');
-  if (i < 0) return false;
-  return safeEqual(decoded.slice(0, i), user) && safeEqual(decoded.slice(i + 1), pass);
-}
-
-/** Constant-time string compare (length-guarded — timingSafeEqual throws on length mismatch). */
-function safeEqual(a, b) {
-  const ab = Buffer.from(String(a));
-  const bb = Buffer.from(String(b));
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
-}
-
+//
+// The Basic Auth gate that used to live here (STUDIO_USER/STUDIO_PASS) is gone. It has been replaced
+// by the session gate inside createReviewServer: per-role scrypt hashes, a sign-in page, and a
+// refusal to run ungated anywhere but a loopback bind (src/auth/sessions.js).
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const argv = process.argv.slice(2);
   const portFlag = argv.indexOf('--port');
@@ -1381,7 +2035,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(1);
   }
 
-  const { server, shutdown } = createReviewServer({ config, inboxRoot, outboxRoot, revealFinished: true, log: (m) => console.log(`  ${m}`) });
+  // `host` is handed in rather than re-read inside, so the safety check is made against the address
+  // this process is actually about to bind — including a --port/HOST combination the env alone would
+  // not describe. An AuthConfigError here means the studio would have been served ungated to the
+  // world; it is a refusal to start, printed like the config errors above.
+  let started;
+  try {
+    started = createReviewServer({ config, inboxRoot, outboxRoot, revealFinished: true, bindHost: host, log: (m) => console.log(`  ${m}`) });
+  } catch (err) {
+    console.error(`\n${err.message}\n`);
+    process.exit(1);
+  }
+  const { server, shutdown } = started;
   // Stop the background timers cleanly on the way out. Guard against double-fire (SIGINT then SIGTERM).
   let stopping = false;
   const stop = async () => {
