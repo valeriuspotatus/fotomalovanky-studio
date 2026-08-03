@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import sharp from 'sharp';
@@ -960,4 +960,21 @@ test('the guard bites: a new verb on an existing path is refused until somebody 
   // the new verb, not about the path.
   assert.equal(routeAudience('GET', '/img/1510/clean/coloring'), 'both', 'the printer still sees the photographs');
   assert.equal(routeAudience('POST', '/api/1510/printed'), 'both', 'and still marks a book printed');
+});
+
+test('the original carries a cache-busting version, so a re-framed photo actually repaints', async () => {
+  // Automatic framing rewrites <base>.jpg — a screenshot cropped, a sideways photo turned. Without a
+  // version on that URL the browser keeps its cached copy, and the page shows the corrected colouring
+  // page beside the uncorrected photo it was made from: the fix looks like it never happened.
+  const before = (await (await get('/api/state')).json()).orders[0].photos.find((p) => p.hasOriginal);
+  assert.ok(before, 'a photo with an original on disk');
+  assert.ok(before.originalVersion > 0, 'the original is versioned, not just the colouring page');
+
+  const path = join(outbox, '1510', `${before.base}.jpg`);
+  const was = statSync(path).mtimeMs;
+  utimesSync(path, new Date(), new Date(was + 60_000)); // stand in for a redo rewriting the photo
+
+  const after = (await (await get('/api/state')).json()).orders[0].photos.find((p) => p.base === before.base);
+  assert.notEqual(after.originalVersion, before.originalVersion, 'a rewritten photo gets a new URL');
+  assert.equal(after.originalVersion, statSync(path).mtimeMs);
 });
