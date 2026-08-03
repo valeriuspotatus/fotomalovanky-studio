@@ -13,6 +13,7 @@ import {
   STATES,
   getStatus,
   getSource,
+  getFraming,
   setStatus,
   getDedication,
   setDedication,
@@ -111,6 +112,7 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
         builderEligible: isBuilderEligible(status),
         holdsForReview: holdsForReview(status),
         edited: existsSync(editBackupPath(orderDir, base)), // the generated page is still recoverable
+        framing: getFraming(manifest, base), // straightened / cut out of a screenshot, or null
         files,
       };
     });
@@ -383,7 +385,7 @@ export async function revertPhotoEdit({ orderDir, base, qc = assessOutputFiles }
  *  a request this deterministic generator would answer identically.
  *  Regenerates from the operator's original photo when it still exists; the generator's echoed-back
  *  copy is a second JPEG compression and is only the fallback. */
-export async function redo({ config, orderDir, base, driver, qc, onEvent }) {
+export async function redo({ config, orderDir, base, driver, qc, onEvent, overrides = null }) {
   const manifest = readManifest(orderDir);
   const status = getStatus(manifest, base);
   if (status == null) throw new ReviewError(`No photo "${base}" in ${orderDir}.`);
@@ -399,5 +401,5 @@ export async function redo({ config, orderDir, base, driver, qc, onEvent }) {
     throw new ReviewError(`Cannot redo "${base}": neither the original photo nor ${fallback} is on disk.`);
   }
 
-  return generatePhoto({ config, photoPath, orderDir, manifest, orderId: manifest.orderId, driver, qc, onEvent });
+  return generatePhoto({ config, photoPath, orderDir, manifest, orderId: manifest.orderId, driver, qc, onEvent, overrides });
 }

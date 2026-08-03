@@ -109,6 +109,11 @@
  .pill.pending{color:var(--ink-3);border-color:var(--border-strong)}
  .why{font-size:12px;color:var(--ink-2);margin:5px 0 0}
  .why.err{color:var(--danger);font-family:var(--font-mono);word-break:break-word}
+ /* An undo that lives inside a sentence: it reads as part of the note, not as a fourth button
+    competing with Schválit / Označit špatně / Opravit ručně. */
+ .linkish{background:none;border:0;padding:0;font:inherit;color:var(--brand);text-decoration:underline;cursor:pointer}
+ .linkish:hover{color:var(--ink)}
+ .linkish:disabled{opacity:.5;cursor:default}
  .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px dashed var(--border)}
  .busy{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--border);
        font-size:12px;color:var(--ink-2);font-family:var(--font-mono)}
@@ -674,6 +679,14 @@ function tile(orderId, orderDir, p, locked) {
   else if (status === 'flagged' && p.reason && p.reason !== 'ok') why = `<p class="why">automaticky označeno: ${esc(p.reason)}</p>`;
   else if (p.reason && p.reason !== 'ok') why = `<p class="why">${esc(p.reason)}</p>`;
   if (p.edited) why += '<p class="why">ručně opraveno — vygenerovanou stránku lze stále obnovit</p>';
+  // The framing pass changed the customer's photo before it was drawn. Said plainly, with the way
+  // back: "Přegenerovat z originálu" re-runs this one photo exactly as it arrived.
+  if (p.framing && (p.framing.rotate || p.framing.cropped)) {
+    const did = [];
+    if (p.framing.rotate) did.push(`narovnáno o ${p.framing.rotate}°`);
+    if (p.framing.cropped) did.push('oříznuto ze snímku obrazovky');
+    why += `<p class="why">automaticky upraveno: ${esc(did.join(', '))} — <button type="button" class="linkish act-unframe" data-order="${esc(orderId)}" data-base="${esc(p.base)}">přegenerovat z originálu</button></p>`;
+  }
 
   let acts = '';
   if (busy) {
@@ -1445,6 +1458,15 @@ document.addEventListener('click', (e) => {
   if (clearBtn) { dismissOrder(clearBtn.dataset.dismiss); return; }
   const restoreBtn = e.target.closest('button[data-undismiss]');
   if (restoreBtn) { undismissOrder(restoreBtn.dataset.undismiss); return; }
+
+  // Undo an automatic straighten / screenshot crop. It costs a fresh generation, so it asks first.
+  const unframeBtn = e.target.closest('button.act-unframe');
+  if (unframeBtn) {
+    if (confirm('Přegenerovat tuto fotku přesně tak, jak ji zákazník poslal — bez automatického narovnání a oříznutí?')) {
+      act(unframeBtn.dataset.order, unframeBtn.dataset.base, 'unframe');
+    }
+    return;
+  }
 
   const btn = e.target.closest('button[data-a],button[data-open]');
   if (!btn) return;

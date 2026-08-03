@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { GeneratorDriver, GeneratorError } from './driver.js';
+import { analyzeFraming, cropToPixels, trimFlatBorders, NO_CORRECTION } from '../photoFraming.js';
 
 // Scripted HTTP driver — reproduces the exact calls the generator's web UI makes,
 // reverse-engineered from the U2 HAR spike + the live compare page and app.js
@@ -35,17 +36,56 @@ const enc = encodeURIComponent;
  *
  *  `.rotate()` with no angle bakes the EXIF orientation into the pixels (and resets the flag). We
  *  only re-encode when there is something to do — a photo that is already small and upright is
- *  passed through untouched, so a good original is never needlessly recompressed. */
-export async function prepareImageForUpload(input, { maxDimension = MAX_DIMENSION, quality = JPEG_QUALITY } = {}) {
+ *  passed through untouched, so a good original is never needlessly recompressed.
+ *
+ *  THIS BUFFER BECOMES THE STORED ORIGINAL TOO, which is why the content-level correction belongs
+ *  here and nowhere else. The generator echoes the uploaded file back as `jpg_filename`, organize.js
+ *  writes that echo to `<base>.jpg`, and the review grid, the PDF's cover and the order .zip all read
+ *  it. Correct the bytes once on the way up and the colouring page, the photo beside it and the
+ *  printed cover agree; correct them anywhere else and they do not.
+ *
+ *  `correction` comes from photoFraming.js — a rotation the EXIF block never recorded, and the crop
+ *  box of a real photo inside a screenshot. It is applied AFTER the EXIF rotate, because that is the
+ *  frame the model was shown and the frame its crop coordinates refer to. */
+export async function prepareImageForUpload(input, { maxDimension = MAX_DIMENSION, quality = JPEG_QUALITY, correction = null } = {}) {
   const meta = await sharp(input).metadata();
   const tooBig = Math.max(meta.width ?? 0, meta.height ?? 0) > maxDimension;
   const sideways = (meta.orientation ?? 1) > 1; // 1 = upright; 2..8 = the camera flipped or turned it
-  if (!tooBig && !sideways) return { buffer: input, changed: false, tooBig, sideways, meta };
+  const turn = correction?.rotate ?? 0;
+  const cropBox = correction?.crop ?? null;
+  if (!tooBig && !sideways && !turn && !cropBox) return { buffer: input, changed: false, tooBig, sideways, meta };
 
-  let pipeline = sharp(input).rotate(); // apply the camera's orientation before anything measures w/h
+  // Bake the camera's orientation into real bytes FIRST, on its own.
+  //
+  // sharp treats rotation as one setting rather than a queue: `.rotate()` (auto-orient from EXIF)
+  // followed by `.rotate(90)` does not do both, the calls collide and the picture comes out
+  // untouched. So the EXIF pass is materialised here and the explicit angle is applied to a fresh
+  // pipeline over the result. On a photo with no orientation flag — 230 of 248 in the live archive —
+  // this pass is a no-op that costs one decode.
+  const upright = await sharp(input).rotate().toBuffer({ resolveWithObject: true });
+
+  // The crop is measured on that EXIF-corrected frame, so it is cut before the picture is turned.
+  // Cutting afterwards would apply screen-capture coordinates to a frame whose axes had swapped.
+  let working = upright.data;
+  let cropped = false;
+  if (cropBox) {
+    const box = cropToPixels(cropBox, upright.info.width, upright.info.height);
+    if (box) {
+      working = await sharp(working).extract(box).toBuffer();
+      cropped = true;
+      // The model finds the card, not the photograph — it leaves a border, a caption row and the
+      // viewer's buttons behind. Finish the edges by measurement (see trimFlatBorders); only ever on
+      // something already identified as a screen capture.
+      const tight = await trimFlatBorders(working);
+      if (tight) working = await sharp(working).extract(tight).toBuffer();
+    }
+  }
+
+  let pipeline = sharp(working);
+  if (turn) pipeline = pipeline.rotate(turn); // the content rotation EXIF never recorded
   if (tooBig) pipeline = pipeline.resize({ width: maxDimension, height: maxDimension, fit: 'inside', withoutEnlargement: true });
   const buffer = await pipeline.jpeg({ quality }).toBuffer();
-  return { buffer, changed: true, tooBig, sideways, meta };
+  return { buffer, changed: true, tooBig, sideways, meta, turned: turn, cropped };
 }
 
 /** "2509_1.5" -> { model: "2509", megapixels: 1.5 } */
@@ -107,7 +147,7 @@ export class ApiGeneratorDriver extends GeneratorDriver {
     this.#emit('start', `variant ${variant}, steps ${steps}`);
 
     // 1. Mirror the UI's client-side downscale, then upload.
-    const { buffer, filename } = await this.#prepareUpload(photoPath);
+    const { buffer, filename, correction } = await this.#prepareUpload(photoPath, settings);
     const jobId = await this.#upload(buffer, filename);
 
     // 2. The server stores the file under a hash-prefixed name — learn it.
@@ -127,27 +167,47 @@ export class ApiGeneratorDriver extends GeneratorDriver {
     const coloringSvgPath = await this.#download(jobId, names.svg_filename, outDir);
     this.#emit('done', `3 outputs in ${outDir}`);
 
-    return { originalPath, coloringPngPath, coloringSvgPath, jobId, variantKey };
+    return { originalPath, coloringPngPath, coloringSvgPath, jobId, variantKey, framing: correction };
   }
 
   // ---- steps ---------------------------------------------------------------
 
-  async #prepareUpload(photoPath) {
+  async #prepareUpload(photoPath, settings = {}) {
     const filename = basename(photoPath);
     const input = readFileSync(photoPath);
     try {
-      const { buffer, changed, tooBig, sideways, meta } = await prepareImageForUpload(input);
+      // Ask what the EXIF block could not say: is the picture actually upright, and is this a
+      // screenshot with a real photo buried in it. Analysed on the EXIF-corrected frame so the crop
+      // box it returns lines up with the bytes we are about to cut. Answers NO_CORRECTION on any
+      // failure, so a photo is never held up by the analysis being unavailable.
+      const correction = await this.#framing(input, settings);
+
+      const { buffer, changed, tooBig, sideways, meta, turned, cropped } = await prepareImageForUpload(input, { correction });
       if (changed) {
         const parts = [];
         if (tooBig) parts.push(`downscaled ${meta.width}x${meta.height} -> max ${MAX_DIMENSION}px`);
         if (sideways) parts.push("applied the camera's rotation");
+        if (cropped) parts.push('cropped the photo out of a screenshot');
+        if (turned) parts.push(`turned it ${turned}° upright`);
         this.#emit('resize', parts.join(', '));
       }
-      return { buffer, filename };
+      return { buffer, filename, correction };
     } catch {
       // Not a sharp-readable image (or metadata failed) — let the server validate the raw bytes.
     }
-    return { buffer: input, filename };
+    return { buffer: input, filename, correction: NO_CORRECTION };
+  }
+
+  /** The framing question, on an EXIF-corrected copy. Off unless `ai.enabled` and a key are set, and
+   *  silent when `generator.autoFraming` is turned off in config. */
+  async #framing(input, settings = {}) {
+    const ai = this.config?.ai;
+    // `noFraming` is the operator's undo: regenerate this one photo exactly as it arrived.
+    if (settings.noFraming === true) return NO_CORRECTION;
+    if (this.config?.generator?.autoFraming === false) return NO_CORRECTION;
+    if (!ai?.enabled || !ai?.apiKey) return NO_CORRECTION;
+    const upright = await sharp(input).rotate().jpeg({ quality: 88 }).toBuffer();
+    return analyzeFraming({ config: ai, buffer: upright });
   }
 
   async #upload(buffer, filename) {

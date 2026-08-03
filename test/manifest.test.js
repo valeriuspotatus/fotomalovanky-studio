@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   STATES,
+  setFraming,
+  getFraming,
   isBuilderEligible,
   holdsForReview,
   needsGeneration,
@@ -135,4 +137,28 @@ test('readManifest returns an empty manifest when none exists', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---- automatic framing (photoFraming.js) ------------------------------------
+
+test('a straightened or cropped photo records what was done to it', () => {
+  const m = setFraming({}, '1560_img0003', { rotate: 90, screenshot: false, crop: null });
+  assert.deepEqual(getFraming(m, '1560_img0003'), { rotate: 90, cropped: false });
+
+  const shot = setFraming({}, 'a', { rotate: 0, screenshot: true, crop: { x: 0, y: 0.1, w: 1, h: 0.6 } });
+  assert.deepEqual(getFraming(shot, 'a'), { rotate: 0, cropped: true });
+});
+
+test('a photo that needed nothing carries no framing record at all', () => {
+  // The ordinary case, and nearly every photo. An empty record would put a chip on every tile.
+  assert.equal(getFraming(setFraming({}, 'a', { rotate: 0, crop: null }), 'a'), null);
+  assert.equal(getFraming(setFraming({}, 'a', null), 'a'), null);
+  assert.equal(getFraming({}, 'never-seen'), null);
+});
+
+test('recording the framing leaves the rest of the photo entry alone', () => {
+  let m = setStatus({}, 'a', STATES.OK, 'ok');
+  m = setFraming(m, 'a', { rotate: 180, crop: null });
+  assert.equal(getStatus(m, 'a'), STATES.OK, 'the verdict survives');
+  assert.deepEqual(getFraming(m, 'a'), { rotate: 180, cropped: false });
 });

@@ -217,6 +217,9 @@ function forClient(orders, inFlight) {
       hasColoring: Boolean(p.files.coloring),
       hasSvg: Boolean(p.files.svg),
       edited: p.edited,
+      // Straightened, or cut out of a screenshot, before it was drawn — so the grid can say so and
+      // offer the undo. Null for the ordinary photo that needed nothing, which is nearly all of them.
+      framing: p.framing,
       // The render's mtime versions its <img> URL, so a completed redo repaints the tile
       // instead of the browser showing the render the operator just rejected.
       coloringVersion: p.files.coloring ? statSync(p.files.coloring).mtimeMs : 0,
@@ -565,7 +568,7 @@ export const ROUTE_POLICY = Object.freeze([
     id: 'POST /api/<order>/<base>/<action>',
     audience: AUDIENCES.BOTH,
     methods: ['POST'],
-    tokens: ['approve', 'reject', 'handoff', 'replaced', 'redo', 'edit', 'revert'],
+    tokens: ['approve', 'reject', 'handoff', 'replaced', 'redo', 'unframe', 'edit', 'revert'],
     match: (method, pathname, parts) => parts[0] === 'api' && parts.length === 4,
     sample: '/api/1510/clean/approve',
   },
@@ -915,7 +918,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       });
   }
 
-  async function startRedo(orderId, base) {
+  async function startRedo(orderId, base, overrides = null) {
     requireIdle();
     const key = `${orderId}/${base}`;
     if (inFlight.has(key)) throw new ReviewError(`"${base}" is already being regenerated.`);
@@ -931,6 +934,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       base,
       driver: generator,
       qc,
+      overrides,
       onEvent: (e) => {
         if (e.type === 'progress') inFlight.set(key, { message: `${e.step}: ${e.message}` });
       },
@@ -1918,6 +1922,14 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         }
         if (action === 'redo') {
           await startRedo(orderId, base);
+          return json(res, 202, { started: true });
+        }
+        // Undo an automatic straighten / screenshot crop: regenerate this one photo from the bytes
+        // exactly as the customer sent them. Only restores fully while their original is still in the
+        // inbox — once the photos are purged, the generator's echo is all there is, and that echo is
+        // the corrected image. redo() already prefers the source over the echo.
+        if (action === 'unframe') {
+          await startRedo(orderId, base, { noFraming: true });
           return json(res, 202, { started: true });
         }
         // The operator's own white pencil and crop. The SVG is what the book prints, so that is

@@ -13,6 +13,7 @@ import {
   setStatus,
   setSource,
   setAttempt,
+  setFraming,
   getAttempt,
   needsGeneration,
   readManifest,
@@ -58,12 +59,15 @@ export function nextAttemptSettings(generator, prev) {
  *  A photo that is flagged and already carries an attempt is being re-rolled, so it goes back to
  *  the generator with a changed step count rather than the identical request that produced the
  *  page the operator just rejected. */
-export async function generatePhoto({ config, photoPath, orderDir, manifest, orderId, driver, qc = assessOutputFiles, onEvent = noop }) {
+export async function generatePhoto({ config, photoPath, orderDir, manifest, orderId, driver, qc = assessOutputFiles, onEvent = noop, overrides = null }) {
   const base = photoBase(photoPath);
   const prev = getAttempt(manifest, base);
   const reroll = prev != null && getStatus(manifest, base) === STATES.FLAGGED;
 
   const settings = reroll ? nextAttemptSettings(config.generator, prev) : { ...config.generator };
+  // Per-run overrides from the operator — today only `noFraming`, the undo for an automatic
+  // straighten or screenshot crop. Applied after the re-roll ladder so it cannot disturb it.
+  if (overrides && settings) Object.assign(settings, overrides);
   if (settings === null) {
     const reason =
       `re-rolled up to ${prev.steps} diffusion steps, the ceiling — this generator repeats itself, ` +
@@ -103,6 +107,11 @@ export async function generatePhoto({ config, photoPath, orderDir, manifest, ord
     // Only a completed generation records an attempt: a lost GPU job left no page to differ from,
     // so its retry must repeat the settings rather than climb the ladder for nothing.
     setAttempt(manifest, base, { steps: settings.diffusionSteps, variant: settings.variant ?? null });
+    // What the framing pass did, if anything, so the grid can show it and the operator can undo it.
+    setFraming(manifest, base, result.framing);
+    if (result.framing?.rotate || result.framing?.crop) {
+      onEvent({ type: 'reframed', orderId, base, rotate: result.framing.rotate ?? 0, cropped: Boolean(result.framing.crop) });
+    }
     onEvent({ type: next === STATES.OK ? 'photo-ok' : 'photo-flagged', orderId, base, reason: verdict.reason });
   } catch (err) {
     setStatus(manifest, base, STATES.FAILED, describeFailure(err));

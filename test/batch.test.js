@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { generateOrder, runBatch, nextAttemptSettings } from '../src/batch.js';
+import { getFraming } from '../src/manifest.js';
 import { GeneratorError } from '../src/generator/driver.js';
 import { STATES, readManifest, getStatus, setStatus, writeManifest, emptyManifest } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
@@ -31,6 +32,7 @@ class StubDriver {
     this.svg = svg;
     this.calls = [];
     this.steps = []; // the diffusionSteps each call was asked for
+    this.settings = []; // the whole settings object each call was handed
     this.workDir = mkdtempSync(join(tmpdir(), 'fma-stubgen-'));
   }
 
@@ -38,6 +40,7 @@ class StubDriver {
     const base = photoBase(photoPath);
     this.calls.push(base);
     this.steps.push(settings.diffusionSteps);
+    this.settings.push(settings);
     if (this.failOn.has(base)) {
       throw new GeneratorError('Generation failed on the GPU: worker lost', { step: 'poll' });
     }
@@ -47,7 +50,7 @@ class StubDriver {
     writeFileSync(originalPath, 'jpeg-bytes');
     await sharp({ create: { width: 8, height: 8, channels: 3, background: '#ffffff' } }).png().toFile(coloringPngPath);
     writeFileSync(coloringSvgPath, this.svg);
-    return { originalPath, coloringPngPath, coloringSvgPath };
+    return { originalPath, coloringPngPath, coloringSvgPath, framing: this.framing ?? null };
   }
 }
 
@@ -339,5 +342,40 @@ test('runBatch walks every order in the inbox into its own output folder', async
     assert.ok(existsSync(join(outbox, '1510', '1510_img0001_-_a.svg')));
     assert.ok(existsSync(join(outbox, '1523', '1523_img0002_-_c.svg')));
     assert.equal(driver.calls.length, 3);
+  });
+});
+
+// ---- automatic framing: the record, and the operator's undo ------------------
+
+test('what the framing pass did is recorded on the photo, so the grid can show it', async () => {
+  await fixture(async ({ inbox, outbox }) => {
+    const order = seedOrder(inbox, '1560', ['1560_img0003_-_nat.jpeg']);
+    const driver = new StubDriver();
+    driver.framing = { rotate: 90, screenshot: true, crop: { x: 0, y: 0.2, w: 1, h: 0.6 } };
+    const { orderDir } = await generateOrder({ config: CONFIG, order, outboxRoot: outbox, driver, qc: OK_QC });
+    assert.deepEqual(getFraming(readManifest(orderDir), '1560_img0003_-_nat'), { rotate: 90, cropped: true });
+  });
+});
+
+test('a photo that needed no framing carries no record — the ordinary case stays clean', async () => {
+  await fixture(async ({ inbox, outbox }) => {
+    const order = seedOrder(inbox, '1560', ['a.jpeg']);
+    const driver = new StubDriver(); // framing null: the generator changed nothing
+    const { orderDir } = await generateOrder({ config: CONFIG, order, outboxRoot: outbox, driver, qc: OK_QC });
+    assert.equal(getFraming(readManifest(orderDir), 'a'), null);
+  });
+});
+
+test("the operator's undo reaches the driver as noFraming, so the photo is sent exactly as it arrived", async () => {
+  await fixture(async ({ inbox, outbox }) => {
+    const order = seedOrder(inbox, '1560', ['a.jpeg']);
+    const driver = new StubDriver();
+    await generateOrder({ config: CONFIG, order, outboxRoot: outbox, driver, qc: OK_QC });
+    assert.equal(driver.settings[0].noFraming, undefined, 'an ordinary run does not set it');
+
+    const { redo } = await import('../src/review.js');
+    const orderDir = join(outbox, '1560');
+    await redo({ config: CONFIG, orderDir, base: 'a', driver, qc: OK_QC, overrides: { noFraming: true } });
+    assert.equal(driver.settings.at(-1).noFraming, true, 'the undo carries through to the upload');
   });
 });
