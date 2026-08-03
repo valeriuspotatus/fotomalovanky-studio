@@ -19,8 +19,10 @@ export class ShopifyApiError extends Error {
 const ORDER_FIELDS = `
   name
   email
+  createdAt
   updatedAt
   displayFinancialStatus
+  currentTotalPriceSet { shopMoney { amount currencyCode } }
   lineItems(first: 50) {
     edges { node {
       title
