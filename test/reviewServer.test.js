@@ -1011,3 +1011,27 @@ test('the overview greets whoever is signed in, never a name baked into the page
     f.cleanup();
   }
 });
+
+test('the generator screen shows the signed-in person, not a profile written into the page', async () => {
+  const f = await roleServer();
+  try {
+    // /review is a second page with its own sidebar, and none of the dashboard's identity handling
+    // reaches it. It used to carry "D / David / Studio" as literal markup, so the printer's photo
+    // and name disappeared the moment he opened the generator — the operator's profile was simply
+    // typed into the HTML. /api/state has always carried `identity`; nothing was reading it.
+    const html = await (await f.get('/review', f.printer)).text();
+    assert.doesNotMatch(html, /<div class="who"><b>David<\/b>/, 'no operator profile baked into the markup');
+    assert.match(html, /id="userName"/, 'the name is a slot the script fills');
+    assert.match(html, /id="userAvatar"/, 'so is the photo');
+    assert.match(html, /paintIdentity\(data\.identity\)/, 'and the state response is what fills them');
+
+    // The same operator-only controls the dashboard hides, hidden here too — this sidebar has its
+    // own Nastavení link and its own nav, which were reachable regardless of role.
+    assert.match(html, /id="settingsLink" data-operator hidden/, 'settings is operator-only here as well');
+    for (const href of ['/#creatives', '/#calendar', '/#mail']) {
+      assert.match(html, new RegExp(`<a data-operator hidden href="${href.replace('/', '\/')}"`), `${href} is operator-only`);
+    }
+  } finally {
+    f.cleanup();
+  }
+});
