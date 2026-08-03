@@ -97,6 +97,13 @@ const COVER_LAYOUT = {
     }
 };
 
+// German logo aspect ratio (logo-de.svg viewBox 0 0 429 200). DE mode is
+// vertical-only — no horizontal DE asset exists. Lives OUTSIDE the
+// COVER_LAYOUT literal on purpose: tuning-overlay exports paste over the
+// literal verbatim (see adoption path above), and a key inside it would be
+// silently dropped on the next paste-adoption.
+const LOGO_DE_ASPECT_RATIO = 429 / 200;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Shared inline-stamp helpers — the single definition of the pencils-cover
 // style formulas. app.js calls them at DOM creation (createTitlePage /

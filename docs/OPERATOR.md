@@ -246,5 +246,30 @@ and pick it again.
 *filenames*, not from the folder name, because folder names get renamed by hand. If they
 disagree it tells you which folder it read.
 
+**An order number ends in `-1` or `-2`.** That is not a fault. The customer bought two
+books in one checkout, so each book gets its own row, its own folder and its own PDF —
+`1234-1` and `1234-2` are book 1 and book 2 of order 1234. They ship in **one parcel**,
+so the board shows "1 z 2" on each row and warns you if you mark one sent or printed
+while the other is not finished. You can go ahead anyway; it only asks so you do not
+split a parcel by accident.
+
+**A book you pulled by hand came out merged.** Pulling a folder manually gives the tool
+no line-item information, so a two-book purchase recovered that way arrives as one job
+with all the photos together and only one dedication. Either split the folder yourself
+before running it, or let the overnight fetch retry the order so it comes down properly.
+
+**A German order came out with the Czech logo.** The book's language comes from the product the
+customer bought, and that product has to be listed in `languageMap` in `config.json`. Anything not
+listed is treated as Czech. Nothing about the delivery address or the customer's own language
+changes this — only what they bought.
+
+There is **no German product in the shop yet**, so today every order is Czech. That is expected.
+When you create the German product, put its exact title into `languageMap` and orders of it start
+building in German straight away.
+
+**"Builder has no de language control".** The print builder is running an older version than the
+tool expects. The order was stopped on purpose rather than printed with the wrong logo. Czech
+orders are unaffected and keep printing normally.
+
 Anything else: whatever is written in the black window or on the page is the real reason.
 Send that text to whoever set this up.

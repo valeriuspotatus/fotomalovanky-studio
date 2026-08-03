@@ -279,7 +279,47 @@ function boardEntry(order, status) {
     // The persistent "operator shipped an under-count book" flag (N2), or null. Set at override
     // time and never cleared, so it warns on every board glance and in the send confirmation.
     incomplete: order.intake?.incompleteBook ?? null,
+    // Which book of a parcel this is, and how many copies to print. Both null in the ordinary case
+    // — one book, one copy — so a single-book order's row renders exactly as it did before books
+    // could be split. `siblingPending` is filled in by buildBoard, which is the only place that can
+    // see the other books of the same purchase.
+    purchase: order.purchase?.of > 1 ? { ...order.purchase } : null,
+    copies: order.copies > 1 ? order.copies : null,
+    siblingPending: null,
   };
+}
+
+/** Board states in which a book is not yet ready to leave with its parcel. Dispatching one book
+ *  while another is in any of these means half a parcel goes to the printer. */
+const NOT_READY_TO_LEAVE = new Set([
+  ORDER_BOARD_STATES.QUEUED,
+  ORDER_BOARD_STATES.GENERATING,
+  ORDER_BOARD_STATES.HELD,
+  ORDER_BOARD_STATES.PENDING_REVIEW,
+  ORDER_BOARD_STATES.APPROVED,
+  ORDER_BOARD_STATES.FAILED,
+]);
+
+/** Fill in each entry's `siblingPending`: the other books of the same purchase that are not ready
+ *  to leave yet. The two books of one purchase ship in one parcel, and marking one printed or sent
+ *  acts on a single folder with no knowledge of the other — so the board is where the operator
+ *  gets told. Advisory only: it names the problem and leaves the decision alone. */
+function linkSiblings(board) {
+  const byPurchase = new Map();
+  for (const entry of board) {
+    if (!entry.purchase) continue;
+    const key = entry.purchase.orderId;
+    if (!byPurchase.has(key)) byPurchase.set(key, []);
+    byPurchase.get(key).push(entry);
+  }
+  for (const siblings of byPurchase.values()) {
+    for (const entry of siblings) {
+      const waiting = siblings
+        .filter((other) => other.orderId !== entry.orderId && NOT_READY_TO_LEAVE.has(other.status))
+        .map((other) => ({ orderId: other.orderId, position: other.purchase.position, status: other.status }));
+      entry.siblingPending = waiting.length ? waiting : null;
+    }
+  }
 }
 
 /** Build the whole board from review-state orders plus injected fact-providers. Pure over its
@@ -314,6 +354,9 @@ export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => fal
     entry.stale = (status === ORDER_BOARD_STATES.PRINTED || status === ORDER_BOARD_STATES.SENT) && stale(order);
     return entry;
   });
+
+  // Books of one purchase can only be related to each other once every entry has a status.
+  linkSiblings(board);
 
   // Oldest-first: the operator works the queue in the order the customers sent it.
   board.sort((a, b) => a.orderId.localeCompare(b.orderId, 'en', { numeric: true }));

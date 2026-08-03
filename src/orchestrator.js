@@ -25,7 +25,7 @@ import {
   manifestPath,
 } from './manifest.js';
 import { deriveDedication, deriveSlug } from './dedication.js';
-import { shopDedication, readOrderInfo, resolveFormat } from './orderInfo.js';
+import { shopDedication, readOrderInfo, resolveFormat, resolveLanguage } from './orderInfo.js';
 import { recallDedication, migrateDedications, MEMORY_DIR } from './dedications.js';
 
 // U6: the single "Go" run. ingest -> generate -> QC -> [review gate] -> builder -> PDF.
@@ -73,7 +73,7 @@ export function buildabilityProblem(orderDir, bases) {
   return null;
 }
 
-async function buildOrder({ orderId, orderDir, bases, dedication, mode, builder, config, force, onEvent }) {
+async function buildOrder({ orderId, orderDir, bases, dedication, mode, language, builder, config, force, onEvent }) {
   const pdfPath = pdfPathFor(orderDir, orderId);
 
   // Safety before caching: a folder that changed under the operator must not silently reuse
@@ -97,6 +97,9 @@ async function buildOrder({ orderId, orderDir, bases, dedication, mode, builder,
     // The per-order format (U9) beats the global builder mode: two orders in one burst can be
     // galerie and full-page, and neither should need a config edit between them.
     if (mode) options.mode = mode;
+    // The per-order language beats any global default, same as the format: one burst can hold a
+    // Czech book and a German one, and neither should need a config edit between them.
+    if (language) options.language = language;
     if (dedication) options.dedication = dedication;
     const { pairs } = await builder.buildPdf(orderDir, options);
     onEvent({ type: 'build-done', orderId, pdfPath, pairs });
@@ -130,12 +133,16 @@ function resolveExpected(order) {
 }
 
 /** The copy-paste email for a held order, or null when the hold has no email case. Reads the
- *  customer from the shop record for the greeting and address; both are optional. */
+ *  customer from the shop record for the greeting and address; both are optional.
+ *
+ *  The order number in the email is the customer's, not ours. A book of a multi-book purchase is
+ *  "1234-2" internally, but the customer's receipt says 1234 and always will — quoting the suffix
+ *  at them would be quoting an id they have never seen. */
 function draftEmailFor(result, order) {
   if (!result.emailCase) return null;
   const info = (order.dir && readOrderInfo(order.dir)) || {};
   return renderEmail(result.emailCase, {
-    order: order.orderId,
+    order: info.purchase?.orderId ?? order.orderId,
     surname: info.customer?.surname ?? '',
     email: info.customer?.email ?? '',
     expected: result.expected,
@@ -299,9 +306,14 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
         build ??= new BuilderDriver(config);
         // The format the shop sold this order in. When the product/variant isn't in the map it
         // falls back to the config default and is flagged — surfaced here, never blocking.
-        const { mode, mapped } = resolveFormat(order.dir ? readOrderInfo(order.dir) : null, config);
+        const info = order.dir ? readOrderInfo(order.dir) : null;
+        const { mode, mapped } = resolveFormat(info, config);
         onEvent({ type: 'order-format', orderId, mode, mapped });
-        const result = await buildOrder({ orderId, orderDir, bases, dedication, mode, builder: build, config, force, onEvent });
+        // The language the shop sold this order in, from the same record and keyed the same way.
+        // Unmapped falls back to the configured default (Czech) and is flagged, never blocking.
+        const { language, mapped: languageMapped } = resolveLanguage(info, config);
+        onEvent({ type: 'order-language', orderId, language, mapped: languageMapped });
+        const result = await buildOrder({ orderId, orderDir, bases, dedication, mode, language, builder: build, config, force, onEvent });
         entry = { ...entry, ...result, titled: Boolean(titleText) };
       }
     }

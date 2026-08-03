@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readOrderInfo, shopDedication, resolveFormat, ORDER_INFO } from '../src/orderInfo.js';
+import { readOrderInfo, shopDedication, resolveFormat, resolveLanguage, ORDER_INFO } from '../src/orderInfo.js';
 
 const fixture = () => mkdtempSync(join(tmpdir(), 'fma-info-'));
 const write = (dir, contents) => writeFileSync(join(dir, ORDER_INFO), typeof contents === 'string' ? contents : JSON.stringify(contents));
@@ -13,7 +13,16 @@ test('the shop\'s own spelling reaches the title page with its accents', () => {
   try {
     write(dir, { order: '1366', dedication: 'Pro Jiříčka', photos: ['1366_img0001 - pro jiříčka.jpg'] });
     assert.equal(shopDedication(dir), 'Pro Jiříčka');
-    assert.deepEqual(readOrderInfo(dir), { order: '1366', dedication: 'Pro Jiříčka', expectedPhotos: null, customer: null, products: [] });
+    assert.deepEqual(readOrderInfo(dir), {
+      order: '1366',
+      dedication: 'Pro Jiříčka',
+      expectedPhotos: null,
+      // No purchase block: an older download reads as a lone single-copy book, which is what it was.
+      purchase: { orderId: '1366', position: 1, of: 1 },
+      copies: 1,
+      customer: null,
+      products: [],
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -58,7 +67,7 @@ test('a customer who wrote nothing said nothing', () => {
   try {
     write(dir, { order: '1479', dedication: '' });
     assert.equal(shopDedication(dir), '');
-    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '', expectedPhotos: null, customer: null, products: [] });
+    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '', expectedPhotos: null, purchase: { orderId: '1479', position: 1, of: 1 }, copies: 1, customer: null, products: [] });
 
     write(dir, { order: '1479', dedication: '   ' });
     assert.equal(shopDedication(dir), '', 'whitespace is not a dedication');
@@ -179,4 +188,70 @@ test('the file sits inside the order folder, beside the photographs', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a book of a multi-book purchase carries its position and copy count', () => {
+  const dir = fixture();
+  try {
+    write(dir, { order: '1234-2', dedication: 'Pro Kevina', purchase: { orderId: '1234', position: 2, of: 2 }, copies: 3 });
+    const info = readOrderInfo(dir);
+    assert.deepEqual(info.purchase, { orderId: '1234', position: 2, of: 2 });
+    assert.equal(info.copies, 3);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a nonsensical purchase block reads as a lone book rather than inventing a sibling', () => {
+  const dir = fixture();
+  try {
+    // position past the total: the two values contradict each other, so trust neither.
+    write(dir, { order: '1300', purchase: { orderId: '1300', position: 3, of: 2 } });
+    assert.deepEqual(readOrderInfo(dir).purchase, { orderId: '1300', position: 1, of: 1 });
+
+    write(dir, { order: '1300', purchase: 'the second one', copies: -4 });
+    const info = readOrderInfo(dir);
+    assert.deepEqual(info.purchase, { orderId: '1300', position: 1, of: 1 }, 'a purchase of the wrong type is no answer');
+    assert.equal(info.copies, 1, 'a nonsensical copy count still prints one book');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- output language (DE covers) --------------------------------------------
+
+test('resolveLanguage maps a variant to its language and marks it mapped', () => {
+  const config = { delivery: { language: 'cz', languageMap: { '🇩🇪 Malbuch aus Fotos': 'de' } } };
+  const info = { products: [{ title: 'Malbuch', variant: '🇩🇪 Malbuch aus Fotos', qty: 1 }] };
+  assert.deepEqual(resolveLanguage(info, config), { language: 'de', mapped: true });
+});
+
+test('resolveLanguage matches on the product title when the variant is not keyed', () => {
+  const config = { delivery: { languageMap: { 'Malbuch aus Fotos': 'de' } } };
+  const info = { products: [{ title: 'Malbuch aus Fotos', variant: '', qty: 1 }] };
+  assert.deepEqual(resolveLanguage(info, config), { language: 'de', mapped: true });
+});
+
+test('an unmapped product falls back to Czech and is flagged, never silently German', () => {
+  const config = { delivery: { language: 'cz', languageMap: { 'Malbuch aus Fotos': 'de' } } };
+  const info = { products: [{ title: 'Fotomalovánky 4 fotky', variant: 'galerie 4', qty: 1 }] };
+  assert.deepEqual(resolveLanguage(info, config), { language: 'cz', mapped: false });
+});
+
+test('a Czech order and a German order resolve independently — no config edit between them', () => {
+  const config = { delivery: { language: 'cz', languageMap: { de: 'de', cz: 'cz' } } };
+  assert.equal(resolveLanguage({ products: [{ variant: 'de' }] }, config).language, 'de');
+  assert.equal(resolveLanguage({ products: [{ variant: 'cz' }] }, config).language, 'cz');
+});
+
+test('with no language config at all, an order is Czech — the shipped behaviour before DE existed', () => {
+  assert.deepEqual(resolveLanguage({ products: [{ variant: 'x' }] }, {}), { language: 'cz', mapped: false });
+  assert.deepEqual(resolveLanguage(null, {}), { language: 'cz', mapped: false });
+  // A configured default is honoured for everything unmapped.
+  assert.deepEqual(resolveLanguage(null, { builder: { pdf: { language: 'de' } } }), { language: 'de', mapped: false });
+});
+
+test('a typo in the language map is carried through, so the builder driver can refuse it loudly', () => {
+  const config = { delivery: { languageMap: { 'Malbuch': 'german' } } };
+  assert.deepEqual(resolveLanguage({ products: [{ title: 'Malbuch' }] }, config), { language: 'german', mapped: true });
 });

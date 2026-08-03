@@ -235,6 +235,11 @@ async function thumbnail(path) {
   // decodes, and on Windows the run cannot then overwrite that very file — the grid drawing a
   // tile would fail the photo being regenerated behind it. readFileSync closes before we decode.
   const buf = await sharp(readFileSync(path))
+    // Honour EXIF orientation, exactly as the generator's upload prep does (apiDriver.js). A phone
+    // stores a portrait photo as landscape pixels plus a "rotate me" flag, and sharp ignores that
+    // flag unless asked — so the grid showed the customer's original sideways while the generated
+    // page, which DOES rotate, came out upright. A file with no flag (every _bw.png) is unaffected.
+    .rotate()
     .flatten({ background: '#ffffff' })
     .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
     .jpeg({ quality: 82 })

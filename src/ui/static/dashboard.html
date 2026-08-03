@@ -738,6 +738,9 @@
     const denom=o.expectedPages||o.photos.total;
     const ph=o.photos.total?`${o.photos.eligible}/${denom}`:"–";
     const miss=o.missingPhotos>0?` <span class="miss">(${o.missingPhotos} ${plFotka(o.missingPhotos)} chybí)</span>`:"";
+    // Quantity is copies of one book, not several books — so it belongs beside the page count as a
+    // print instruction, not as another row. Absent for the ordinary single copy.
+    const copies=o.copies>1?` <span class="miss" title="Zákazník koupil ${o.copies} kusy téže knihy — vytiskněte ji ${o.copies}×.">×${o.copies}</span>`:"";
     const ageTd=opts.actions?`<td class="mono age">${o.createdAt?fmtAge(o.createdAt):"–"}</td>`:"";
     let act="";
     if(opts.actions){
@@ -790,12 +793,17 @@
     const inc=o.incomplete?`<span class="chip c-danger" title="Operátor potvrdil knihu s méně stranami, než produkt obsahuje."><span class="dot"></span>neúplná ${o.incomplete.pages}/${o.incomplete.expected}</span>`:"";
     // Printed-book staleness (N10, re-scoped with the lifecycle): the PDF was rebuilt after the print.
     const staleChip=o.stale?`<span class="chip c-warning" title="PDF bylo po vytištění znovu sestaveno — vytištěná kniha už neodpovídá."><span class="dot"></span>zastaralé</span>`:"";
+    // One purchase, several books: which book this is, and whether its parcel is still incomplete.
+    // Both absent for an ordinary single-book order, so those rows look exactly as they always did.
+    const linkChip=o.purchase?`<span class="chip" title="Objednávka ${esc(o.purchase.orderId)} obsahuje ${o.purchase.of} knihy — jdou v jedné zásilce."><span class="dot"></span>${o.purchase.position} z ${o.purchase.of}</span>`:"";
+    const waitTitle=o.siblingPending?o.siblingPending.map(s=>`${s.orderId} (${(STATUS[s.status]||{}).label||s.status})`).join(", "):"";
+    const waitChip=o.siblingPending?`<span class="chip c-warning" title="Druhá kniha téže objednávky ještě není hotová: ${esc(waitTitle)}. Zásilka by odešla neúplná."><span class="dot"></span>čeká na ${o.siblingPending.length>1?"knihy":"knihu"}</span>`:"";
     return `<tr>
       <td><span class="oid">${esc(o.orderId)}</span></td>
       ${ageTd}
-      <td class="mono">${ph}${miss}</td>
+      <td class="mono">${ph}${copies}${miss}</td>
       <td><span class="ded-cell">${o.dedication?"„"+esc(o.dedication)+"“":"—"}</span></td>
-      <td>${chipHtml(o.status)}${staleChip}${inc}</td>${opts.actions?`<td class="act-cell">${act}</td>`:""}</tr>`;
+      <td>${chipHtml(o.status)}${linkChip}${waitChip}${staleChip}${inc}</td>${opts.actions?`<td class="act-cell">${act}</td>`:""}</tr>`;
   }
 
   function renderHome(d){
@@ -1027,11 +1035,21 @@
     if(btn)btn.disabled=true;
     orderAction(id,"sent");
   }
+  // The two books of one purchase ship in one parcel, but every dispatch action writes to a single
+  // order folder and knows nothing of the other. So the warning lives here, at the moment of the
+  // click. Advisory by design: sending one book early is sometimes what the operator means to do —
+  // this only makes sure they are not doing it by accident. Returns false to abandon the action.
+  function confirmDispatch(orderId){
+    const row=(studioData&&studioData.orders||[]).find(o=>o.orderId===orderId);
+    if(!row||!row.siblingPending)return true;
+    const waiting=row.siblingPending.map(s=>`${s.orderId} — ${(STATUS[s.status]||{}).label||s.status}`).join("\n");
+    return confirm(`Objednávka ${row.purchase.orderId} obsahuje ${row.purchase.of} knihy a jde v jedné zásilce.\n\nJeště není hotová:\n${waiting}\n\nOpravdu odbavit jen tuto knihu?`);
+  }
   document.getElementById("ordersBody").addEventListener("click",e=>{
     const g=e.target.closest(".act-generate");if(g){startOrderRun(g.dataset.generate,false,g);return;}
     const bp=e.target.closest(".act-buildpdf");if(bp){startOrderRun(bp.dataset.buildpdf,true,bp);return;}
-    const s=e.target.closest(".act-sent");if(s){markSent(s.dataset.sent,s);return;}
-    const p=e.target.closest(".act-printed");if(p){p.disabled=true;orderAction(p.dataset.printed,"printed");return;}
+    const s=e.target.closest(".act-sent");if(s){if(!confirmDispatch(s.dataset.sent))return;markSent(s.dataset.sent,s);return;}
+    const p=e.target.closest(".act-printed");if(p){if(!confirmDispatch(p.dataset.printed))return;p.disabled=true;orderAction(p.dataset.printed,"printed");return;}
     const up=e.target.closest(".act-unprinted");if(up){up.disabled=true;orderAction(up.dataset.unprinted,"unprinted");return;}
     const u=e.target.closest(".act-unsent");if(u){u.disabled=true;orderAction(u.dataset.unsent,"unsent");return;}
     const del=e.target.closest(".act-delete");if(del){deleteOrder(del.dataset.delete);}

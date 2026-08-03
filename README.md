@@ -105,13 +105,18 @@ saved as `<outbox>/<order>/<order> Final.pdf`. It ends with a run report:
 
 ```
 Run report
-  1510  done    …\1510\1510 Final.pdf
-  1523  held    2 photo(s) waiting for you in the review grid
-  1499  FAILED  1 photo(s) failed to generate: img0003 — generator seam (poll): …
+  1510    done    …\1510\1510 Final.pdf
+  1523    held    2 photo(s) waiting for you in the review grid
+  1534-1  done    …\1534-1\1534-1 Final.pdf
+  1534-2  held    2 photo(s) waiting for you in the review grid
+  1499    FAILED  1 photo(s) failed to generate: img0003 — generator seam (poll): …
 
-1 done, 1 waiting for you, 1 failed.
+2 done, 2 waiting for you, 1 failed.
 Review them:  npm run review -- <inbox>     then run this again.
 ```
+
+`1534-1` and `1534-2` are the two books of order 1534 — one customer, one checkout, one
+parcel. Each is generated, held and built on its own.
 
 **The review gate is a wall, not a step.** An order is printed only when *every* photo is
 clean or explicitly approved. A single flagged photo holds back its own order's PDF and
@@ -141,6 +146,37 @@ thumbnails on the title page — the operator's books use **4**. It selects the 
 the order; choosing *which* four still needs the builder page by hand. (`addAllCovers: true` is
 the old spelling of `coverCount: 8`.)
 
+### Czech or German books
+
+The builder brands the generated pages in one of two languages. In **DE** it prints the German logo
+(`logo-de.svg`) instead of the Czech one and drops the "Vyrobeno s ❤️ v 🇨🇿" title-page footer.
+
+Which one an order gets is a property of **what the customer bought**, so it maps off the
+product/variant exactly as the print format does — `delivery.languageMap`, keyed by variant title
+(preferred) or product title, with `delivery.language` as the default for anything unmapped:
+
+```json
+"delivery": {
+  "language": "cz",
+  "languageMap": { "<the German product or variant title, exactly as Shopify spells it>": "de" }
+}
+```
+
+> **No German product exists in the shop yet.** The plumbing is finished and tested, but the map has
+> nothing real to key on, so **every order resolves to Czech today** — which is the correct and safe
+> behaviour, not a bug. When the German product is created, add its exact title here and orders of it
+> build in German from that moment. Nothing else needs changing.
+
+A mixed batch is fine: each order resolves on its own, and no config edit is needed between a Czech
+book and a German one.
+
+Two deliberate safety choices. An order that maps to **cz**, or maps to nothing at all, leaves the
+builder's language control untouched — Czech is its own default, so every existing order builds
+exactly as before, even against a builder deploy that has no language toggle. A **de** order does
+reach for the control, and a missing one fails that order loudly: printing the Czech logo onto a
+German customer's book is not something to discover after it ships. A typo in the map (`"german"`)
+fails the same way rather than silently falling back.
+
 ## Run generation only (no PDF)
 
 ```bash
@@ -155,6 +191,15 @@ order becomes `<outbox>/<order>/` holding the builder triple per photo plus a
 **The order number comes from the photo names** (`1523_img0001_-_…`), not the folder
 name — folder names get hand-edited, and one real sample folder is named *1522* while
 holding eight *1523* photos. If the two disagree, the run says so.
+
+**One purchase can hold more than one book.** A customer who buys the product twice in
+one checkout gets one job per book, each with its own photos, dedication and PDF. Those
+carry a position suffix — `1234-1`, `1234-2` — in the folder name, the photo names and
+the run report. A suffix is not an error and not the folder/filename mismatch above; it
+means "book 1 of 2 in that parcel". An ordinary single-book order is unsuffixed, exactly
+as before. The split reads Shopify's line items, so it only happens on orders the tool
+fetched itself — a folder pulled by hand has no line-item information and arrives as one
+merged job.
 
 The run is **resumable and idempotent**: `state.json` is written after every photo, so
 an interrupted batch picks up exactly where it stopped. Re-running regenerates only
