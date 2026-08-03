@@ -359,6 +359,11 @@ export function validateConfig(cfg) {
       negativePrompt: cfg.generator.negativePrompt ?? '',
       // Optional driver tuning (request/poll timeouts, retries); the driver falls back to its own defaults.
       timeouts: cfg.generator.timeouts ?? null,
+      // Ask the light vision model, per photo, which way is up and whether the customer sent a
+      // screenshot — the two things the EXIF block cannot say (see photoFraming.js). On by default,
+      // but inert unless `ai.enabled` and `ai.apiKey` are set, so an install with no AI key is
+      // unaffected. Set generator.autoFraming:false to upload every photo exactly as it arrived.
+      autoFraming: cfg.generator.autoFraming !== false,
     },
     builder: {
       baseUrl: buildUrl,

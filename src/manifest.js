@@ -162,6 +162,24 @@ export function getAttempt(manifest, base) {
   return manifest.photos?.[base]?.attempt ?? null;
 }
 
+/** Remember that the photo was straightened or cut out of a screenshot before it was drawn (see
+ *  photoFraming.js). Recorded so the operator can see it was done and undo it — a correction applied
+ *  silently is one nobody can disagree with, and this one is a machine's opinion about a customer's
+ *  photograph. Absent for the ordinary photo that needed nothing. */
+export function setFraming(manifest, base, framing) {
+  manifest.photos ??= {};
+  if (!framing || (!framing.rotate && !framing.crop)) return manifest;
+  manifest.photos[base] = {
+    ...manifest.photos[base],
+    framing: { rotate: framing.rotate ?? 0, cropped: Boolean(framing.crop) },
+  };
+  return manifest;
+}
+
+export function getFraming(manifest, base) {
+  return manifest.photos?.[base]?.framing ?? null;
+}
+
 // ---- input QC (intake) -----------------------------------------------------
 // The order-level intake block: the pre-generation photo checks and the operator's override. Kept
 // beside the per-photo statuses so one state.json stays the single source of truth.
