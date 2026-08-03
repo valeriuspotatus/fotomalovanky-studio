@@ -1035,3 +1035,22 @@ test('the generator screen shows the signed-in person, not a profile written int
     f.cleanup();
   }
 });
+
+test('metrics is the shop revenue: refused for the printer, and 503 with a code when there is nothing to show', async () => {
+  const f = await roleServer();
+  try {
+    const refused = await f.get('/api/metrics', f.printer);
+    assert.equal(refused.status, 403, 'the printer has no business with the AOV');
+    assert.equal((await refused.json()).code, 'forbidden');
+
+    // The operator reaches it, and the fixture has no Shopify configured — so this is the state the
+    // page has to render as "metrics unavailable" rather than as blank space.
+    const res = await f.get('/api/metrics', f.operator);
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.equal(body.code, 'not-configured', 'a code the page can branch on');
+    assert.ok(body.error, 'and a sentence the operator can read');
+  } finally {
+    f.cleanup();
+  }
+});
