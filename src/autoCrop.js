@@ -114,3 +114,28 @@ export async function autoCropColoring({ pngPath, svgPath }) {
   await cropTo({ pngPath, svgPath, box });
   return { cropped: true, kept, box };
 }
+
+/**
+ * The whole tidy-up a finished coloring page gets: whiten the model's border keyline, then trim the
+ * page to its ink.
+ *
+ * ONE FUNCTION BECAUSE THERE IS MORE THAN ONE WAY TO PRODUCE A PAGE. This ran inline in batch.js and
+ * therefore only on pages the generator made through the studio. A page repaired in the generator's
+ * own web UI and dropped into the order folder ("Repair elsewhere…" → "I've replaced it") reached
+ * the book untouched — frame, white margin and all — which is exactly what the operator kept seeing
+ * after the pipeline had been fixed. Every path that puts a page on disk calls this now.
+ *
+ * Never throws: a page the GPU already paid for is perfectly usable uncropped, and a crop hiccup is
+ * not a reason to fail it. The caller is told what happened so it can log it.
+ *
+ * @returns {Promise<{deframed:boolean, cropped:boolean, kept:?number, error:?string}>}
+ */
+export async function tidyColoringPage({ pngPath, svgPath } = {}) {
+  try {
+    const df = await deframe({ pngPath, svgPath });
+    const c = await autoCropColoring({ pngPath, svgPath });
+    return { deframed: Boolean(df.deframed), cropped: Boolean(c.cropped), kept: c.cropped ? c.kept : null, error: null };
+  } catch (err) {
+    return { deframed: false, cropped: false, kept: null, error: err.message };
+  }
+}
