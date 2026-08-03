@@ -9,24 +9,30 @@
 // Constants - A4 dimensions in mm
 // ═══════════════════════════════════════════════════════════════════════════
 
+// KEEP IN SYNC WITH styles.css :root — --page-margin, --gap and --svg-border are the same three
+// numbers. app.js does the fitting maths, the CSS paints the result; if they drift, pages are laid
+// out to one size and drawn at another.
 const A4 = {
     width: 210,  // mm
     height: 297, // mm
-    margin: 10,  // mm
+    margin: 5,   // mm — white edge of the sheet. Was 10mm, which printed a wide white band around
+                 //      every colouring page. 5mm is about as tight as a home printer goes; below
+                 //      that most start clipping. Raise it again if Jirka's printer cuts anything off.
     gap: 6,      // mm between images
-    border: 1    // mm border on SVG
+    border: 0    // mm border on SVG — was 1mm, which drew a black keyline around every colouring
+                 //      page. The drawing frames itself; the line only ever boxed it in.
 };
 
 // Printable area (before rotation)
 const PRINTABLE_RAW = {
-    width: A4.width - 2 * A4.margin,   // 190mm
-    height: A4.height - 2 * A4.margin  // 277mm
+    width: A4.width - 2 * A4.margin,   // 200mm
+    height: A4.height - 2 * A4.margin  // 287mm
 };
 
 // After rotation, dimensions are swapped
 const PRINTABLE = {
-    width: PRINTABLE_RAW.height,   // 277mm 
-    height: PRINTABLE_RAW.width    // 190mm
+    width: PRINTABLE_RAW.height,   // 287mm
+    height: PRINTABLE_RAW.width    // 200mm
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -502,9 +508,9 @@ function calculatePortraitLayout(photo, svg) {
     const border = A4.border;
     const borderTotal = border * 2;
     
-    // After -90° rotation: width=277mm, height=190mm
-    const availW = PRINTABLE.width;   // 277mm
-    const availH = PRINTABLE.height;  // 190mm
+    // After -90° rotation: width=287mm, height=200mm
+    const availW = PRINTABLE.width;   // 287mm
+    const availH = PRINTABLE.height;  // 200mm
     
     const photoAR = photo.width / photo.height;
     const svgAR = svg.width / svg.height;
@@ -542,8 +548,8 @@ function calculateStackedLayout(photo, svg) {
     const borderTotal = border * 2;
     
     // No rotation: use normal A4 portrait dimensions
-    const availW = PRINTABLE_RAW.width;   // 190mm
-    const availH = PRINTABLE_RAW.height;  // 277mm
+    const availW = PRINTABLE_RAW.width;   // 200mm
+    const availH = PRINTABLE_RAW.height;  // 287mm
     
     const photoAR = photo.width / photo.height;
     const svgAR = svg.width / svg.height;
@@ -584,9 +590,9 @@ function calculateSideBySideLayout(photo, svg) {
     const border = A4.border;
     const borderTotal = border * 2;
     
-    // After -90° rotation: width=277mm, height=190mm
-    const availW = PRINTABLE.width;   // 277mm
-    const availH = PRINTABLE.height;  // 190mm
+    // After -90° rotation: width=287mm, height=200mm
+    const availW = PRINTABLE.width;   // 287mm
+    const availH = PRINTABLE.height;  // 200mm
     
     const photoAR = photo.width / photo.height;
     const svgAR = svg.width / svg.height;
@@ -708,7 +714,7 @@ function adjustPencilCoverFit() {
     if (!container) return;
 
     const layout = currentCoverLayout();
-    const contentH = A4.height - 2 * A4.margin; // printable height, 277mm
+    const contentH = A4.height - 2 * A4.margin; // printable height, 287mm
 
     // Logo block: height from config aspect ratio, never measured. DE mode
     // renders the DE logo (always vertical) at a width scaled to match the
