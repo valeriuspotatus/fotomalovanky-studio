@@ -257,6 +257,7 @@ split a parcel by accident.
 no line-item information, so a two-book purchase recovered that way arrives as one job
 with all the photos together and only one dedication. Either split the folder yourself
 before running it, or let the overnight fetch retry the order so it comes down properly.
+
 **A German order came out with the Czech logo.** The book's language comes from the product the
 customer bought, and that product has to be listed in `languageMap` in `config.json`. Anything not
 listed is treated as Czech. Nothing about the delivery address or the customer's own language

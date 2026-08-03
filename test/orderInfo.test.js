@@ -216,6 +216,8 @@ test('a nonsensical purchase block reads as a lone book rather than inventing a 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
 // ---- output language (DE covers) --------------------------------------------
 
 test('resolveLanguage maps a variant to its language and marks it mapped', () => {
