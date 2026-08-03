@@ -308,7 +308,9 @@
   <!-- ============ MAIN ============ -->
   <main class="main">
     <div class="topbar">
-      <div><h1 id="pageTitle">Dobrý den, David! <span aria-hidden="true">👋</span></h1><div class="sub" id="pageSub">Tady je přehled toho, co se dnes děje ve studiu.</div></div>
+      <!-- No name until the identity arrives: this markup is what everyone sees before the script
+           runs, so a name here is somebody else's name for the first paint of every visit. -->
+      <div><h1 id="pageTitle">Dobrý den! <span aria-hidden="true">👋</span></h1><div class="sub" id="pageSub">Tady je přehled toho, co se dnes děje ve studiu.</div></div>
       <div class="topbar-actions">
         <button class="icon-btn" id="themeBtn2" aria-label="Přepnout režim"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
       </div>
@@ -499,7 +501,6 @@
       <div class="settings">
         <div class="set-card">
           <h3>Můj profil</h3>
-          <div class="set-note">Jméno se ukazuje u vašich záznamů — kdo objednávku vytiskl a kdo ji odeslal. Heslo se tady nemění; to nastavuje David mimo aplikaci.</div>
           <div class="set-folder">
             <input id="profName" spellcheck="false" aria-label="Jméno" maxlength="40">
             <button class="btn" id="profSave">Uložit jméno</button>
@@ -508,7 +509,6 @@
         </div>
         <div class="set-card">
           <h3>Profilová fotka</h3>
-          <div class="set-note">Fotka se před uložením zmenší a znovu uloží — z nahraného souboru se nepřenáší nic jiného než obraz (žádné EXIF, žádná poloha).</div>
           <div class="set-folder">
             <input type="file" id="profFile" accept="image/*" aria-label="Profilová fotka">
             <button class="btn" id="profPhotoClear">Odebrat fotku</button>
@@ -517,7 +517,6 @@
         </div>
         <div class="set-card">
           <h3>Odhlášení</h3>
-          <div class="set-note">Odhlášení ukončí relaci na serveru, ne jen v prohlížeči.</div>
           <button class="btn" id="profSignOut">Odhlásit se</button>
         </div>
       </div>
@@ -678,7 +677,7 @@
   ];
 
   const VIEW_META={
-    home:{t:'Dobrý den, David! <span aria-hidden="true">👋</span>',s:"Tady je přehled toho, co se dnes děje ve studiu."},
+    home:{t:'Dobrý den! <span aria-hidden="true">👋</span>',s:"Tady je přehled toho, co se dnes děje ve studiu."},
     orders:{t:"Objednávky",s:"Výrobní fronta — nejstarší nahoře, živě z generátoru."},
     queue:{t:"Tisková fronta",s:"Hotové knihy čekající na tisk — stáhněte PDF a označte vytištěno."},
     creatives:{t:"Kreativy",s:"Reklamní vizuály z fotek — feed, story i wide."},
@@ -1879,7 +1878,14 @@
     if(v==="profile"&&identity&&identity.implicit)v="home";
     views.forEach(x=>document.getElementById("v-"+x).classList.toggle("on",x===v));
     setActiveNav(v);
-    const m=VIEW_META[v];document.getElementById("pageTitle").innerHTML=m.t;document.getElementById("pageSub").textContent=m.s;
+    // The greeting names WHOEVER IS SIGNED IN. It used to come from a string with the operator's
+    // name baked into it, so the printer was greeted by the operator's name on every visit to the
+    // overview — which is what "he has my profile" looked like from his side.
+    const m=VIEW_META[v];
+    const title=v==="home"&&identity&&identity.username
+      ? `Dobrý den, ${esc(identity.username)}! <span aria-hidden="true">👋</span>`
+      : m.t;
+    document.getElementById("pageTitle").innerHTML=title;document.getElementById("pageSub").textContent=m.s;
     if(location.hash!=="#"+v)history.pushState(null,"","#"+v);
     if(["home","orders","queue"].includes(v))fetchStudio();
     if(v==="mail")fetchMailTab();
