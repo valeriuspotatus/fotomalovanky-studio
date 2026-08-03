@@ -9,7 +9,7 @@
 //
 // An order is only ever touched when its book is finished and settled:
 //   - the operator has confirmed Jirka printed it (a `printed.json` marker — the 'vytištěno' verdict,
-//     N3): a book merely 'odesláno' over WhatsApp is NOT proof of print and is never purged,
+//     N3): a book merely 'odesláno' is NOT proof of print and is never purged,
 //   - the PDF exists,
 //   - the PDF is newer than state.json, so it was printed from the decisions on disk and not
 //     left stale by a verdict changed afterwards,

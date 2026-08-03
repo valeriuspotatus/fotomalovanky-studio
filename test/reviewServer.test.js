@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import sharp from 'sharp';
@@ -545,4 +545,58 @@ test('a zip for an unknown order is a clean 404, not a truncated archive', async
   const res = await get('/api/9999/zip');
   assert.equal(res.status, 404);
   assert.equal((await res.json()).error, 'Unknown order.');
+});
+
+// --- GET /api/<order>/pdf -------------------------------------------------------------------
+// The finished book, served inline so the operator can look at it before recording it as gone out.
+// Addressed by order id like /zip above, so no path from the page reaches the filesystem.
+
+test('GET /api/<order>/pdf serves the built book inline, and 404s before it exists', async () => {
+  assert.equal((await get('/api/1510/pdf')).status, 404, 'no book on disk yet');
+
+  const pdf = join(orderDir, '1510 Final.pdf');
+  writeFileSync(pdf, '%PDF-1.4\n');
+  try {
+    const r = await get('/api/1510/pdf');
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type') || '', /application\/pdf/);
+    assert.match(await r.text(), /^%PDF/);
+  } finally {
+    rmSync(pdf, { force: true }); // the order's derived status is shared with the tests above
+  }
+});
+
+// --- POST /api/<order>/delete ---------------------------------------------------------------
+// Deleting writes a permanent marker into the shared fixture's order, which would change what every
+// other test in this file sees on the board. So it gets its own server over its own temp outbox.
+
+test('POST /api/<order>/delete hides the order from the board (marker on disk, files kept)', async () => {
+  const r = mkdtempSync(join(tmpdir(), 'fma-del-'));
+  const inb = join(r, 'inbox');
+  const outb = join(r, 'outbox');
+  const dir = join(outb, '1510');
+  mkdirSync(join(inb, '1510'), { recursive: true });
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(inb, '1510', 'a.jpeg'), 'photo');
+  writeFileSync(join(dir, '1510 Final.pdf'), '%PDF-1.4\n');
+
+  const { server: s } = createReviewServer({ config: CONFIG, inboxRoot: inb, outboxRoot: outb, memoryRoot: outb });
+  await new Promise((done) => s.listen(0, '127.0.0.1', done));
+  const o = `http://127.0.0.1:${s.address().port}`;
+  try {
+    let board = await (await fetch(`${o}/api/studio`)).json();
+    assert.ok(board.orders.some((x) => x.orderId === '1510'), 'on the board before delete');
+
+    const res = await fetch(`${o}/api/1510/delete`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).deleted, '1510');
+
+    board = await (await fetch(`${o}/api/studio`)).json();
+    assert.ok(!board.orders.some((x) => x.orderId === '1510'), 'gone from the board after delete');
+    assert.ok(existsSync(join(dir, 'hidden.json')), 'a recoverable hidden marker was written');
+    assert.ok(existsSync(join(dir, '1510 Final.pdf')), 'the book file is kept, not deleted');
+  } finally {
+    s.close();
+    rmSync(r, { recursive: true, force: true });
+  }
 });
