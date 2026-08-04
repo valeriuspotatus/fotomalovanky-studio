@@ -96,7 +96,7 @@ test('every zvirata page is a fully named composition — nothing unnamed may ap
     const { subject, elements, ground } = p.composition;
     assert.ok(subject && subject.length > 10, `${p.subject}: has a described subject`);
     assert.ok(elements.length >= 2 && elements.length <= 4, `${p.subject}: 2-4 supporting elements, got ${elements.length}`);
-    assert.ok(ground.includes('line'), `${p.subject}: a simple ground line`);
+    assert.ok(ground.length > 10, `${p.subject}: says where everything stands`);
     const prompt = p.prompt.toLowerCase();
     for (const e of elements) assert.ok(p.prompt.includes(e), `${p.subject}: "${e}" is named in the prompt`);
     assert.ok(prompt.includes('nothing else'), `${p.subject}: the closed inventory is stated`);
@@ -107,6 +107,17 @@ test('every zvirata page is a fully named composition — nothing unnamed may ap
     assert.ok(prompt.includes('no cast shadows'), `${p.subject}: no shadow to trace as black`);
     assert.ok(prompt.includes('no large dark patches'), `${p.subject}: pale markings, the v1 solid-fill fix`);
     assert.ok(prompt.includes('no people'), `${p.subject}: no people`);
+  }
+});
+
+test('the pages that drew a floating horizon now stand on the bottom edge instead', () => {
+  // Naming "a ground line" got a full-width rule at an arbitrary height on these two — across the
+  // hedgehog's back, and at the fox's feet with the stump stranded below it.
+  for (const name of ['liška', 'ježek']) {
+    const page = zvirata.pages.find((p) => p.subject === name);
+    assert.match(page.composition.ground, /bottom edge of the picture/, `${name}: stands on the bottom edge`);
+    assert.match(page.composition.ground, /no drawn horizon line/, `${name}: and is told not to draw one`);
+    assert.ok(page.prompt.includes('no horizontal rule anywhere'), `${name}: the prohibition reaches the prompt`);
   }
 });
 

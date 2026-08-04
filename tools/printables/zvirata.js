@@ -85,7 +85,10 @@ const COMPOSITIONS = [
     composition: {
       subject: 'a fox standing in profile with its bushy tail fully visible',
       elements: ['one tree stump', 'two mushrooms', 'three small tufts of grass'],
-      ground: 'a simple straight ground line',
+      // v3 first cut named "a simple straight ground line" and got a full-width rule drawn at the
+      // fox's feet with the stump stranded BELOW it — two disconnected registers on one page. Naming
+      // a line invites a horizon; naming the bottom edge gives the baseline that was actually wanted.
+      ground: 'the bottom edge of the picture, standing directly on it, with no drawn horizon line and no horizontal rule anywhere in the picture',
     },
   },
   {
@@ -101,7 +104,8 @@ const COMPOSITIONS = [
     composition: {
       subject: 'a hedgehog seen from the side with its spines and small face clearly defined',
       elements: ['one apple', 'three fallen leaves', 'two small tufts of grass'],
-      ground: 'a simple straight ground line',
+      // Same fix as liška: the named line came back as a spurious rule across the hedgehog's back.
+      ground: 'the bottom edge of the picture, standing directly on it, with no drawn horizon line and no horizontal rule anywhere in the picture',
     },
   },
   {

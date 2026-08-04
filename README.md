@@ -280,6 +280,7 @@ src/
   manifest.js            # state.json read/write + state machine + builder gate
   qc.js                  # pure QC heuristics (near-blank / near-solid / solid-fill / empty-SVG)
   qcFiles.js             # sharp adapter: decodes the outputs, feeds qc.js
+  deblob.js              # whitens large solid-black masses (raster + SVG). COPIED FROM v2 — see below
   batch.js               # resumable per-order generation (U3)
   orchestrator.js        # the "Go" run: generate -> review gate -> builder -> PDF (U6)
   review.js              # the review gate: approve / reject / redo / manual handoff (U4)
@@ -295,7 +296,20 @@ src/
     builderDriver.js     # Playwright + headless-print driver (implemented; needs chromium)
   skeleton.js            # Phase-0 walking-skeleton runner
 test/                    # offline unit tests (node --test)
+tools/
+  printables.js          # free printable sets: Gemini source -> generator -> A4 PDF (metered)
+  printables/            # theme definitions (one file per set)
 ```
+
+### `src/deblob.js` is duplicated, on purpose
+
+`src/deblob.js` and its test are a **verbatim copy** of the same files in the v2 rebuild
+(`../fotomalovanky-studio-v2/src/deblob.js`). The two repos share no package, so the copy was the
+cheaper option and the duplication is accepted rather than accidental.
+
+**A fix to one must be applied to the other.** The file has no imports beyond `sharp` and `node:fs`,
+so the copy is a straight file copy in either direction — keep it that way, and don't let the two
+drift by editing one in place. If the repos ever share a package, this is the first thing to hoist.
 
 ## Data handling
 

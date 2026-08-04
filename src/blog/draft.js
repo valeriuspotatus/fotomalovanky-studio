@@ -207,6 +207,15 @@ export function qcPost(post, { wordCountMin = 800 } = {}) {
   return { warnings };
 }
 
+/**
+ * Would saving `next` over `existing` throw away real work? A model failure degrades to the seed
+ * skeleton by design, which is right for a first draft and wrong on top of an article that already
+ * exists — one transient 503 would replace 500 words with 30. Seen for real on 2026-08-04.
+ */
+export function wouldLoseWork(next, existing) {
+  return next?.copySource === 'seed' && existing?.copySource === 'ai';
+}
+
 /** Strip tags to plain text (for the QC word count + keyword/banned scan of hand-edited body HTML). */
 export function stripHtml(html) {
   return String(html ?? '')
