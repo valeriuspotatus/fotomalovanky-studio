@@ -24,38 +24,13 @@
 // Standing rules: photorealistic source (the generator traces a photo, not a drawing), no people, no
 // faces, no branded or copyrighted characters — nothing we don't own ships in a free download.
 
-/** Asked for through generationConfig.imageConfig, not the prompt text — models ignore prose aspect. */
-export const SOURCE_ASPECT = '3:4';
+import { buildScenePrompt as composeScene, ANIMAL_RULES, SOURCE_ASPECT } from './template.js';
 
-/**
- * Compose one page's source-photo prompt from its explicit inventory.
- *
- * Every noun the picture is allowed to contain appears in `elements` or `subject`. The prompt then
- * says so twice — once as the list, once as a prohibition — because "and nothing else" is the whole
- * point of the exercise and a single mention gets averaged away.
- */
-export function buildScenePrompt({ subject, elements, ground }) {
-  return [
-    `A photorealistic photograph of ${subject}.`,
-    `The picture contains exactly these things and nothing else: ${subject}; ${elements.join('; ')}; ${ground}.`,
-    `Everything rests on ${ground}.`,
-    'ONLY the top third of the picture is empty white space — no sky, no clouds, no horizon, no trees,',
-    'no hills, no buildings, no scenery of any kind behind or above the subject.',
-    'The subject and its named objects together fill the lower two thirds of the picture, edge to edge,',
-    'and the subject itself is big — its head reaches up to the top third. Do not leave the middle of',
-    'the picture empty. Every named object is fully inside the frame and nothing is cropped by the edges.',
-    'Plain pure white background. Soft, even, shadowless lighting with no cast shadows.',
-    'All markings and patterning are pale and finely outlined — no large dark patches, no solid black areas.',
-    'The subject is sharply defined.',
-    // v3 shipped fish standing on their tails, swimming straight up the page. Asking for a tall
-    // subject in a tall frame invites the model to rotate the animal to fill it, which is anatomically
-    // absurd on a colouring page. Orientation is now stated as a rule, not left to composition.
-    'Every animal is in its natural orientation, side view, as it would really stand, sit, perch or swim.',
-    'Never rotate, tilt or stand an animal on end to make it fit the tall frame. If the animal is wider',
-    'than it is tall, keep it that way and fill the remaining height with the named objects instead.',
-    'Do not add any object, plant, animal or detail that is not named above.',
-    'No people, no hands, no faces, no text, no logos, no watermarks.',
-  ].join(' ');
+// Re-exported so existing importers and tests keep working after the template moved out.
+export { SOURCE_ASPECT };
+/** This theme's prompt: the shared template plus the animal orientation rules. */
+export function buildScenePrompt(composition) {
+  return composeScene(composition, { topPart: 'head', kindRules: ANIMAL_RULES });
 }
 
 /** subject + 2–4 named supporting elements + a ground line. Nothing unnamed may appear. */
