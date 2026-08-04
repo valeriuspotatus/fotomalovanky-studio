@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isAbsolute } from 'node:path';
-import { validateConfig, redactForLog, ConfigError, loadConfig, defaultAutopilotDir } from '../src/config.js';
+import { validateConfig, redactForLog, ConfigError, loadConfig, defaultAutopilotDir, assertPersistentDataDirs } from '../src/config.js';
 
 const good = {
   generator: { baseUrl: 'https://fotomalovanky-app.onrender.com/abc123/', mode: 'api', variant: '1024' },
@@ -199,4 +199,78 @@ test('defaultAutopilotDir places state under an OS per-user data dir, never the 
   assert.match(norm(linux), /\.local\/share\/fotomalovanky\/autopilot$/);
   const mac = defaultAutopilotDir({}, 'darwin', '/Users/x');
   assert.match(norm(mac), /Library\/Application Support\/fotomalovanky\/autopilot$/);
+});
+
+// ---- data that must survive a redeploy --------------------------------------
+
+const hosted = (over = {}) => ({
+  paths: { inbox: '/data/inbox', outbox: '/data/outbox' },
+  accounts: { dataDir: '/data/accounts' },
+  shopify: { dataDir: '/data/autopilot' },
+  creatives: { dataDir: '/data/creatives' },
+  blog: { dataDir: '/data/blog' },
+  ...over,
+});
+
+test('a laptop is left alone — its per-user data directory outlives the process', () => {
+  // The whole point of the OS data dir is that it persists. Firing there would be wrong, and would
+  // make every local run demand a /data that does not exist.
+  const local = hosted({ accounts: { dataDir: 'C:\Users\David\AppData\Local\fotomalovanky\accounts' } });
+  for (const host of ['127.0.0.1', 'localhost', '::1', undefined]) {
+    assert.doesNotThrow(() => assertPersistentDataDirs({ config: local, env: {}, bindHost: host }), `${host} is this machine`);
+  }
+});
+
+test('a hosted bind with everything on the disk starts', () => {
+  assert.doesNotThrow(() => assertPersistentDataDirs({ config: hosted(), env: {}, bindHost: '0.0.0.0' }));
+});
+
+test('a hosted bind with an off-disk directory refuses to start, and names it', () => {
+  // This is the failure with no symptom: the app boots, writes to scratch space, serves correctly,
+  // and loses it on the next deploy. The only trace was two profile photos going missing.
+  const bad = hosted({ accounts: { dataDir: '/root/.local/share/fotomalovanky/accounts' } });
+  assert.throws(
+    () => assertPersistentDataDirs({ config: bad, env: {}, bindHost: '0.0.0.0' }),
+    (err) => err instanceof ConfigError
+      && /Refusing to start/.test(err.message)
+      && /accounts\.dataDir = \/root\/\.local/.test(err.message)
+      && /survives a redeploy/.test(err.message),
+    'it must say which key and which path',
+  );
+});
+
+test('every directory at risk is reported at once, not one per restart', () => {
+  const bad = hosted({
+    accounts: { dataDir: '/root/accounts' },
+    shopify: { dataDir: '/root/autopilot' },
+    paths: { inbox: '/data/inbox', outbox: '/tmp/outbox' },
+  });
+  try {
+    assertPersistentDataDirs({ config: bad, env: {}, bindHost: '0.0.0.0' });
+    assert.fail('should have thrown');
+  } catch (err) {
+    assert.match(err.message, /3 data directories/);
+    for (const k of ['accounts.dataDir', 'shopify.dataDir', 'paths.outbox']) assert.ok(err.message.includes(k), `${k} named`);
+    assert.ok(!err.message.includes('paths.inbox'), 'and the one that is fine is not');
+  }
+});
+
+test('the autopilot handled map is guarded too — losing it makes a finished week look new', () => {
+  const bad = hosted({ shopify: { dataDir: '/root/autopilot' } });
+  assert.throws(() => assertPersistentDataDirs({ config: bad, env: {}, bindHost: '0.0.0.0' }), /shopify\.dataDir/);
+});
+
+test('FMA_DATA_ROOT moves the mount, it does not switch the check off', () => {
+  const cfg = hosted({ accounts: { dataDir: '/mnt/disk/accounts' }, paths: { inbox: '/mnt/disk/in', outbox: '/mnt/disk/out' },
+    shopify: { dataDir: '/mnt/disk/a' }, creatives: { dataDir: '/mnt/disk/c' }, blog: { dataDir: '/mnt/disk/b' } });
+  assert.doesNotThrow(() => assertPersistentDataDirs({ config: cfg, env: { FMA_DATA_ROOT: '/mnt/disk' }, bindHost: '0.0.0.0' }));
+  // Pointing it at scratch is the same mistake spelled out, so the check still applies to the rest.
+  assert.throws(() => assertPersistentDataDirs({ config: hosted(), env: { FMA_DATA_ROOT: '/mnt/disk' }, bindHost: '0.0.0.0' }), /Refusing to start/);
+});
+
+test('a directory the config never set is not invented, and never blamed', () => {
+  // An install with no creatives or blog block has nothing to lose there.
+  const sparse = { paths: { inbox: '/data/inbox', outbox: '/data/outbox' }, accounts: { dataDir: '/data/accounts' } };
+  assert.doesNotThrow(() => assertPersistentDataDirs({ config: sparse, env: {}, bindHost: '0.0.0.0' }));
+  assert.doesNotThrow(() => assertPersistentDataDirs({ config: {}, env: {}, bindHost: '0.0.0.0' }));
 });

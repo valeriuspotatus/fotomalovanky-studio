@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { ZipArchive } from 'archiver';
-import { loadConfig } from '../config.js';
+import { loadConfig, assertPersistentDataDirs } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent, pdfPathFor } from '../orchestrator.js';
@@ -34,6 +34,8 @@ import { readIndex as readCreativesIndex } from '../creatives/adCalendar.js';
 import { suggestTopics } from '../blog/topics.js';
 import { generatePost, recomputePost } from '../blog/draft.js';
 import { listPosts, readPost, savePost, deletePost } from '../blog/store.js';
+import { createAdminClient } from '../shopify/adminClient.js';
+import { getMetrics, MetricsError } from '../metricsCache.js';
 import { createContentClient } from '../shopify/content.js';
 import { ingestOrders, IngestError } from '../ingest.js';
 import { selectAutoRunOrders } from '../autoRun.js';
@@ -459,6 +461,9 @@ export const ROUTE_POLICY = Object.freeze([
   // -- Operator only. Listed first so nothing below can accidentally widen one of them -------------
   // Settings names the folders, the integrations and the retention window (AE5).
   { id: 'GET /api/settings', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/settings'], match: atPath('/api/settings'), sample: '/api/settings' },
+  // Unit economics for the homepage. Operator-only: it is the shop's revenue, and the printer's
+  // screen is a work list.
+  { id: 'GET /api/metrics', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/metrics'], match: atPath('/api/metrics'), sample: '/api/metrics' },
   // The box and the filesystem around it: re-pointing the inbox, the native folder dialog, and the
   // button that stops the server everybody else is using.
   { id: 'POST /api/_scan', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/_scan'], match: atPath('/api/_scan'), sample: '/api/_scan' },
@@ -672,6 +677,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   // beyond this machine. The Dockerfile sets HOST=0.0.0.0, so a Render deploy that forgot the
   // hashes stops here instead of publishing the studio.
   assertLocalModeIsSafe({ env: authEnv, bindHost });
+  // And the same shape for storage: on a hosted bind, a data directory outside the mounted disk is
+  // scratch space that the next deploy erases without a word. Both guards run before a socket
+  // exists, so a deployment that gets either wrong fails loudly at start instead of quietly later.
+  assertPersistentDataDirs({ config, env: authEnv, bindHost });
   const auth = resolveAuthMode(authEnv);
   const accountsDir = config?.accounts?.dataDir ?? null;
   if (auth.mode === AUTH_MODES.MISCONFIGURED) log(auth.message);
@@ -1374,6 +1383,26 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           autopilot: report ? { lastRun: report.ranAt ?? null, processed: report.processed ?? null, generated: report.generated ?? null, estSpend: report.estSpend ?? null } : { lastRun: null },
           retentionDays: config.retentionDays ?? null,
         });
+      }
+
+      // GET /api/metrics — unit economics for the homepage (AOV, tier mix, trend). The aggregate is
+      // cached on disk for an hour: every miss is 90 days of orders over the Admin API, and this is
+      // polled by a tab somebody leaves open all day. Nothing customer-shaped is written — see
+      // metricsCache.js, which reduces the aggregate through an allowlist before it reaches the disk.
+      //
+      // `?refresh=1` forces a pull past a fresh cache, for the operator who just changed a price.
+      if (req.method === 'GET' && url.pathname === '/api/metrics') {
+        const shop = config.shopify ?? null;
+        const listOrders = shop?.enabled && shop?.accessToken
+          ? (args) => createAdminClient({ storeDomain: shop.storeDomain, accessToken: shop.accessToken, apiVersion: shop.apiVersion }).listOrders(args)
+          : null;
+        try {
+          const out = await getMetrics({ config, listOrders, force: url.searchParams.get('refresh') === '1' });
+          return json(res, 200, out);
+        } catch (err) {
+          if (err instanceof MetricsError) return json(res, 503, { error: err.message, code: err.code });
+          throw err;
+        }
       }
 
       // GET /api/studio/templates — the Creative Studio pickers: the 5 template families (each with the

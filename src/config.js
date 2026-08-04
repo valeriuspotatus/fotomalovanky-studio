@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join, relative, sep, isAbsolute } from 'node:path';
+import { isLoopbackHost } from './auth/sessions.js';
 import { homedir } from 'node:os';
 
 const PLACEHOLDER = /REPLACE_WITH|<TOKEN>/i;
@@ -457,4 +458,56 @@ export function redactForLog(cfg) {
       ? { shopify: { ...cfg.shopify, accessToken: cfg.shopify.accessToken ? '<redacted>' : null, contentToken: cfg.shopify.contentToken ? '<redacted>' : null } }
       : {}),
   };
+}
+
+/**
+ * Refuse to start when a hosted deployment would write people's data somewhere a restart erases.
+ *
+ * THE FAILURE THIS EXISTS FOR HAS NO SYMPTOM UNTIL IT IS TOO LATE. Every `dataDir` in this config
+ * falls back to an OS per-user directory when it is not set — the right answer on a laptop, where
+ * that directory is as permanent as anything else. In a container it is scratch space: the app
+ * boots, writes there happily, serves correctly, and loses the lot on the next deploy. Nothing
+ * errors, nothing warns, and the only visible trace is whatever could not fall back to a default.
+ * That is exactly how the two profile photos disappeared — the usernames survived only because
+ * "David" and "Jirka" are the defaults, so a wiped account file and an intact one look identical.
+ *
+ * Detected by the SAME signal `assertLocalModeIsSafe` already uses: a non-loopback bind. The
+ * Dockerfile sets HOST=0.0.0.0, so this is a deploy; a laptop binds 127.0.0.1 and is left alone,
+ * where the per-user directory is genuinely persistent and this check would be wrong.
+ *
+ * `FMA_DATA_ROOT` overrides the mount point for a host that mounts its disk elsewhere. It is not a
+ * way to switch the check off: pointing it at a scratch directory is the same mistake, spelled out.
+ *
+ * @throws {ConfigError} naming every directory at risk and the config key that fixes it
+ */
+export function assertPersistentDataDirs({ config, env = process.env, bindHost = env.HOST } = {}) {
+  if (isLoopbackHost(bindHost)) return; // a laptop: the per-user data dir outlives the process
+
+  const root = env.FMA_DATA_ROOT || '/data';
+  const withinRoot = (dir) => {
+    const rel = relative(root, resolve(dir));
+    return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + sep));
+  };
+
+  // Everything whose loss costs something: customer photographs, finished books, who the two people
+  // are, and the autopilot's handled map — which, wiped, makes a week of finished orders look new.
+  const named = [
+    ['paths.inbox', config?.paths?.inbox],
+    ['paths.outbox', config?.paths?.outbox],
+    ['accounts.dataDir', config?.accounts?.dataDir],
+    ['shopify.dataDir', config?.shopify?.dataDir],
+    ['creatives.dataDir', config?.creatives?.dataDir],
+    ['blog.dataDir', config?.blog?.dataDir],
+  ];
+  const stray = named.filter(([, dir]) => typeof dir === 'string' && dir && !withinRoot(dir));
+  if (stray.length === 0) return;
+
+  throw new ConfigError(
+    `Refusing to start: ${stray.length} data ${stray.length === 1 ? 'directory is' : 'directories are'} outside ${root}, ` +
+      `which on this host is the only storage that survives a redeploy. Everything written there is lost ` +
+      `the next time the service restarts, silently and with no error:\n` +
+      stray.map(([key, dir]) => `  ${key} = ${dir}`).join('\n') +
+      `\n\nPoint each at a path under ${root} in config.json (for example "accounts": { "dataDir": "${root}/accounts" }), ` +
+      `or set FMA_DATA_ROOT if this host mounts its disk somewhere else.`,
+  );
 }

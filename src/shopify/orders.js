@@ -142,3 +142,16 @@ export function expectedPhotosFrom(products) {
   }
   return null;
 }
+
+/** How many photos ONE line item carries — the tier the customer bought, straight from the
+ *  "Fotka (N)-M" attributes rather than from the variant title.
+ *
+ *  Exported for the metrics aggregation, which wants the count and nothing else. It runs the same
+ *  two helpers extractJobs runs, so there is no second copy of "what counts as a photo attribute"
+ *  to drift: change how a photo key is recognised and the sidecar and the dashboard move together.
+ *  The variant title is deliberately not consulted — `expectedPhotosFrom` reads what was ADVERTISED,
+ *  this reads what actually arrived, and a short upload is exactly the case where they differ. */
+export function lineItemPhotoCount(item, opts = {}) {
+  const { photoKeyMatch } = { ...DEFAULTS, ...opts };
+  return photosFrom(lineItemAttributes(item), photoKeyMatch).length;
+}

@@ -108,8 +108,10 @@ test('no credentials + a non-loopback bind: refuses to start rather than publish
     'an ungated studio on every interface must not be constructible',
   );
 
-  // The same environment WITH credentials is fine: gated is safe anywhere.
-  const gated = createReviewServer({ config, inboxRoot: config.paths.inbox, outboxRoot: config.paths.outbox, authEnv: { ...bothRoles(), HOST: '0.0.0.0' } });
+  // The same environment WITH credentials is fine: gated is safe anywhere. FMA_DATA_ROOT points the
+  // persistence guard at this fixture's own tree — a hosted bind also insists the data directories
+  // survive a restart, and the fixture's temp dir is its equivalent of the mounted disk.
+  const gated = createReviewServer({ config, inboxRoot: config.paths.inbox, outboxRoot: config.paths.outbox, authEnv: { ...bothRoles(), HOST: '0.0.0.0', FMA_DATA_ROOT: root } });
   assert.ok(gated.server, 'a gated studio may bind every interface');
   gated.server.close();
 });

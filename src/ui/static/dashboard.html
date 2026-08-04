@@ -7,6 +7,47 @@
 <style>
   /* the overnight-autopilot morning banner (home + Objednávky). Tone follows the worst state present. */
   .overnight[hidden]{display:none}
+
+  /* ---- unit economics ------------------------------------------------------
+     Every value is a token. The only "chart colour" is --brand at stepped opacity, so the mix bar
+     needs no palette of its own and follows the theme into dark mode without a second set of steps. */
+  .mx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--sp-3)}
+  .mx-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--sp-4)}
+  .mx-card.wide{margin-top:var(--sp-3)}
+  .mx-lab{font-size:12px;color:var(--ink-3);margin-bottom:6px}
+  .mx-val{font-family:var(--font-display);font-size:26px;line-height:1.1;color:var(--ink)}
+  .mx-d{display:inline-block;margin-top:6px;font-size:11.5px;color:var(--ink-3)}
+  .mx-d.up{color:var(--success)} .mx-d.down{color:var(--danger)}
+  .mx-refresh{background:none;border:0;color:var(--ink-3);font:inherit;font-size:12px;cursor:pointer}
+  .mx-refresh:hover{color:var(--brand)}
+  .mx-note{color:var(--ink-3);font-size:13px;padding:var(--sp-3) 0}
+  .mx-stale{background:var(--warning-soft);color:var(--ink-2);font-size:12px;padding:8px 12px;border-radius:var(--r-md);margin-bottom:var(--sp-3)}
+  .mx-off{padding:var(--sp-4);text-align:center}
+  .mx-off .mo-t{font-weight:600;color:var(--ink)} .mx-off .mo-s{font-size:12.5px;color:var(--ink-3);margin-top:4px}
+
+  /* One stacked bar. The 2px gap is the surface showing through, which is what separates adjacent
+     blocks — opacity alone would not, and it keeps working for a colour-blind reader. */
+  .mx-bar{display:flex;gap:2px;height:26px;border-radius:var(--r-sm);overflow:hidden;margin-top:4px}
+  .mx-seg{background:var(--brand);min-width:3px}
+  .mx-leg{display:flex;flex-wrap:wrap;gap:var(--sp-3);margin-top:10px}
+  .mx-key{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)}
+  .mx-key i{width:10px;height:10px;border-radius:3px;background:var(--brand);flex-shrink:0}
+  .mx-key b{color:var(--ink);font-weight:600}
+
+  /* 12 weeks of revenue. Recessive: no gridlines, no axis rules — the bars carry it. */
+  .mx-trend{width:100%;height:120px;margin-top:6px;overflow:visible}
+  .mx-b rect{fill:var(--brand);opacity:.85}
+  .mx-b:hover rect{opacity:1}
+  /* The week still filling is drawn hollow, so a Monday does not read as a collapse in sales. */
+  .mx-b.partial rect{fill:none;stroke:var(--brand);stroke-width:1.5;stroke-dasharray:3 2;opacity:.9}
+  .mx-axis{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-3);margin-top:2px}
+
+  /* The rail's mail card is a count and a link, nothing more. */
+  .mail-mini{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:14px 16px;text-decoration:none}
+  .mail-mini b{display:block;font-size:13.5px;color:var(--ink)}
+  .mail-mini span{font-size:11.5px;color:var(--ink-3)}
+  .mail-mini:hover{border-color:var(--border-strong)}
+
   .on-card{display:flex;align-items:center;gap:12px;padding:12px 14px;margin:0 0 2px;border:1px solid var(--border);border-left:3px solid var(--brand);border-radius:12px;background:var(--surface)}
   .on-card.good{border-left-color:var(--success)}
   .on-card.warn{border-left-color:var(--warning)}
@@ -282,7 +323,6 @@
       <a data-view="queue" href="#queue"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="7" rx="2"/><path d="M7 16h10v5H7z"/></svg>Tisková fronta<span class="count" id="nav-queue">–</span></a>
       <a data-view="generator" href="/review"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6"/><path d="m14 4 6 6"/><path d="M14.5 4.5 19 9l-9 9-4.5-4.5z"/><path d="M18 2v3M21 4h-3"/></svg>Generátor<span class="count" id="nav-gen">–</span></a>
       <a data-view="creatives" data-operator href="#creatives"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg>Kreativy</a>
-      <a data-view="calendar" data-operator href="#calendar"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Kalendář</a>
       <a data-view="blog" data-operator href="#blog"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h10l6 6v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M14 4.5v6h6"/><path d="M8 13h8M8 16.5h5"/></svg>Blog</a>
       <a data-view="mail" data-operator href="#mail"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>Pošta<span class="count" id="nav-mail">–</span></a>
     </nav>
@@ -321,52 +361,30 @@
       <div class="home-grid">
         <div class="col-work">
           <div class="overnight" hidden></div>
-          <section class="kpis">
-            <button class="kpi" onclick="go('orders')"><div class="well w-brand"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16M16 10a4 4 0 0 1-8 0"/></svg></div><div class="val" id="kpi-queued">–</div><div class="lab">Nové objednávky</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
-            <button class="kpi" onclick="go('orders')"><div class="well w-running"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/></svg></div><div class="val" id="kpi-generating">–</div><div class="lab">Generuje se</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
-            <button class="kpi" onclick="go('orders')"><div class="well w-warning"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg></div><div class="val" id="kpi-held">–</div><div class="lab">Potřebuje pozornost</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
-            <button class="kpi" onclick="go('orders')"><div class="well w-info"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 15h6M9 18h6"/></svg></div><div class="val" id="kpi-ready">–</div><div class="lab">Připraveno pro PDF</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
-            <button class="kpi" onclick="go('orders')"><div class="well w-success"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21.8 10A10 10 0 1 1 17 3.3"/><path d="m9 11 3 3L22 4"/></svg></div><div class="val" id="kpi-sent">–</div><div class="lab">Odesláno</div><span class="arr"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></button>
+
+          <!-- The homepage answers one question: is the AOV / tier-mix work moving before the
+               November relaunch. Everything that used to sit here restated the left nav. -->
+          <section id="metricsSection" data-operator hidden>
+            <div class="sec-h"><h2>Ekonomika objednávek</h2><button class="mx-refresh" id="mxRefresh" title="Načíst znovu ze Shopify">Obnovit</button></div>
+            <div id="mxBody"><div class="mx-note">Načítám…</div></div>
           </section>
 
           <section>
             <div class="sec-h"><h2>Pokračovat v práci</h2></div>
             <div class="continue" id="continueRow"></div>
           </section>
-
-          <section>
-            <div class="sec-h"><h2>Nástroje studia</h2></div>
-            <div class="tools">
-              <a class="tool" href="/review"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/></svg></div><b>Generátor</b><span>Omalovánky z fotek</span></a>
-              <a class="tool" data-operator href="#creatives" onclick="go('creatives');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5 10 10 0 0 0-10-7z"/></svg></div><b>Kreativy</b><span>Vizuály pro marketing</span></a>
-              <a class="tool" data-operator href="#calendar" onclick="go('calendar');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg></div><b>Kalendář</b><span>Plán kampaní</span></a>
-              <a class="tool" href="#orders" onclick="go('orders');return false"><div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 4 6v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4z"/><path d="M4 6h16M16 10a4 4 0 0 1-8 0"/></svg></div><b>Objednávky</b><span>Přehled všech</span></a>
-            </div>
-          </section>
-
-          <section>
-            <div class="sec-h"><h2>Poslední objednávky</h2><a href="#orders" onclick="go('orders');return false">Zobrazit všechny →</a></div>
-            <div class="table"><table>
-              <thead><tr><th>Objednávka</th><th>Stránky</th><th>Titulek</th><th>Stav</th></tr></thead>
-              <tbody id="recentBody"><tr><td colspan="4" class="empty">Načítám…</td></tr></tbody>
-            </table></div>
-          </section>
-
-          <div class="preview-note"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>Živá data z generátoru. Kalendář ukazuje roční marketingový plán — listujte měsíci.</div>
         </div>
 
         <aside class="rail">
-          <div class="card" style="padding:18px" id="mailCard" data-operator>
-            <div class="sec-h"><h2>Pošta</h2><div class="mail-head-r"><button class="mail-write" id="mailCompose">Napsat</button><span class="chip c-neutral" id="mailUnread">–</span></div></div>
-            <div id="mailBody"><div class="empty">Načítám…</div></div>
-          </div>
+          <!-- Reduced to the count. The inbox itself is one click away in the nav, and a mail list
+               on the homepage was a second copy of the Pošta screen. -->
+          <a class="card mail-mini" id="mailCard" data-operator href="#mail" onclick="go('mail');return false">
+            <div><b>Pošta</b><span id="mailUnreadLabel">nepřečtené</span></div>
+            <span class="chip c-neutral" id="mailUnread">–</span>
+          </a>
           <div class="cal">
             <div class="top"><h2 id="calLabel">Červenec 2026</h2><div class="nav-btns"><button aria-label="Předchozí"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button aria-label="Další"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
             <div class="cal-grid" id="calGrid"></div>
-          </div>
-          <div class="card" style="padding:18px">
-            <div class="sec-h"><h2>Nadcházející</h2><a href="#calendar" onclick="go('calendar');return false">Vše →</a></div>
-            <div class="up-list" id="upList"></div>
           </div>
         </aside>
       </div>
@@ -699,7 +717,11 @@
          right one. */
   let identity=null;
   const isOperator=()=>identity!==null&&identity.role==="operator";
-  const OPERATOR_VIEWS=["creatives","calendar","blog","mail","settings"];
+  /* `home` joins this list with the unit-economics rework: the overview IS the shop's revenue now —
+     AOV, tier mix, month-on-month — and the printer's screen is a work list. He lands on the print
+     queue instead, which is the view he signs in for. The data behind it is refused server-side too
+     (GET /api/metrics is operator-only in ROUTE_POLICY); this is the page not offering it. */
+  const OPERATOR_VIEWS=["home","creatives","calendar","blog","mail","settings"];
   const viewAllowed=(v)=>isOperator()||!OPERATOR_VIEWS.includes(v);
   const currentView=()=>(location.hash||"#home").slice(1);
   /* Where a fresh load lands (R10, U12). A printer signs in to print, so he lands on the print
@@ -725,6 +747,11 @@
     if(nameField&&document.activeElement!==nameField)nameField.value=next.username||"";
     if(!viewAllowed(currentView())||(next.implicit&&currentView()==="profile"))go("home");
   }
+
+  document.getElementById("mxRefresh").onclick=()=>{
+    document.getElementById("mxBody").innerHTML='<div class="mx-note">Načítám ze Shopify…</div>';
+    fetchMetrics(true);
+  };
 
   /* ---- live board from /api/studio ---- */
   let studioData=null;
@@ -806,21 +833,12 @@
   }
 
   function renderHome(d){
-    document.getElementById("kpi-queued").textContent=d.counts.queued||0;
-    document.getElementById("kpi-generating").textContent=d.counts.generating||0;
-    document.getElementById("kpi-held").textContent=d.counts.held||0;
-    document.getElementById("kpi-ready").textContent=d.counts.approved||0; // "Připraveno pro PDF" = all approved, awaiting the PDF build
-    document.getElementById("kpi-sent").textContent=d.counts.sent||0; // "Odesláno" = posted to the customer
     // sidebar counts — active orders. Only 'sent' comes off: a PRINTED order is not finished any
     // more, it is waiting for the operator to post it, and hiding it from the count is how a packed
     // parcel sits on a desk for a week.
     document.getElementById("nav-orders").textContent=(d.counts.total||0)-(d.counts.sent||0);
     document.getElementById("nav-gen").textContent=d.counts.generating||0;
     renderContinue(d);
-    // recent orders — newest first
-    const recent=[...d.orders].reverse().slice(0,6);
-    const rb=document.getElementById("recentBody");
-    rb.innerHTML=recent.length?recent.map(orderRow).join(""):'<tr><td colspan="4" class="empty">Zatím žádné objednávky ve složce.</td></tr>';
   }
 
   function renderContinue(d){
@@ -873,14 +891,7 @@
     const status=running?(cur?`Objednávka ${esc(cur.orderId)} · ${done}/${cur.photos.total} fotek hotovo`:(gen?gen+" úloh právě běží":"Zpracovávám…")):"Žádná úloha právě neběží";
     const barCls=running&&!determinate?"progress run indet":"progress run";
     const barStyle=determinate?`width:${pct}%`:(running?"":"width:0%");
-    const c2=`<div class="card cwork"><div class="head"><h3>Generování</h3>${running?`<span class="chip c-running"><span class="dot"></span>${chip}</span>`:'<span class="chip c-neutral"><span class="dot"></span>klid</span>'}</div>
-      <div class="body"><div class="meta">
-        <div style="color:var(--ink-2);font-size:12.5px">${status}</div>
-        <div class="${barCls}"><i style="${barStyle}"></i></div>
-        <a class="btn btn-secondary mt" href="/review">Zobrazit frontu <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
-      </div>
-      <div class="gen-visual"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 6-6M14 4l6 6M14.5 4.5 19 9l-9 9-4.5-4.5z"/><path d="M18 2v3M21 4h-3"/></svg></div></div></div>`;
-    row.innerHTML=c1+c2;
+    row.innerHTML=c1;
   }
 
   // The active board hides finished orders; a toggle reveals them. "Done" is now ONLY 'sent' — the
@@ -972,6 +983,139 @@
     if(!studioData)return;
     renderOvernight(studioData);renderHome(studioData);renderOrders(studioData);renderQueue(studioData);syncFetchButton(studioData);
   }
+
+  /* ---- unit economics (/api/metrics) ------------------------------------------
+     The one question this page answers: is the AOV / tier-mix work moving before the relaunch.
+
+     No chart library — inline SVG from the same tokens as everything else. Two forms, chosen by the
+     job the data does:
+       · tier mix   — an ORDERED dimension (4 → 8 → 12 → 16 photos), so one hue at rising opacity,
+                      never four status colours pressed into service as series. Bigger book, darker
+                      block, which is the story the bar is there to tell. Monotonic by construction,
+                      and it inverts correctly in dark mode because the surface behind it changes.
+       · 12 weeks   — revenue over time, as bars. ONE measure on one axis: orders and revenue have
+                      different scales, and a second y-axis is the classic way to make a chart lie.
+                      The order count rides in the hover title instead.
+     Segments carry a 2px surface gap so adjacent blocks read apart without a second colour. */
+  let metricsState=null;
+
+  const czk=(n)=>new Intl.NumberFormat("cs-CZ",{style:"currency",currency:metricsState?.currency||"CZK",maximumFractionDigits:0}).format(n||0);
+  const czkNum=(n)=>new Intl.NumberFormat("cs-CZ",{maximumFractionDigits:0}).format(n||0);
+
+  /** Month-on-month, as a signed percentage — or null when last month was zero, because "+∞ %"
+      is not a fact about the business. */
+  function delta(now,before){
+    if(!before)return null;
+    return Math.round(((now-before)/before)*100);
+  }
+  function deltaChip(now,before){
+    const d=delta(now,before);
+    if(d===null)return '<span class="mx-d flat">bez srovnání</span>';
+    const cls=d>0?"up":d<0?"down":"flat";
+    return `<span class="mx-d ${cls}">${d>0?"+":""}${d} % vs. minulý měsíc</span>`;
+  }
+
+  function tierBar(mix){
+    if(!mix||!mix.length)return '<div class="mx-note">Za posledních 30 dní žádné prodané knihy.</div>';
+    const max=mix.length;
+    const seg=mix.map((t,i)=>{
+      // Rising opacity across the tiers present, floored so the lightest block never disappears.
+      const o=(0.42+0.58*(max===1?1:i/(max-1))).toFixed(2);
+      return `<span class="mx-seg" style="flex:${t.share||0.001};opacity:${o}" title="${t.tier} fotek — ${Math.round((t.share||0)*100)} % (${t.lineItems})"></span>`;
+    }).join("");
+    // A legend, because identity is never colour alone — and the share is written out, so a reader
+    // who cannot separate two opacities still gets the number.
+    const leg=mix.map((t,i)=>{
+      const o=(0.42+0.58*(max===1?1:i/(max-1))).toFixed(2);
+      return `<span class="mx-key"><i style="opacity:${o}"></i>${t.tier} fotek <b>${Math.round((t.share||0)*100)} %</b></span>`;
+    }).join("");
+    return `<div class="mx-bar">${seg}</div><div class="mx-leg">${leg}</div>`;
+  }
+
+  function trendSvg(weeks,currentWeek){
+    if(!weeks||!weeks.length)return "";
+    const W=520,H=120,pad=2;
+    const max=Math.max(1,...weeks.map(w=>w.revenue||0));
+    const bw=(W-pad*(weeks.length-1))/weeks.length;
+    const bars=weeks.map((w,i)=>{
+      const h=Math.max(2,Math.round((w.revenue||0)/max*(H-18)));
+      const x=Math.round(i*(bw+pad)), y=H-18-h;
+      // The week in progress is a PARTIAL count, not a fall. Drawn as an outline so it reads as
+      // "still filling" rather than as the drop it would otherwise look like on every Monday.
+      const partial=w.week===currentWeek;
+      const cls=partial?"mx-b partial":"mx-b";
+      return `<g class="${cls}"><rect x="${x}" y="${y}" width="${Math.max(1,bw)}" height="${h}" rx="3"></rect>`
+        +`<title>${esc(w.week)} — ${czk(w.revenue)}, ${w.orders} obj.${partial?" (probíhá)":""}</title></g>`;
+    }).join("");
+    const first=weeks[0].week.slice(-3), last=weeks.at(-1).week.slice(-3);
+    return `<svg class="mx-trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="Tržby po týdnech, posledních ${weeks.length} týdnů">${bars}</svg>`
+      +`<div class="mx-axis"><span>${esc(first)}</span><span>${esc(last)} (probíhá)</span></div>`;
+  }
+
+  function renderMetrics(payload){
+    const box=document.getElementById("mxBody");
+    if(!box)return;
+    metricsState=payload.metrics;
+    const m=payload.metrics;
+    const cur=m.weeklyTrend&&m.weeklyTrend.length?m.weeklyTrend.at(-1).week:null;
+    const stale=payload.stale?`<div class="mx-stale">Čísla jsou z ${new Date(payload.at).toLocaleString("cs-CZ")} — Shopify se teď nepodařilo načíst.</div>`:"";
+    box.innerHTML=stale+`
+      <div class="mx-grid">
+        <div class="mx-card">
+          <div class="mx-lab">Objednávky tento měsíc</div>
+          <div class="mx-val">${czkNum(m.ordersThisMonth)}</div>
+          ${deltaChip(m.ordersThisMonth,m.ordersLastMonth)}
+        </div>
+        <div class="mx-card">
+          <div class="mx-lab">Tržby tento měsíc</div>
+          <div class="mx-val">${czk(m.revenueThisMonth)}</div>
+          ${deltaChip(m.revenueThisMonth,m.revenueLastMonth)}
+        </div>
+        <div class="mx-card">
+          <div class="mx-lab">Průměrná objednávka (30 dní)</div>
+          <div class="mx-val">${czk(m.aov30d)}</div>
+          <span class="mx-d flat">${m.counted} objednávek</span>
+        </div>
+        <div class="mx-card">
+          <div class="mx-lab">Stránek na objednávku (30 dní)</div>
+          <div class="mx-val">${new Intl.NumberFormat("cs-CZ",{maximumFractionDigits:1}).format(m.pagesPerOrder30d||0)}</div>
+          <span class="mx-d flat">vyrobených stran</span>
+        </div>
+      </div>
+      <div class="mx-card wide">
+        <div class="mx-lab">Mix velikostí (30 dní, podle prodané varianty)</div>
+        ${tierBar(m.tierMix30d)}
+      </div>
+      <div class="mx-card wide">
+        <div class="mx-lab">Tržby po týdnech (12 týdnů)</div>
+        ${trendSvg(m.weeklyTrend,cur)}
+      </div>`;
+  }
+
+  function renderMetricsProblem(code,message){
+    const box=document.getElementById("mxBody");
+    if(!box)return;
+    // Never blank space: the operator has to be able to tell "not set up" from "Shopify is down".
+    const t=code==="not-configured"
+      ? ["Ekonomika není propojená","Doplňte Shopify token v Nastavení a čísla se objeví."]
+      : ["Čísla se teď nepodařilo načíst","Shopify neodpovědělo. Zkuste Obnovit za chvíli."];
+    box.innerHTML=`<div class="mx-off"><div class="mo-t">${esc(t[0])}</div><div class="mo-s">${esc(message||t[1])}</div></div>`;
+  }
+
+  let metricsInFlight=false;
+  async function fetchMetrics(force){
+    if(metricsInFlight)return;
+    metricsInFlight=true;
+    try{
+      const r=await fetch("/api/metrics"+(force?"?refresh=1":""));
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){renderMetricsProblem(j.code,j.error);return;}
+      renderMetrics(j);
+    }catch(e){
+      renderMetricsProblem("unavailable",e.message);
+    }finally{metricsInFlight=false;}
+  }
+
   async function fetchStudio(){
     try{const res=await fetch("/api/studio");if(!res.ok)return;studioData=await res.json();applyIdentity(studioData.identity);renderStudio();}
     catch(e){/* offline / not the live server — keep the last board */}
@@ -1072,10 +1216,21 @@
     "offline":["Proton Bridge neběží","Spusťte na tomto počítači aplikaci Proton Mail Bridge."],
     "auth":["Přihlášení selhalo","Zkontrolujte přihlášení z Proton Bridge v config.json."]
   };
+  /** The rail card: the number and whether it is worth looking at. */
+  function paintMailBadgeOnly(badge,m){
+    if(!m||!m.available){ badge.textContent="–"; badge.className="chip c-neutral"; return; }
+    const n=m.unread||0;
+    badge.textContent=String(n);
+    badge.className="chip "+(n>0?"c-brand":"c-neutral");
+  }
+
   function renderMail(m){
+    // The homepage rail is a COUNT now — the list lives on the Pošta screen and having it twice
+    // meant two renderers for one inbox. `body` is absent here and present on the Pošta tab.
     const badge=document.getElementById("mailUnread"), body=document.getElementById("mailBody");
     setNavMailBadge(m);
-    if(!badge||!body) return;
+    if(!badge) return;
+    if(!body){ paintMailBadgeOnly(badge,m); return; }
     if(!m||!m.available){
       badge.textContent="–"; badge.className="chip c-neutral";
       const [t,s]=MAIL_OFF[m&&m.reason]||["Schránku nelze načíst","Zkuste to prosím později."];
@@ -1150,8 +1305,6 @@
     (to.value?bodyEl:to).focus();
   }
 
-  document.getElementById("mailBody").addEventListener("click",e=>{const it=e.target.closest(".mail-item[data-uid]");if(it&&it.dataset.uid)openMailMessage(it.dataset.uid);});
-  document.getElementById("mailCompose").onclick=()=>openComposer({});
   document.getElementById("mmClose").onclick=closeMail;
   mmOverlay().addEventListener("click",e=>{if(e.target===mmOverlay())closeMail();});
   document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!mmOverlay().hidden)closeMail();});
@@ -1808,7 +1961,6 @@
   }
   updateLabels();
   selectDay(TODAY.d);            // paints both grids + the day panel for today
-  paintUpcoming("upList",5);     // Přehled rail (nearest 5)
   paintUpcoming("upListBig",8);  // Kalendář tab
 
   /* ---- evergreen ideas: page 2 of the plan — date-independent use-cases grouped by category.
@@ -1874,7 +2026,9 @@
     // The guard lives HERE, on the resolver, not on the nav control. Every way into a view goes
     // through this line — the click, the fragment on first load, the back button, Escape — so a
     // printer typing #settings lands on home instead of on a screen they cannot use (KTD10).
-    if(!views.includes(v)||!viewAllowed(v))v="home";
+    // The fallback is role-aware, because "home" is no longer a view everybody may reach: falling
+    // back to it for a printer would be a redirect to the one screen he is being kept off.
+    if(!views.includes(v)||!viewAllowed(v))v=isOperator()?"home":"queue";
     if(v==="profile"&&identity&&identity.implicit)v="home";
     views.forEach(x=>document.getElementById("v-"+x).classList.toggle("on",x===v));
     setActiveNav(v);
@@ -1890,6 +2044,7 @@
     if(["home","orders","queue"].includes(v))fetchStudio();
     if(v==="mail")fetchMailTab();
     if(v==="settings")fetchSettings();
+    if(v==="home"&&isOperator())fetchMetrics();
     if(v==="profile")paintProfile();
     if(v==="creatives"){if(window.loadAdCal)loadAdCal();if(window.__cvFit)window.__cvFit();}
     if(v==="blog")loadBlog();
