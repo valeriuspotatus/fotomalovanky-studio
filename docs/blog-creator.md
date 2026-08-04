@@ -62,7 +62,8 @@ handle. Shopify articles arrive unpublished and it never tells us when David pub
 link can point at an article still waiting in admin — he sees every link in review.
 
 A non-blocking QC pass (`qcPost`) surfaces warnings: keyword missing from title / first ~100 words,
-title or meta over length, body too short, no FAQ, no internal-link hint (only when there are no
+title or meta over length, body too short (a `printable` is measured against its own 400-word floor —
+it is short by design, and a warning that always fires is a warning nobody reads), no FAQ, no internal-link hint (only when there are no
 siblings), **no link to existing siblings**, a printable missing `{{KLAVIYO_FORM}}`, **selling above
 the form** in a printable, a missing extra placeholder, and the brand's **banned vocabulary**
 (AI/algorithm/generování, sleva/akce/výprodej, …). Warnings never block saving.

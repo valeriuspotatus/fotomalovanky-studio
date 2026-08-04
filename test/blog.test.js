@@ -349,6 +349,22 @@ test('QC warns when siblings exist but the article links to none, and asks for a
   assert.ok(!alone.qc.warnings.some((w) => w.code === 'no-internal-links'));
 });
 
+test('a printable is held to its own word floor, not the long-form one', () => {
+  const post = (articleType, words) => ({
+    topic: { keyword: 'k', articleType },
+    seoTitle: 'k',
+    metaDescription: 'm',
+    plainText: Array(words).fill('slovo').join(' '),
+    faq: [{ q: 'a', a: 'b' }],
+    internalLinkHint: 'x',
+    bodyHtml: `<p>${FORM_PLACEHOLDER}</p>`,
+  });
+  const short = (p) => qcPost(p, { wordCountMin: 800 }).warnings.some((w) => w.code === 'body-short');
+  assert.equal(short(post('printable', 520)), false, '520 words is a fine lead magnet');
+  assert.equal(short(post('printable', 300)), true, 'but it still has a floor');
+  assert.equal(short(post('gift', 520)), true, 'a long-form article keeps the long-form floor');
+});
+
 test('a printable skeleton still reserves the form paragraph', async () => {
   const post = await generatePost({ topic: PRINTABLE_TOPIC, generateTextFn: async () => 'garbage' });
   assert.equal(post.copySource, 'seed');

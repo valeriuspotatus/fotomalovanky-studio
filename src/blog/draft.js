@@ -20,6 +20,8 @@ const FAQ_HEADING = 'Časté dotazy';
 /** The paragraph a `printable` article reserves for the download form. Klaviyo/Shopify gate the PDF
  *  behind it — this side of the pipeline only marks the spot. */
 export const FORM_PLACEHOLDER = '{{KLAVIYO_FORM}}';
+/** A printable's word floor — see the QC pass. Long-form articles keep config.blog.wordCountMin. */
+export const PRINTABLE_WORD_MIN = 400;
 
 /** Only ever an internal storefront path: /blogs/<blog>/<article>. */
 const INTERNAL_URL = /^\/blogs\/[a-z0-9-]+\/[a-z0-9-]+$/;
@@ -173,8 +175,12 @@ export function qcPost(post, { wordCountMin = 800 } = {}) {
   if ((post.seoTitle ?? '').length > SEO_TITLE_MAX) w('title-long', `SEO titulek má ${post.seoTitle.length} znaků (limit ${SEO_TITLE_MAX}).`);
   if (!String(post.metaDescription ?? '').trim()) w('meta-missing', 'Chybí meta popis.');
   else if (post.metaDescription.length > META_MAX) w('meta-long', `Meta popis má ${post.metaDescription.length} znaků (limit ${META_MAX}).`);
+  // A printable is short on purpose — the template asks for a 2–3 sentence intro and gets out of the
+  // way. Holding it to the long-form floor means every printable ships a warning, which is how QC
+  // stops being read at all. Its own floor is 400 words (or lower, if the config asks for less).
+  const floor = type === 'printable' ? Math.min(wordCountMin, PRINTABLE_WORD_MIN) : wordCountMin;
   const words = wordCount(post.plainText);
-  if (words < wordCountMin) w('body-short', `Článek má ${words} slov (doporučeno aspoň ${wordCountMin}).`);
+  if (words < floor) w('body-short', `Článek má ${words} slov (doporučeno aspoň ${floor}).`);
   // Real links beat a hint. Only when there is nothing to link to does the hint field matter.
   if (siblings.length) {
     if (internalLinkCount(post.bodyHtml) === 0) {
