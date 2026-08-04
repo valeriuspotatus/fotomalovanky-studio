@@ -106,34 +106,112 @@ export function createMeter(caps = CAPS) {
   };
 }
 
-/** The print sheet: one A4 portrait page per image, the drawing centred inside a small margin, a
- *  quiet footer with the logo and the domain. preferCSSPageSize makes @page the authority. */
-export function buildSheetHtml(imageUrls, { logoDataUri = null, title = 'Fotomalovánky' } = {}) {
+/** Uniform printable margin on all four sides. */
+export const PAGE_MARGIN_MM = 8;
+
+/** The print sheet: one A4 portrait page per image, the drawing FILLING the printable area, a quiet
+ *  footer with the logo and the domain. preferCSSPageSize makes @page the authority.
+ *
+ *  The art covers its box rather than fitting inside it. Fitting a 3:4 drawing into a taller box left
+ *  uneven white bands above and below, which read as a mistake on a printed page; covering trims about
+ *  3% off each side instead, and the sources are composed with their objects clear of the edges.
+ *
+ *  `fontDataUri` embeds Fredoka as bytes, so the footer renders identically on a machine that has
+ *  never heard of the font — a PDF that depends on a locally installed font is a PDF that silently
+ *  changes when it travels. */
+export function buildSheetHtml(imageUrls, { logoDataUri = null, title = 'Fotomalovánky', fontDataUri = null } = {}) {
   const footer = `<footer>${logoDataUri ? `<img class="mark" src="${logoDataUri}" alt="">` : ''}<span>fotomalovanky.cz</span></footer>`;
   const pages = imageUrls
     .map((url) => `<section class="page"><div class="art"><img src="${url}" alt=""></div>${footer}</section>`)
     .join('\n');
+  const face = fontDataUri
+    ? `@font-face { font-family: 'Fredoka'; font-style: normal; font-weight: 300 600;
+       src: url(${fontDataUri}) format('truetype'); font-display: block; }`
+    : '';
   return `<!doctype html>
 <html lang="cs"><head><meta charset="utf-8"><title>${title}</title><style>
+  ${face}
   @page { size: A4 portrait; margin: 0; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #fff; }
   .page {
-    width: 210mm; height: 297mm; padding: 12mm 12mm 8mm;
+    width: 210mm; height: 297mm; padding: ${PAGE_MARGIN_MM}mm;
     display: flex; flex-direction: column; align-items: center;
     break-after: page; page-break-after: always; overflow: hidden;
   }
   .page:last-child { break-after: auto; page-break-after: auto; }
-  .art { flex: 1 1 auto; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 0; }
-  .art img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .art { flex: 1 1 auto; width: 100%; min-height: 0; overflow: hidden; }
+  /* cover + centred = fill the printable area, trimming evenly from both sides */
+  .art img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
   footer {
     flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 2.5mm;
-    padding-top: 3mm; font: 400 9pt/1 system-ui, -apple-system, "Segoe UI", Arial, sans-serif; color: #444;
+    padding-top: 3mm; font: 400 9pt/1 'Fredoka', system-ui, -apple-system, "Segoe UI", Arial, sans-serif; color: #444;
   }
   footer .mark { height: 5mm; width: auto; }
 </style></head><body>
 ${pages}
 </body></html>`;
+}
+
+const FONT_CACHE = join(REPO, 'printables', '.fonts', 'Fredoka.ttf');
+// Google serves whatever format it thinks the caller can read, decided purely from the User-Agent:
+// woff2 to a modern browser, woff to Firefox 3 / Safari 5, EOT to MSIE, and plain TTF to an old
+// Android. Measured, not guessed — MSIE returned font/eot and the css2 endpoint no format at all.
+// This is the one that yields an sfnt, and the magic bytes are checked below rather than trusting
+// the Content-Type, because the format is the whole requirement here.
+const TTF_UA =
+  'Mozilla/5.0 (Linux; U; Android 2.2; en-us; Nexus One Build/FRF91) ' +
+  'AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1';
+
+/** True for a real sfnt container (TrueType / OpenType), false for woff, woff2, eot or an error page. */
+export function isSfnt(buf) {
+  if (!buf || buf.length < 4) return false;
+  const hex = buf.subarray(0, 4).toString('hex');
+  const ascii = buf.subarray(0, 4).toString('latin1');
+  return hex === '00010000' || ascii === 'true' || ascii === 'ttcf' || ascii === 'OTTO';
+}
+
+/**
+ * Fredoka as a base64 data URI, downloaded once and cached on disk.
+ *
+ * Embedded rather than referenced on purpose: a PDF that names a font renders in whatever the reading
+ * machine happens to have, so the same file looks different on David's laptop and at a print shop.
+ * Embedding the bytes makes the footer identical everywhere. Returns null if the download fails —
+ * that costs the typeface, not the build, and the footer falls back to the system stack.
+ */
+export async function loadFredoka({ fetchImpl = fetch } = {}) {
+  if (existsSync(FONT_CACHE)) {
+    return `data:font/ttf;base64,${readFileSync(FONT_CACHE).toString('base64')}`;
+  }
+  // A STATIC ttf on purpose. google/fonts only ships Fredoka as a variable font, and Chromium will
+  // not embed one into a PDF: it writes a FontDescriptor naming the family and no FontFile at all, so
+  // the file silently depends on the reader having Fredoka installed — exactly what embedding is meant
+  // to prevent. Measured both ways; the static instance from the CSS API embeds as FontFile2. That
+  // instance is the Light weight, which is the price of a self-contained PDF and worth paying.
+  try {
+    const cssRes = await fetchImpl('https://fonts.googleapis.com/css?family=Fredoka', {
+      headers: { 'User-Agent': TTF_UA },
+    });
+    if (!cssRes.ok) throw new Error(`Google Fonts CSS returned ${cssRes.status}`);
+    const css = await cssRes.text();
+    // The url has no .ttf extension (it is a /l/font?kit=… delivery link), so the format is proved
+    // from the bytes, not from the filename.
+    const url = (css.match(/url\((https:[^)]+)\)/) ?? [])[1];
+    if (!url) throw new Error('no font url in the Google Fonts CSS response');
+    const fontRes = await fetchImpl(url, { headers: { 'User-Agent': TTF_UA } });
+    if (!fontRes.ok) throw new Error(`font download returned ${fontRes.status}`);
+    const bytes = Buffer.from(await fontRes.arrayBuffer());
+    if (!isSfnt(bytes)) {
+      throw new Error(`downloaded ${bytes.length} bytes but they are not a TTF (magic ${bytes.subarray(0, 4).toString('hex')})`);
+    }
+    mkdirSync(dirname(FONT_CACHE), { recursive: true });
+    writeFileSync(FONT_CACHE, bytes);
+    console.log(`    Fredoka downloaded and cached (${Math.round(bytes.length / 1024)} KB): ${FONT_CACHE}`);
+    return `data:font/ttf;base64,${bytes.toString('base64')}`;
+  } catch (err) {
+    console.log(`    Fredoka unavailable (${err.message}) — the footer falls back to the system font.`);
+    return null;
+  }
 }
 
 /** The logo as a data URI, or null when it isn't there — a missing asset costs the mark, not the run. */
@@ -155,7 +233,7 @@ function logoDataUri() {
 export async function assemblePdf(imagePaths, outPdfPath, { title } = {}) {
   if (!imagePaths.length) throw new Error('assemblePdf needs at least one page image.');
   mkdirSync(dirname(outPdfPath), { recursive: true });
-  const html = buildSheetHtml(imagePaths.map((p) => pathToFileURL(resolve(p)).href), { logoDataUri: logoDataUri(), title });
+  const html = buildSheetHtml(imagePaths.map((p) => pathToFileURL(resolve(p)).href), { logoDataUri: logoDataUri(), title, fontDataUri: await loadFredoka() });
   const htmlPath = `${outPdfPath.replace(/\.pdf$/i, '')}.html`;
   writeFileSync(htmlPath, html);
 

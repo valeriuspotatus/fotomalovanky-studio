@@ -47,6 +47,12 @@ export function buildScenePrompt({ subject, elements, ground }) {
     'Plain pure white background. Soft, even, shadowless lighting with no cast shadows.',
     'All markings and patterning are pale and finely outlined — no large dark patches, no solid black areas.',
     'The subject is sharply defined.',
+    // v3 shipped fish standing on their tails, swimming straight up the page. Asking for a tall
+    // subject in a tall frame invites the model to rotate the animal to fill it, which is anatomically
+    // absurd on a colouring page. Orientation is now stated as a rule, not left to composition.
+    'Every animal is in its natural orientation, side view, as it would really stand, sit, perch or swim.',
+    'Never rotate, tilt or stand an animal on end to make it fit the tall frame. If the animal is wider',
+    'than it is tall, keep it that way and fill the remaining height with the named objects instead.',
     'Do not add any object, plant, animal or detail that is not named above.',
     'No people, no hands, no faces, no text, no logos, no watermarks.',
   ].join(' ');
@@ -120,7 +126,12 @@ const COMPOSITIONS = [
     // a small group rather than a lone fish
     subject: 'rybičky',
     composition: {
-      subject: 'three fish of the same kind swimming side by side in a row, seen from the side, none overlapping another',
+      // "side by side in a row" was read as a vertical row and the fish came back nose-up, swimming
+      // at the ceiling. The direction of travel is now spelled out and the stagger made explicit.
+      subject:
+        'three fish of the same kind swimming horizontally to the left, strict side view, each fish level ' +
+        'with its body horizontal and its nose pointing left, arranged at three different heights so none ' +
+        'overlaps another, none of them tilted or vertical',
       elements: ['two upright water plants', 'three rounded pebbles', 'one small shell'],
       ground: 'a simple straight sandy bottom line',
     },

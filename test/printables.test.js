@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseArgs, validateTheme, createMeter, buildSheetHtml, resolveCaps, canReroll, shouldReroll, isPortraitEnough, CAPS } from '../tools/printables.js';
+import { parseArgs, validateTheme, createMeter, buildSheetHtml, resolveCaps, canReroll, shouldReroll, isPortraitEnough, isSfnt, PAGE_MARGIN_MM, CAPS } from '../tools/printables.js';
 import zvirata from '../tools/printables/zvirata.js';
 
 // The browser half (assemblePdf) is proved by running the tool, the way the other Playwright work in
@@ -128,6 +128,39 @@ test('the set includes parent-and-young pages, not only lone animals', () => {
   const groupy = zvirata.pages.filter((p) => /kittens|foal|three fish/.test(p.composition.subject));
   assert.ok(groupy.length >= 3, `at least three pages show more than one animal, got ${groupy.length}`);
   assert.ok(zvirata.setDescription.includes('kočka s koťaty'), 'the article set description tracks the pages');
+});
+
+test('the sheet fills the printable area instead of letterboxing the art', () => {
+  const html = buildSheetHtml(['file:///a.svg'], {});
+  assert.equal(PAGE_MARGIN_MM, 8);
+  assert.match(html, /padding: 8mm/, 'a uniform margin on all four sides');
+  assert.match(html, /object-fit: cover/, 'cover, so no white bands are added by the layout');
+  assert.match(html, /object-position: center/, 'centred, so the trim comes off both sides evenly');
+  assert.ok(!/object-fit: contain/.test(html), 'contain is what produced the uneven bands');
+});
+
+test('the footer font is embedded as bytes, or absent rather than referenced', () => {
+  const withFont = buildSheetHtml(['file:///a.svg'], { fontDataUri: 'data:font/ttf;base64,AAAA' });
+  assert.match(withFont, /@font-face/);
+  assert.match(withFont, /src: url\(data:font\/ttf;base64,AAAA\) format\('truetype'\)/, 'the bytes travel with the page');
+  assert.ok(!/fonts\.googleapis|fonts\.gstatic/.test(withFont), 'never a network reference at render time');
+  assert.match(withFont, /font: 400 9pt\/1 'Fredoka'/, 'size and placement unchanged');
+
+  // Without a font the build still produces a page; the footer falls back rather than failing.
+  const without = buildSheetHtml(['file:///a.svg'], { fontDataUri: null });
+  assert.ok(!/@font-face/.test(without));
+  assert.match(without, /fotomalovanky\.cz/);
+});
+
+test('isSfnt accepts a real TTF and rejects woff/woff2/eot', () => {
+  const magic = (hex) => Buffer.from(hex, 'hex');
+  assert.equal(isSfnt(magic('0001000000')), true, 'TrueType');
+  assert.equal(isSfnt(Buffer.from('OTTO....')), true, 'OpenType CFF');
+  assert.equal(isSfnt(Buffer.from('wOFF....')), false, 'woff is not what we asked for');
+  assert.equal(isSfnt(Buffer.from('wOF2....')), false, 'woff2 either');
+  assert.equal(isSfnt(magic('148a0000')), false, 'the eot Google serves to MSIE');
+  assert.equal(isSfnt(Buffer.from('<!DOCTYPE html>')), false, 'an error page is not a font');
+  assert.equal(isSfnt(null), false);
 });
 
 test('the sheet is A4 portrait, one page per image, with the footer on each', () => {
