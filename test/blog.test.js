@@ -231,10 +231,52 @@ const PRINTABLE_TOPIC = {
 test('every draft prompt carries the verified product facts and no TODOs', () => {
   const prompt = buildDraftPrompt({ topic: GOOD_TOPIC, wordCountMin: 800, wordCountMax: 1500 });
   assert.ok(prompt.includes(PRODUCT_FACTS), 'the whole facts block is injected');
-  assert.ok(prompt.includes('399 Kč') && prompt.includes('1–3 dny'), 'real numbers reach the model');
+  assert.ok(prompt.includes('399 Kč') && prompt.includes('1 až 3 dny'), 'real numbers reach the model');
   assert.ok(!prompt.includes('TODO'), 'unverified facts never reach the model');
   assert.ok(/nevymýšlej/i.test(prompt), 'and it is told not to go beyond them');
   assert.ok(OPEN_FACTS.every((f) => f.startsWith('TODO(David):')), 'open questions stay addressed to David');
+});
+
+test('the editorial rules are in every prompt, and the prompt obeys them itself', () => {
+  for (const topic of [GOOD_TOPIC, PRINTABLE_TOPIC, { ...GOOD_TOPIC, articleType: 'trust' }]) {
+    for (const siblings of [[], [{ title: 'S', url: '/blogs/news/s' }]]) {
+      const prompt = buildDraftPrompt({ topic, wordCountMin: 800, wordCountMax: 1500, siblings });
+      assert.match(prompt, /NIKDY nepoužívej pomlčku/, `${topic.articleType}: the no-dash rule`);
+      assert.match(prompt, /Rozsahy piš slovy/, `${topic.articleType}: ranges in words`);
+      assert.match(prompt, /VÝHRADNĚ do bloku FAQ/, `${topic.articleType}: prices only in the FAQ`);
+
+      // A prompt full of dashes cannot credibly ban them. The only lines allowed to contain one are
+      // the two that quote the forbidden glyphs.
+      const offenders = prompt
+        .split('\n')
+        .filter((l) => /[—–]/.test(l))
+        .filter((l) => !l.includes('NIKDY nepoužívej pomlčku') && !l.includes('Rozsahy piš slovy'));
+      assert.deepEqual(offenders, [], `${topic.articleType}: the prompt itself must not use dashes`);
+    }
+  }
+});
+
+test('the printable bridge is capped at 3-4 sentences and carries the shop link', () => {
+  const prompt = buildDraftPrompt({ topic: PRINTABLE_TOPIC, wordCountMin: 700, wordCountMax: 1100 });
+  assert.match(prompt, /JEDEN odstavec o délce 3 až 4 věty/);
+  assert.ok(prompt.includes('[text odkazu](https://www.fotomalovanky.cz/)'), 'the bridge gets a shop link');
+  assert.match(prompt, /Žádné ceny, žádné gramáže, žádné podmínky dopravy/);
+});
+
+test('the shop link is honoured in assembly; other external links still are not', async () => {
+  const model = async () =>
+    JSON.stringify({
+      seoTitle: 'Dárek ke Dni matek: omalovánka z vaší fotky',
+      metaDescription: 'm',
+      handle: 'x',
+      intro: 'Dárek ke dni matek.',
+      sections: [{ h2: 'A', paragraphs: ['Zkuste [naši knihu](https://www.fotomalovanky.cz/) a [jinou](https://zlo.example/x).'] }],
+      faq: [{ q: 'a', a: 'b' }],
+    });
+  const post = await generatePost({ topic: GOOD_TOPIC, generateTextFn: model, wordCountMin: 5 });
+  assert.ok(post.bodyHtml.includes('<a href="https://www.fotomalovanky.cz/">naši knihu</a>'), 'our own shop link becomes an anchor');
+  assert.ok(!post.bodyHtml.includes('zlo.example'), 'any other external target is still dropped entirely');
+  assert.ok(post.bodyHtml.includes('jinou'), 'and leaves its text behind');
 });
 
 test('the printable prompt asks for the set, the print how-to, the form and no selling above it', () => {
@@ -248,7 +290,7 @@ test('the printable prompt asks for the set, the print how-to, the form and no s
 
 test('a gift topic keeps the general article structure, without printable rules', () => {
   const prompt = buildDraftPrompt({ topic: GOOD_TOPIC, wordCountMin: 800, wordCountMax: 1500 });
-  assert.ok(prompt.includes('úvod, 3–5 sekcí s podnadpisy'));
+  assert.ok(prompt.includes('úvod, 3 až 5 sekcí s podnadpisy'));
   assert.ok(!prompt.includes(FORM_PLACEHOLDER));
   assert.ok(!prompt.includes('NEPRODÁVÁ'));
 });

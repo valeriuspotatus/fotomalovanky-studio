@@ -37,21 +37,23 @@ const esc = (s) =>
 function structureFor(topic, wordCountMin, wordCountMax) {
   if (topic.articleType === 'printable') {
     return [
-      `Typ článku: TISKNUTELNÁ SADA. Rozsah ${wordCountMin}–${wordCountMax} slov. Struktura přesně v tomto pořadí:`,
-      '1) Krátký úvod, 2–3 věty, pro rodiče, který potřebuje omalovánky hned teď. Žádné dlouhé povídání, žádné dojímání.',
+      `Typ článku: TISKNUTELNÁ SADA. Rozsah ${wordCountMin} až ${wordCountMax} slov. Struktura přesně v tomto pořadí:`,
+      '1) Krátký úvod, 2 až 3 věty, pro rodiče, který potřebuje omalovánky hned teď. Žádné dlouhé povídání, žádné dojímání.',
       topic.setDescription
         ? `2) Sekce o tom, co je v sadě. Vycházej POUZE z tohoto popisu a nepřidávej motivy navíc: „${topic.setDescription}".`
-        : '2) Sekce o tom, co je v sadě — obecně, konkrétní motivy si nevymýšlej.',
+        : '2) Sekce o tom, co je v sadě, obecně. Konkrétní motivy si nevymýšlej.',
       '3) Sekce o tisku: formát A4, tisknout ve 100 % velikosti (ne „přizpůsobit stránce"), jinak se kresba zmenší.',
-      `4) Odstavec, který obsahuje POUZE text ${FORM_PLACEHOLDER} a nic jiného — na to místo se vloží formulář ke stažení.`,
-      '5) Právě JEDEN odstavec, který přirozeně přejde od tisknutelné sady k omalovánkové knize z vlastních fotek. Jako tip, ne jako reklama.',
+      `4) Odstavec, který obsahuje POUZE text ${FORM_PLACEHOLDER} a nic jiného. Na to místo se vloží formulář ke stažení.`,
+      '5) Právě JEDEN odstavec o délce 3 až 4 věty, který přirozeně přejde od tisknutelné sady k omalovánkové',
+      `   knize z vlastních fotek, a na konci odkaz ve tvaru [text odkazu](${SHOP_URL}). Jako tip, ne jako reklama.`,
+      '   Žádné ceny, žádné gramáže, žádné podmínky dopravy. Na to je FAQ. Tenhle odstavec má jen otevřít dveře.',
       '6) Blok FAQ.',
       `PRAVIDLO: nad odstavcem ${FORM_PLACEHOLDER} se NEPRODÁVÁ. Žádné ceny, žádné pobízení k objednávce, žádná zmínka o placeném produktu.`,
       'Do té chvíle článek jen pomáhá. Teprve odstavec 5 smí zmínit knihu z vlastních fotek.',
     ];
   }
   return [
-    `Rozsah ${wordCountMin}–${wordCountMax} slov. Struktura: úvod, 3–5 sekcí s podnadpisy, aspoň jeden seznam, blok FAQ.`,
+    `Rozsah ${wordCountMin} až ${wordCountMax} slov. Struktura: úvod, 3 až 5 sekcí s podnadpisy, aspoň jeden seznam, blok FAQ.`,
   ];
 }
 
@@ -64,24 +66,33 @@ export function buildDraftPrompt({ topic, wordCountMin, wordCountMax, siblings =
     BLOG_VOICE,
     '',
     PRODUCT_FACTS,
-    'Ceny, termíny a čísla výše jsou ověřená — smíš je použít přesně tak, jak jsou uvedená. Cokoli, co v seznamu není,',
+    'Ceny, termíny a čísla výše jsou ověřená, smíš je použít přesně tak, jak jsou uvedená. Cokoli, co v seznamu není,',
     'do článku nepatří: žádné další ceny, lhůty, počty stran, statistiky, recenze ani sliby. Když něco nevíš, nepiš to.',
     '',
+    // The three rules a human editor had to apply by hand to the first batch. Written as rules rather
+    // than as a style note, because "prefer" gets averaged away and "nikdy" does not.
+    'PRAVIDLA PSANÍ (platí bez výjimky, jinak se článek musí ručně přepisovat):',
+    '- NIKDY nepoužívej pomlčku jako interpunkci. Znaky „—" a „–" se v článku nesmí objevit ani jednou.',
+    '  Místo nich piš čárku, dvojtečku, nebo větu ukonči a začni novou.',
+    '- Rozsahy piš slovy: „1 až 3 dny", nikoli „1–3 dny". Totéž pro počty stran a jakýkoli jiný rozsah.',
+    '- Konkrétní ceny (částky v Kč) a ceny dopravy patří VÝHRADNĚ do bloku FAQ. V úvodu, v sekcích ani',
+    '  v přemostění na knihu žádná částka není. Čtenář se k cenám dostane, až když se na ně sám ptá.',
+    '',
     `Napiš SEO optimalizovaný český článek na blog na téma: „${topic.title}".`,
-    `Cílové klíčové slovo: „${topic.keyword}". Musí být v titulku, v prvním odstavci (do ~100 slov) a přirozeně v textu — bez keyword stuffingu.`,
+    `Cílové klíčové slovo: „${topic.keyword}". Musí být v titulku, v prvním odstavci (do ~100 slov) a přirozeně v textu, bez keyword stuffingu.`,
     topic.intent ? `Kontext / vyhledávací záměr: ${topic.intent}` : '',
     '',
     ...structureFor(topic, wordCountMin, wordCountMax),
     topic.placeholder
-      ? `Vlož navíc odstavec, který obsahuje POUZE text ${topic.placeholder} a nic jiného — na to místo doplníme obsah ručně.`
+      ? `Vlož navíc odstavec, který obsahuje POUZE text ${topic.placeholder} a nic jiného. Na to místo doplníme obsah ručně.`
       : '',
     '',
     ...(hasSiblings
       ? [
-          'Odkaž v textu na naše starší články (aspoň jeden, nejvýš tři) — přirozeně uvnitř věty, ne jako seznam na konci:',
+          'Odkaž v textu na naše starší články (aspoň jeden, nejvýš tři), přirozeně uvnitř věty, ne jako seznam na konci:',
           ...siblings.map((s) => `- „${s.title}" → ${s.url}`),
           'Odkaz zapiš přímo v odstavci ve tvaru [text odkazu](/blogs/…) s PŘESNĚ tou adresou, která je uvedená výše.',
-          'Jiné adresy nepoužívej — vymyšlený odkaz se z článku zahodí.',
+          'Jiné adresy nepoužívej. Vymyšlený odkaz se z článku zahodí.',
         ]
       : []),
     '',
@@ -114,7 +125,9 @@ function wordCount(text) {
  *  reach the article, and the escaping still happens first, so nothing else can be injected. */
 function richText(s, allowed) {
   return esc(s).replace(LINK_MARKER, (whole, text, url) =>
-    allowed.has(url) && INTERNAL_URL.test(url) ? `<a href="${url}">${text}</a>` : text,
+    // Siblings we handed it, or our own shop — the latter is a constant in this file, never model
+    // input, so honouring it cannot be abused the way an arbitrary URL could.
+    (allowed.has(url) && INTERNAL_URL.test(url)) || url === SHOP_URL ? `<a href="${url}">${text}</a>` : text,
   );
 }
 

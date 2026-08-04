@@ -25,11 +25,11 @@ export const PRODUCT_FACTS = [
   '- Dvě rozvržení stránky, zákazník si vybírá: „Galerie" (jeho fotka je vytištěná vedle omalovánky) nebo „Celostránková omalovánka" (kresba přes celou stránku).',
   '- Kniha má titulní stranu, na kterou přijde věnování. Tištěná kniha ze čtyř fotek má dvanáct stran A4.',
   '- Tiskneme na papír ColorLok®, podle počtu stran 160 g/m² nebo 120 g/m².',
-  '- Výroba trvá 1–3 dny, doručení celkem 3–5 dní. PDF chodí e-mailem.',
+  '- Výroba trvá 1 až 3 dny, doručení celkem 3 až 5 dní. PDF chodí e-mailem.',
   '- Doprava: Zásilkovna na adresu 99 Kč, Z-BOXy a výdejní místa Zásilkovny 67 Kč, AlzaBoxy 69 Kč, PPL boxy a parcel shopy 69 Kč, osobní odběr v Praze na Hájích zdarma.',
   '- Platba kartou online, dobírkou nebo bankovním převodem.',
   '- Jak objednávka probíhá: 1) zákazník vybere formát a počet fotek a nahraje je, 2) z každé fotky vytvoříme omalovánku a ručně ji doladíme, 3) knihu vytiskneme a pošleme, nebo pošleme PDF e-mailem.',
-  '- Fotky z telefonu jsou dostačující. Nejlépe fungují ostré a dobře nasvícené fotky s jedním hlavním motivem; velmi tmavé, rozmazané nebo hodně malé fotky se pro tisk nehodí — v takovém případě se zákazníkovi sami ozveme, než začneme tisknout.',
+  '- Fotky z telefonu jsou dostačující. Nejlépe fungují ostré a dobře nasvícené fotky s jedním hlavním motivem; velmi tmavé, rozmazané nebo hodně malé fotky se pro tisk nehodí. V takovém případě se zákazníkovi sami ozveme, než začneme tisknout.',
   '- Když výsledek nebude vypadat podobně jako fotka, zákazník se nám ozve a domluvíme se na nápravě.',
 ].join('\n');
 
