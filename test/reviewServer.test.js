@@ -991,9 +991,13 @@ test('the hidden attribute actually hides — the operator-only controls are not
     assert.match(css, /\[hidden\]\s*\{[^}]*display\s*:\s*none\s*!important/, 'a [hidden] rule that outranks any component display rule');
 
     const html = await (await f.get('/', f.printer)).text();
-    for (const view of ['creatives', 'calendar', 'blog', 'mail', 'settings']) {
+    // Kalendář is deliberately absent from the nav since the homepage rework; the view itself
+    // still exists and is reachable by fragment, and go() still guards it.
+    for (const view of ['creatives', 'blog', 'mail', 'settings']) {
       assert.match(html, new RegExp(`data-view="${view}" data-operator`), `${view} is marked operator-only`);
     }
+    assert.doesNotMatch(html, /data-view="calendar"/, 'and the calendar control is gone entirely');
+    assert.match(html, /OPERATOR_VIEWS=\[[^\]]*"calendar"[^\]]*\]/, 'while the view stays operator-only for anyone typing the fragment');
     // And the nav rules that made this necessary are still there, so the guard is not decorative.
     assert.match(css, /\.nav a\{display:flex/, 'the display rule that outranks the default is still present');
   } finally {
@@ -1050,6 +1054,55 @@ test('metrics is the shop revenue: refused for the printer, and 503 with a code 
     const body = await res.json();
     assert.equal(body.code, 'not-configured', 'a code the page can branch on');
     assert.ok(body.error, 'and a sentence the operator can read');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the homepage is the shop economics, so the printer lands on the print queue instead', async () => {
+  const f = await roleServer();
+  try {
+    const html = await (await f.get('/', f.printer)).text();
+    // The overview IS revenue now — AOV, tier mix, month on month — so it joins the operator views
+    // and the fallback stops sending everybody there.
+    assert.match(html, /OPERATOR_VIEWS=\[[^\]]*"home"[^\]]*\]/, 'home is operator-only');
+    assert.match(html, /v=isOperator\(\)\?"home":"queue"/, 'and the fallback is role-aware, not a redirect to the one screen he is kept off');
+    assert.match(html, /isOperator\(\)\?"home":"queue"/, 'a fresh load lands the printer on the queue');
+    assert.match(html, /id="metricsSection" data-operator hidden/, 'and the section cannot flash before the script decides');
+
+    // The queue view he lands on is the one that already exists — no second page was built for it.
+    assert.match(html, /id="v-queue"/, 'the existing fronta view');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the homepage widgets the rework removed are gone, not merely hidden', async () => {
+  const f = await roleServer();
+  try {
+    const html = await (await f.get('/', f.operator)).text();
+    for (const gone of ['id="kpi-queued"', 'id="recentBody"', 'id="upList"', 'Nástroje studia', 'Poslední objednávky', '<h3>Generování</h3>']) {
+      assert.ok(!html.includes(gone), `${gone} should be gone from the homepage`);
+    }
+    // Kept, per the brief.
+    assert.match(html, /class="overnight"/, 'the overnight strip is untouched');
+    assert.match(html, /id="continueRow"/, 'and "Pokračovat v práci" stays');
+    assert.match(html, /id="mailUnread"/, 'Pošta reduced to its count');
+    assert.match(html, /id="mxBody"/, 'with the metrics section in their place');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('the trend marks the week still in progress, so a Monday is not read as a collapse', async () => {
+  const f = await roleServer();
+  try {
+    const html = await (await f.get('/', f.operator)).text();
+    assert.match(html, /const partial=w\.week===currentWeek/, 'the current ISO week is identified');
+    assert.match(html, /\.mx-b\.partial rect\{fill:none;stroke:var\(--brand\)/, 'and drawn hollow rather than as a short solid bar');
+    // One measure, one axis. Orders and revenue have different scales; a second y-axis is how a
+    // chart lies about which way the business is going.
+    assert.ok(!/mx-trend[\s\S]{0,400}orders\)\/max/.test(html), 'the trend plots one measure');
   } finally {
     f.cleanup();
   }
