@@ -101,7 +101,9 @@ test('every zvirata page is a fully named composition — nothing unnamed may ap
     for (const e of elements) assert.ok(p.prompt.includes(e), `${p.subject}: "${e}" is named in the prompt`);
     assert.ok(prompt.includes('nothing else'), `${p.subject}: the closed inventory is stated`);
     assert.ok(prompt.includes('not named above'), `${p.subject}: and stated again as a prohibition`);
-    assert.ok(prompt.includes('upper third of the picture is empty'), `${p.subject}: empty upper third`);
+    assert.ok(prompt.includes('only the top third of the picture is empty'), `${p.subject}: empty upper third, and only that`);
+    assert.ok(prompt.includes('fill the lower two thirds'), `${p.subject}: subject is large, middle not empty`);
+    assert.ok(prompt.includes('nothing is cropped'), `${p.subject}: nothing cropped at the edges`);
     assert.ok(prompt.includes('no cast shadows'), `${p.subject}: no shadow to trace as black`);
     assert.ok(prompt.includes('no large dark patches'), `${p.subject}: pale markings, the v1 solid-fill fix`);
     assert.ok(prompt.includes('no people'), `${p.subject}: no people`);

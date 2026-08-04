@@ -38,12 +38,15 @@ export function buildScenePrompt({ subject, elements, ground }) {
   return [
     `A photorealistic photograph of ${subject}.`,
     `The picture contains exactly these things and nothing else: ${subject}; ${elements.join('; ')}; ${ground}.`,
-    `Everything rests on ${ground}, low in the frame.`,
-    'The upper third of the picture is empty white space — no sky, no clouds, no horizon, no trees,',
+    `Everything rests on ${ground}.`,
+    'ONLY the top third of the picture is empty white space — no sky, no clouds, no horizon, no trees,',
     'no hills, no buildings, no scenery of any kind behind or above the subject.',
+    'The subject and its named objects together fill the lower two thirds of the picture, edge to edge,',
+    'and the subject itself is big — its head reaches up to the top third. Do not leave the middle of',
+    'the picture empty. Every named object is fully inside the frame and nothing is cropped by the edges.',
     'Plain pure white background. Soft, even, shadowless lighting with no cast shadows.',
     'All markings and patterning are pale and finely outlined — no large dark patches, no solid black areas.',
-    'The subject is large in the frame and sharply defined.',
+    'The subject is sharply defined.',
     'Do not add any object, plant, animal or detail that is not named above.',
     'No people, no hands, no faces, no text, no logos, no watermarks.',
   ].join(' ');
