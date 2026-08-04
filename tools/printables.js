@@ -43,13 +43,14 @@ const PREVIEW_WIDTH = 1200;
  *  The two cap overrides exist so a resumed run can be given only the budget the first run left —
  *  the ceiling is per *task*, not per invocation. They can only ever lower a cap. */
 export function parseArgs(argv) {
-  const args = { theme: null, dryRun: false, out: null, maxJobs: null, maxImages: null };
+  const args = { theme: null, dryRun: false, out: null, maxJobs: null, maxImages: null, limit: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--dry-run') args.dryRun = true;
     else if (argv[i] === '--theme') args.theme = argv[++i] ?? null;
     else if (argv[i] === '--out') args.out = argv[++i] ?? null;
     else if (argv[i] === '--max-jobs') args.maxJobs = Number(argv[++i]);
     else if (argv[i] === '--max-images') args.maxImages = Number(argv[++i]);
+    else if (argv[i] === '--limit') args.limit = Number(argv[++i]);
   }
   return args;
 }
@@ -405,11 +406,16 @@ async function main() {
   console.log(`Theme ${theme.title ?? theme.name} -> ${workDir}`);
   console.log(`Caps: ${caps.geminiImages} Gemini images, ${caps.generatorJobs} generator jobs.`);
 
+  // --limit runs only the first N pages, so a cheap probe can prove a new composition style before
+  // the whole set is paid for. Everything it produces is reused free by the follow-up full run.
+  const todo = Number.isInteger(args.limit) && args.limit > 0 ? theme.pages.slice(0, args.limit) : theme.pages;
+  if (todo.length < theme.pages.length) console.log(`Probe: pages 1-${todo.length} of ${theme.pages.length} only.`);
+
   const results = [];
   let stopped = null;
-  for (const [i, page] of theme.pages.entries()) {
+  for (const [i, page] of todo.entries()) {
     try {
-      results.push(await producePage({ page, i, theme, config, driver, meter, workDir, pagesAfter: theme.pages.length - 1 - i }));
+      results.push(await producePage({ page, i, theme, config, driver, meter, workDir, pagesAfter: todo.length - 1 - i }));
     } catch (err) {
       stopped = err.message;
       console.error(`\nSTOPPED: ${err.message}`);

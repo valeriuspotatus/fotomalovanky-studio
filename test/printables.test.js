@@ -9,10 +9,11 @@ import zvirata from '../tools/printables/zvirata.js';
 // here is everything that decides how much money the run spends, and the sheet it prints.
 
 test('parseArgs reads the theme, the dry-run flag, an output override and cap overrides', () => {
-  assert.deepEqual(parseArgs(['--theme', 'zvirata', '--dry-run']), { theme: 'zvirata', dryRun: true, out: null, maxJobs: null, maxImages: null });
-  assert.deepEqual(parseArgs(['--theme', 'x', '--out', 'D:\\tmp']), { theme: 'x', dryRun: false, out: 'D:\\tmp', maxJobs: null, maxImages: null });
+  assert.deepEqual(parseArgs(['--theme', 'zvirata', '--dry-run']), { theme: 'zvirata', dryRun: true, out: null, maxJobs: null, maxImages: null, limit: null });
+  assert.deepEqual(parseArgs(['--theme', 'x', '--out', 'D:\\tmp']), { theme: 'x', dryRun: false, out: 'D:\\tmp', maxJobs: null, maxImages: null, limit: null });
   assert.deepEqual(parseArgs(['--max-jobs', '10', '--max-images', '11']).maxJobs, 10);
-  assert.deepEqual(parseArgs([]), { theme: null, dryRun: false, out: null, maxJobs: null, maxImages: null });
+  assert.equal(parseArgs(['--limit', '2']).limit, 2, 'the probe runs only the first N pages');
+  assert.deepEqual(parseArgs([]), { theme: null, dryRun: false, out: null, maxJobs: null, maxImages: null, limit: null });
 });
 
 test('a cap override can only ever lower the ceiling, never raise it', () => {
@@ -36,7 +37,7 @@ test('the zvirata theme is complete and matches the article draft', () => {
   assert.equal(zvirata.pages.length, 8);
   assert.deepEqual(
     zvirata.pages.map((p) => p.subject),
-    ['pes', 'kočka', 'kůň', 'liška', 'sova', 'ježek', 'motýl', 'rybičky'],
+    ['pes', 'kočka s koťaty', 'kůň s hříbětem', 'liška', 'sova', 'ježek', 'motýl', 'rybičky'],
   );
   for (const p of zvirata.pages) {
     const prompt = p.prompt.toLowerCase();
@@ -89,16 +90,31 @@ test('solid fill is never re-rolled, because more steps measurably made it worse
   assert.equal(shouldReroll('ok', 'ok'), false, 'a good page is never re-rolled');
 });
 
-test('the zvirata theme asks for a portrait source and an empty white background', () => {
+test('every zvirata page is a fully named composition — nothing unnamed may appear', () => {
   assert.equal(zvirata.aspectRatio, '3:4');
   for (const p of zvirata.pages) {
+    const { subject, elements, ground } = p.composition;
+    assert.ok(subject && subject.length > 10, `${p.subject}: has a described subject`);
+    assert.ok(elements.length >= 2 && elements.length <= 4, `${p.subject}: 2-4 supporting elements, got ${elements.length}`);
+    assert.ok(ground.includes('line'), `${p.subject}: a simple ground line`);
     const prompt = p.prompt.toLowerCase();
-    assert.ok(prompt.includes('plain pure white background'), `${p.subject}: white background`);
-    assert.ok(prompt.includes('no cast shadow'), `${p.subject}: no shadow to trace as black`);
-    assert.ok(/no scenery|no landscape/.test(prompt), `${p.subject}: no scene`);
-    assert.ok(prompt.includes('no ground'), `${p.subject}: no ground plane`);
-    assert.ok(prompt.includes('filling most of the frame'), `${p.subject}: subject fills the sheet`);
+    for (const e of elements) assert.ok(p.prompt.includes(e), `${p.subject}: "${e}" is named in the prompt`);
+    assert.ok(prompt.includes('nothing else'), `${p.subject}: the closed inventory is stated`);
+    assert.ok(prompt.includes('not named above'), `${p.subject}: and stated again as a prohibition`);
+    assert.ok(prompt.includes('upper third of the picture is empty'), `${p.subject}: empty upper third`);
+    assert.ok(prompt.includes('no cast shadows'), `${p.subject}: no shadow to trace as black`);
+    assert.ok(prompt.includes('no large dark patches'), `${p.subject}: pale markings, the v1 solid-fill fix`);
+    assert.ok(prompt.includes('no people'), `${p.subject}: no people`);
   }
+});
+
+test('the set includes parent-and-young pages, not only lone animals', () => {
+  const subjects = zvirata.pages.map((p) => p.subject);
+  assert.ok(subjects.includes('kočka s koťaty'));
+  assert.ok(subjects.includes('kůň s hříbětem'));
+  const groupy = zvirata.pages.filter((p) => /kittens|foal|three fish/.test(p.composition.subject));
+  assert.ok(groupy.length >= 3, `at least three pages show more than one animal, got ${groupy.length}`);
+  assert.ok(zvirata.setDescription.includes('kočka s koťaty'), 'the article set description tracks the pages');
 });
 
 test('the sheet is A4 portrait, one page per image, with the footer on each', () => {

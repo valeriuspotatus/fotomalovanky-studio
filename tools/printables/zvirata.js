@@ -1,73 +1,136 @@
 // The "Zvířata" free printable set — 8 A4 coloring pages, the lead magnet the blog article
 // "omalovánky zvířata k vytisknutí" hands out (see src/blog/keywordMap.js).
 //
-// Each page names its subject (Czech, for filenames and the PR table) and carries the ENGLISH prompt
-// for the source photo. The rules below are rules because the FIRST run broke each of them and the
-// pages showed it:
-//   1. photorealistic — the generator traces a photo, not a drawing. Feed it art and it traces art.
-//   2. PORTRAIT, and the animal fills the frame. Run 1 asked for nothing and got 16:9 sources, so the
-//      drawing landed as a band across the middle third of a tall A4 sheet. The aspect is now also
-//      requested through the API and checked in code before a generator job is ever spent.
-//   3. NOTHING but the animal on plain white. Run 1 said "plain softly blurred background" and got a
-//      park, a meadow, a flower — and the generator faithfully traced all of it into background
-//      clutter. "Plain white background, no scene, no ground, no props" is the wording that holds.
-//      No shadow either: a cast shadow comes back as a solid black shape.
-//   4. no people, no faces, no branded or copyrighted characters — nothing we don't own ships in a
-//      free download.
-// Soft, even, shadowless light is asked for on purpose: hard shadows and very dark markings come back
-// as solid black fill. deblob() cleans what survives, but not asking for it is cheaper than cleaning it.
+// THREE RUNS OF EVIDENCE ARE BAKED INTO THIS FILE. Do not undo them casually:
+//
+// v1 asked for "a plain softly blurred background" and got a park, a meadow and a flower bed. The
+// generator traces what it is given, so every page came back with background clutter, and three of
+// eight tripped the solid-fill check.
+//
+// v2 went to the other extreme — a lone animal on an empty white sweep. Every page passed QC, and
+// every page read as empty. Clean is not the same as good.
+//
+// v3 (this) is the middle: a COMPOSED sparse scene. Each page names its subject, 2–4 supporting
+// props and a ground line, and nothing else may appear. Naming the whole inventory is the difference
+// between a composition and an invented background — the v1 failure was never "a background", it was
+// "a background nobody chose". The upper third stays deliberately empty: it is where a busy sky would
+// otherwise turn into a wall of traced lines, and white space is what makes a colouring page inviting.
+//
+// Two other rules earned their place:
+//   - Pale, finely-outlined markings. Dark patterning (a butterfly's eyespots, a tabby's stripes)
+//     traces as solid black fill. Asking for pale markings fixed v1's one genuine defect at source.
+//   - No cast shadows, soft even light. A shadow comes back as a solid black shape.
+//
+// Standing rules: photorealistic source (the generator traces a photo, not a drawing), no people, no
+// faces, no branded or copyrighted characters — nothing we don't own ships in a free download.
 
 /** Asked for through generationConfig.imageConfig, not the prompt text — models ignore prose aspect. */
 export const SOURCE_ASPECT = '3:4';
 
-/** Shared tail: the isolation rules every page needs, written once. */
-const ISOLATED =
-  'The animal is the only object in the picture, centred and filling most of the frame from top to bottom. ' +
-  'Plain pure white background, completely empty — no scenery, no landscape, no sky, no plants, no ground, ' +
-  'no floor, no surface, no props, no cast shadow. Studio product photography on a white sweep, soft even ' +
-  'shadowless lighting. No people, no hands, no text, no logos, no watermarks.';
+/**
+ * Compose one page's source-photo prompt from its explicit inventory.
+ *
+ * Every noun the picture is allowed to contain appears in `elements` or `subject`. The prompt then
+ * says so twice — once as the list, once as a prohibition — because "and nothing else" is the whole
+ * point of the exercise and a single mention gets averaged away.
+ */
+export function buildScenePrompt({ subject, elements, ground }) {
+  return [
+    `A photorealistic photograph of ${subject}.`,
+    `The picture contains exactly these things and nothing else: ${subject}; ${elements.join('; ')}; ${ground}.`,
+    `Everything rests on ${ground}, low in the frame.`,
+    'The upper third of the picture is empty white space — no sky, no clouds, no horizon, no trees,',
+    'no hills, no buildings, no scenery of any kind behind or above the subject.',
+    'Plain pure white background. Soft, even, shadowless lighting with no cast shadows.',
+    'All markings and patterning are pale and finely outlined — no large dark patches, no solid black areas.',
+    'The subject is large in the frame and sharply defined.',
+    'Do not add any object, plant, animal or detail that is not named above.',
+    'No people, no hands, no faces, no text, no logos, no watermarks.',
+  ].join(' ');
+}
+
+/** subject + 2–4 named supporting elements + a ground line. Nothing unnamed may appear. */
+const COMPOSITIONS = [
+  {
+    subject: 'pes',
+    composition: {
+      subject: 'a golden retriever dog standing in profile with its head turned toward the camera',
+      elements: ['one ball lying beside the dog', 'one bone on the ground', 'two small tufts of grass'],
+      ground: 'a simple straight ground line',
+    },
+  },
+  {
+    // parent-and-young 1 of 3
+    subject: 'kočka s koťaty',
+    composition: {
+      subject: 'a mother cat lying down with two kittens beside her, all facing the camera',
+      elements: ['one round wicker basket', 'one ball of yarn', 'three small tufts of grass'],
+      ground: 'a simple straight ground line',
+    },
+  },
+  {
+    // parent-and-young 2 of 3
+    subject: 'kůň s hříbětem',
+    composition: {
+      subject: 'a mare standing in profile with her foal standing close beside her',
+      elements: ['one simple two-rail wooden fence behind them', 'one wooden bucket', 'three small tufts of grass'],
+      ground: 'a simple straight ground line',
+    },
+  },
+  {
+    subject: 'liška',
+    composition: {
+      subject: 'a fox standing in profile with its bushy tail fully visible',
+      elements: ['one tree stump', 'two mushrooms', 'three small tufts of grass'],
+      ground: 'a simple straight ground line',
+    },
+  },
+  {
+    subject: 'sova',
+    composition: {
+      subject: 'an owl perched upright and facing the camera with its wings folded',
+      elements: ['one bare horizontal branch the owl is perched on', 'two oak leaves on the branch', 'two acorns'],
+      ground: 'a simple straight ground line below the branch',
+    },
+  },
+  {
+    subject: 'ježek',
+    composition: {
+      subject: 'a hedgehog seen from the side with its spines and small face clearly defined',
+      elements: ['one apple', 'three fallen leaves', 'two small tufts of grass'],
+      ground: 'a simple straight ground line',
+    },
+  },
+  {
+    subject: 'motýl',
+    composition: {
+      subject: 'a butterfly with its wings fully open and flat, seen from directly above, its wing veins finely outlined',
+      elements: ['one daisy flower below the butterfly', 'two long grass blades', 'one small stone'],
+      ground: 'a simple straight ground line',
+    },
+  },
+  {
+    // a small group rather than a lone fish
+    subject: 'rybičky',
+    composition: {
+      subject: 'three fish of the same kind swimming side by side in a row, seen from the side, none overlapping another',
+      elements: ['two upright water plants', 'three rounded pebbles', 'one small shell'],
+      ground: 'a simple straight sandy bottom line',
+    },
+  },
+];
 
 export default {
   name: 'zvirata',
   title: 'Zvířata',
   // The set description the blog draft is written around — keep the two in step.
-  setDescription: '8 stran zvířat: pes, kočka, kůň, liška, sova, ježek, motýl, rybičky',
+  setDescription: '8 stran zvířat: pes, kočka s koťaty, kůň s hříbětem, liška, sova, ježek, motýl, rybičky',
   aspectRatio: SOURCE_ASPECT,
-  pages: [
-    {
-      subject: 'pes',
-      prompt: `A photorealistic full-body studio photograph of a friendly golden retriever dog standing in profile, head turned toward the camera, ears and fur clearly defined. ${ISOLATED}`,
-    },
-    {
-      subject: 'kočka',
-      prompt: `A photorealistic full-body studio photograph of a domestic short-haired cat sitting upright, tail curled around its front paws, facing the camera, whiskers and fur clearly defined. Pale even coat with soft low-contrast markings. ${ISOLATED}`,
-    },
-    {
-      subject: 'kůň',
-      prompt: `A photorealistic full-body studio photograph of a horse standing in profile, head slightly raised, mane and tail clearly defined. ${ISOLATED}`,
-    },
-    {
-      subject: 'liška',
-      prompt: `A photorealistic full-body studio photograph of a red fox standing in profile, head turned toward the camera, bushy tail fully visible. ${ISOLATED}`,
-    },
-    {
-      subject: 'sova',
-      prompt: `A photorealistic studio photograph of an owl standing upright and facing the camera, wings folded, feather pattern and large round eyes clearly defined. ${ISOLATED}`,
-    },
-    {
-      subject: 'ježek',
-      prompt: `A photorealistic studio photograph of a European hedgehog seen from the side, spines and small face clearly defined. ${ISOLATED}`,
-    },
-    {
-      subject: 'motýl',
-      prompt:
-        'A photorealistic close-up studio photograph of a single butterfly with its wings fully open and flat, seen from directly above, wing veins and outlines clearly defined. ' +
-        'The wing pattern is pale and delicate with fine outlined markings — no large dark patches, no heavy black areas, no solid black eyespots. ' +
-        `${ISOLATED}`,
-    },
-    {
-      subject: 'rybičky',
-      prompt: `A photorealistic studio photograph of three tropical fish seen from the side, arranged one above another so none overlaps, fins and scale pattern clearly defined as fine outlines. ${ISOLATED}`,
-    },
-  ],
+  // `composition` is the editable source of truth; `prompt` is derived from it so the "nothing else"
+  // rule is written once and cannot drift page to page.
+  pages: COMPOSITIONS.map(({ subject, composition }) => ({
+    subject,
+    composition,
+    prompt: buildScenePrompt(composition),
+  })),
 };
