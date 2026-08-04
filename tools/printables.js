@@ -17,7 +17,7 @@
 // house recipe for a bad page (docs: never fix a page by adding prompt detail) and it means a reroll
 // costs a generator job and no Gemini image.
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -27,6 +27,7 @@ import { loadConfig } from '../src/config.js';
 import { createGeneratorDriver } from '../src/generator/factory.js';
 import { generateMarketingImage } from '../src/creatives/aiImage.js';
 import { assessOutputFiles } from '../src/qcFiles.js';
+import { deblob } from '../src/deblob.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..');
@@ -42,13 +43,14 @@ const PREVIEW_WIDTH = 1200;
  *  The two cap overrides exist so a resumed run can be given only the budget the first run left —
  *  the ceiling is per *task*, not per invocation. They can only ever lower a cap. */
 export function parseArgs(argv) {
-  const args = { theme: null, dryRun: false, out: null, maxJobs: null, maxImages: null };
+  const args = { theme: null, dryRun: false, out: null, maxJobs: null, maxImages: null, limit: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--dry-run') args.dryRun = true;
     else if (argv[i] === '--theme') args.theme = argv[++i] ?? null;
     else if (argv[i] === '--out') args.out = argv[++i] ?? null;
     else if (argv[i] === '--max-jobs') args.maxJobs = Number(argv[++i]);
     else if (argv[i] === '--max-images') args.maxImages = Number(argv[++i]);
+    else if (argv[i] === '--limit') args.limit = Number(argv[++i]);
   }
   return args;
 }
@@ -216,6 +218,29 @@ export function canReroll(jobsLeft, pagesAfter) {
   return jobsLeft > pagesAfter;
 }
 
+/**
+ * Is a reroll (more diffusion steps) even the right answer to this defect?
+ *
+ * NOT for solid fill. Measured over the first Zvířata run, every step reroll made the solid blob
+ * BIGGER, never smaller: 0.051→0.073, 0.092→0.095, 0.278→0.300. The darkness is in the source photo
+ * and the vectoriser fills it, so grinding more steps at it cannot help — deblob() clears it instead,
+ * and it now runs before QC ever sees the page. More steps remains the right lever for a bad face.
+ * A page that is blank, near-solid or unreadable is a different failure, and worth one more roll.
+ */
+export function shouldReroll(verdict, reason) {
+  return verdict !== 'ok' && reason !== 'solid-fill';
+}
+
+/** Widest width/height a source photo may have and still be worth tracing. 3:4 is 0.75; the gate sits
+ *  at 0.9 so a slightly-off portrait passes and a square or landscape does not. */
+export const MAX_SOURCE_ASPECT = 0.9;
+
+/** Is this source shaped for a portrait page? A 16:9 photo traced onto A4 wastes two thirds of the
+ *  sheet, and we find that out for free here rather than after paying for a generator job. */
+export function isPortraitEnough(width, height, max = MAX_SOURCE_ASPECT) {
+  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width / height <= max;
+}
+
 /** An earlier run's source image for this page, if it is still on disk. Re-buying what we already
  *  paid for is the one thing a metered tool must never do. */
 function existingSource(sourceDir, s) {
@@ -245,16 +270,38 @@ async function producePage({ page, i, theme, config, driver, meter, workDir, pag
   mkdirSync(pageDir, { recursive: true });
   console.log(`\n--- page ${i + 1}/${theme.pages.length}: ${page.subject} [${s}]`);
   let sourcePath = existingSource(sourceDir, s);
+  let sourceShape = null;
   if (sourcePath) {
-    console.log(`    source: reused ${sourcePath} (no image spent)`);
+    const m = await sharp(sourcePath).metadata();
+    sourceShape = { width: m.width, height: m.height };
+    console.log(`    source: reused ${sourcePath} ${m.width}x${m.height} (no image spent)`);
   } else {
-    meter.spend('geminiImages', `the source image for ${page.subject}`);
-    const img = await generateMarketingImage({ config: config.ai, prompt: page.prompt });
-    // Name the file after what came back, not after what we hoped for — the model answers image/jpeg
-    // as often as image/png, and the generator's upload step reads the extension.
-    sourcePath = join(sourceDir, `${s}.${img.mimeType === 'image/png' ? 'png' : 'jpg'}`);
-    writeFileSync(sourcePath, Buffer.from(img.base64, 'base64'));
-    console.log(`    source: ${sourcePath} (${img.mimeType})`);
+    // Regenerate a landscape source rather than trace it — but only while there is an image to spare
+    // over the ones still owed to the pages behind this one, same reserve rule the generator uses.
+    for (;;) {
+      meter.spend('geminiImages', `the source image for ${page.subject}`);
+      const img = await generateMarketingImage({ config: config.ai, prompt: page.prompt, aspectRatio: theme.aspectRatio ?? null });
+      // Name the file after what came back, not after what we hoped for — the model answers image/jpeg
+      // as often as image/png, and the generator's upload step reads the extension.
+      const candidate = join(sourceDir, `${s}.${img.mimeType === 'image/png' ? 'png' : 'jpg'}`);
+      writeFileSync(candidate, Buffer.from(img.base64, 'base64'));
+      const m = await sharp(candidate).metadata();
+      const ratio = (m.width / m.height).toFixed(2);
+      if (isPortraitEnough(m.width, m.height)) {
+        sourcePath = candidate;
+        sourceShape = { width: m.width, height: m.height };
+        console.log(`    source: ${candidate} ${m.width}x${m.height} (${ratio})`);
+        break;
+      }
+      console.log(`    source REJECTED: ${m.width}x${m.height} (${ratio}) is not portrait`);
+      rmSync(candidate, { force: true });
+      if (!canReroll(meter.left('geminiImages'), pagesAfter)) {
+        // Spending a generator job on a landscape source buys a page that wastes two thirds of the
+        // sheet. Skipping costs nothing and says so plainly.
+        console.log('    no image budget to retry — skipping this page rather than tracing a landscape source.');
+        return { subject: page.subject, stem: s, sourcePath: null, sourceShape: { width: m.width, height: m.height }, attempts: [], verdict: 'skipped', reason: 'landscape-source', coloringPngPath: null, coloringSvgPath: null };
+      }
+    }
   }
 
   const baseSteps = config.generator?.diffusionSteps ?? 8;
@@ -279,12 +326,28 @@ async function producePage({ page, i, theme, config, driver, meter, workDir, pag
         continue;
       }
     }
+    // Clear the big black masses BEFORE judging the page. The vectoriser fills genuinely dark areas
+    // (a butterfly's wing markings, a shadow) with solid black that no amount of re-rolling removes;
+    // deblob whitens those and leaves outline strokes and small fills like eyes alone. Judging after
+    // it means QC scores the page the customer actually gets. A deblob failure costs the cleanup,
+    // never the page.
+    let cleaned = null;
+    try {
+      cleaned = await deblob({ pngPath: out.coloringPngPath, svgPath: out.coloringSvgPath });
+      if (cleaned.cleaned) console.log(`    ${steps} steps -> deblob cleared ${cleaned.blobBlocks} solid blocks`);
+    } catch (err) {
+      console.log(`    ${steps} steps -> deblob skipped: ${err.message}`);
+    }
     const qc = await assessOutputFiles({ coloringPng: out.coloringPngPath, coloringSvg: out.coloringSvgPath });
     const line = `${qc.verdict}${qc.reason ? ` (${qc.reason})` : ''}` +
       (qc.solidFill !== undefined ? ` solidFill=${(qc.solidFill * 100).toFixed(3)}% solidBlob=${(qc.solidBlob * 100).toFixed(3)}% ink=${(qc.coverage * 100).toFixed(1)}%` : '');
     console.log(`    ${steps} steps -> ${line}`);
-    attempts.push({ steps, verdict: qc.verdict, reason: qc.reason ?? null, qc, ...out });
+    attempts.push({ steps, verdict: qc.verdict, reason: qc.reason ?? null, deblobbed: Boolean(cleaned?.cleaned), qc, ...out });
     if (qc.verdict === 'ok') break;
+    if (!shouldReroll(qc.verdict, qc.reason)) {
+      console.log(`    no reroll: "${qc.reason}" is not a defect more steps can fix.`);
+      break;
+    }
     if (!canReroll(meter.left('generatorJobs'), pagesAfter)) {
       console.log(`    no reroll: ${meter.left('generatorJobs')} jobs left, ${pagesAfter} pages still need a first pass.`);
       break;
@@ -343,11 +406,16 @@ async function main() {
   console.log(`Theme ${theme.title ?? theme.name} -> ${workDir}`);
   console.log(`Caps: ${caps.geminiImages} Gemini images, ${caps.generatorJobs} generator jobs.`);
 
+  // --limit runs only the first N pages, so a cheap probe can prove a new composition style before
+  // the whole set is paid for. Everything it produces is reused free by the follow-up full run.
+  const todo = Number.isInteger(args.limit) && args.limit > 0 ? theme.pages.slice(0, args.limit) : theme.pages;
+  if (todo.length < theme.pages.length) console.log(`Probe: pages 1-${todo.length} of ${theme.pages.length} only.`);
+
   const results = [];
   let stopped = null;
-  for (const [i, page] of theme.pages.entries()) {
+  for (const [i, page] of todo.entries()) {
     try {
-      results.push(await producePage({ page, i, theme, config, driver, meter, workDir, pagesAfter: theme.pages.length - 1 - i }));
+      results.push(await producePage({ page, i, theme, config, driver, meter, workDir, pagesAfter: todo.length - 1 - i }));
     } catch (err) {
       stopped = err.message;
       console.error(`\nSTOPPED: ${err.message}`);

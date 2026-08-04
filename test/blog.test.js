@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 
 import { suggestTopics, upcomingOccasions, daysUntil, rankKeywordEntries } from '../src/blog/topics.js';
 import { KEYWORD_MAP, ARTICLE_TYPES } from '../src/blog/keywordMap.js';
-import { generatePost, buildBodyHtml, buildDraftPrompt, qcPost, SEO_TITLE_MAX, META_MAX, FORM_PLACEHOLDER } from '../src/blog/draft.js';
+import { generatePost, buildBodyHtml, buildDraftPrompt, qcPost, wouldLoseWork, SEO_TITLE_MAX, META_MAX, FORM_PLACEHOLDER } from '../src/blog/draft.js';
 import { PRODUCT_FACTS, OPEN_FACTS } from '../src/blog/productFacts.js';
 import { savePost, readPost, listPosts, deletePost, isValidId, siblingsInCluster } from '../src/blog/store.js';
 import { buildArticleInput, createContentClient, ShopifyContentError } from '../src/shopify/content.js';
@@ -412,6 +412,15 @@ test('a printable skeleton still reserves the form paragraph', async () => {
   assert.equal(post.copySource, 'seed');
   assert.ok(post.bodyHtml.includes(FORM_PLACEHOLDER));
   assert.ok(!post.qc.warnings.some((w) => w.code === 'no-form-placeholder'));
+});
+
+test('a failed generation never overwrites an article that already exists', () => {
+  const seed = { copySource: 'seed' };
+  const written = { copySource: 'ai' };
+  assert.equal(wouldLoseWork(seed, written), true, 'a 503 must not replace 500 words with 30');
+  assert.equal(wouldLoseWork(written, written), false, 'a real regenerate is allowed to replace');
+  assert.equal(wouldLoseWork(seed, seed), false, 'a skeleton over a skeleton loses nothing');
+  assert.equal(wouldLoseWork(seed, null), false, 'a first draft always saves, even a skeleton');
 });
 
 // ---- store -----------------------------------------------------------------

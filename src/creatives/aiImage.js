@@ -90,10 +90,13 @@ async function callGemini({ apiKey, endpoint = ENDPOINT_DEFAULT, model, parts, g
  * @param {string} o.prompt          what to make (campaign-seeded or auto-described copy)
  * @param {?string} [o.referenceBase64] optional reference photo, base64 (no data: prefix)
  * @param {string} [o.referenceMime]  the reference's MIME type
+ * @param {string} [o.aspectRatio]    e.g. "3:4" — asked for through the API, not the prompt text.
+ *                                    Left off, the model picks (it favours landscape), which is fine
+ *                                    for an ad and wrong for anything destined for a portrait page.
  * @param {function} [o.fetchImpl]    injected for tests; defaults to global fetch
  * @returns {Promise<{ base64: string, mimeType: string }>} the generated image
  */
-export async function generateMarketingImage({ config, prompt, referenceBase64 = null, referenceMime = 'image/jpeg', fetchImpl = fetch } = {}) {
+export async function generateMarketingImage({ config, prompt, referenceBase64 = null, referenceMime = 'image/jpeg', aspectRatio = null, fetchImpl = fetch } = {}) {
   // Image gen is the slow call — use imageTimeoutMs (longer) when present, not the shared describe timeout.
   const { apiKey, model = 'gemini-3-pro-image-preview', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, imageTimeoutMs, maxRetries = 5, backoffBaseMs = 1500 } = config ?? {};
   const imageTimeout = Number.isInteger(imageTimeoutMs) && imageTimeoutMs > 0 ? imageTimeoutMs : timeoutMs;
@@ -105,7 +108,8 @@ export async function generateMarketingImage({ config, prompt, referenceBase64 =
   const parts = [{ text: String(prompt) }];
   if (referenceBase64) parts.push({ inlineData: { mimeType: referenceMime, data: referenceBase64 } });
 
-  const body = await callGemini({ apiKey, endpoint, model, parts, generationConfig: { responseModalities: ['IMAGE'] }, timeoutMs: imageTimeout, fetchImpl, maxRetries, backoffBaseMs });
+  const generationConfig = { responseModalities: ['IMAGE'], ...(aspectRatio ? { imageConfig: { aspectRatio: String(aspectRatio) } } : {}) };
+  const body = await callGemini({ apiKey, endpoint, model, parts, generationConfig, timeoutMs: imageTimeout, fetchImpl, maxRetries, backoffBaseMs });
   const part = body?.candidates?.[0]?.content?.parts?.find((p) => p?.inlineData?.data);
   if (!part) {
     const note = body?.candidates?.[0]?.content?.parts?.find((p) => p?.text)?.text || body?.promptFeedback?.blockReason || '';

@@ -32,7 +32,7 @@ import { validateConcept, creativeFilename, COPY_FIELDS } from '../creatives/stu
 import { MARKETING_CAL, occasionKey } from '../creatives/calendar.js';
 import { readIndex as readCreativesIndex } from '../creatives/adCalendar.js';
 import { suggestTopics } from '../blog/topics.js';
-import { generatePost, recomputePost } from '../blog/draft.js';
+import { generatePost, recomputePost, wouldLoseWork } from '../blog/draft.js';
 import { listPosts, readPost, savePost, deletePost, siblingsInCluster } from '../blog/store.js';
 import { createAdminClient } from '../shopify/adminClient.js';
 import { getMetrics, MetricsError } from '../metricsCache.js';
@@ -1553,6 +1553,12 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           wordCountMin: config.blog.wordCountMin,
           wordCountMax: config.blog.wordCountMax,
         });
+        // A model failure degrades to the seed skeleton, which is right for a first draft and wrong
+        // on top of one that already exists — a transient 503 would replace 500 words with 30.
+        const previous = readPost(blogDir, post.id);
+        if (wouldLoseWork(post, previous)) {
+          return json(res, 502, { error: 'AI se nepovedla — původní koncept zůstal beze změny. Zkuste to prosím znovu.', code: 'ai-failed', post: previous });
+        }
         return json(res, 200, { post: savePost(blogDir, post) });
       }
 
