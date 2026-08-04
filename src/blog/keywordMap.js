@@ -3,10 +3,15 @@
 // it produced plausible Czech phrases nobody types. A short list we actually maintain beats a long
 // list we invented.
 //
-// PRIORITY IS NOT A GUESS. Every seed lands on 2 (the neutral middle). Move an entry to 1 or 3 only
-// from Search Console: impressions and average position for that exact query. If nobody has looked
-// at the data, the entry stays on 2 — a priority pulled out of the air is worse than no priority,
-// because it looks like evidence.
+// PRIORITY IS NOT A GUESS. An entry sits on 2 (the neutral middle) until Search Console says
+// otherwise; only impressions and average position for that exact query may move it to 1 or 3, and
+// the numbers go in `notes` so the reason outlives whoever read the dashboard. A priority pulled out
+// of the air is worse than no priority, because it looks like evidence.
+//
+// Updated 2026-08-04 from 12 months of real GSC data. The generic printable queries earned priority 1
+// on a specific finding: the site already ranks page 1-2 for them with no page written for them at
+// all. Everything still on 2 is there because GSC has nothing to say about it — the site has never
+// surfaced for those terms, which is an absence of evidence, not evidence of absence.
 //
 // `cluster` is the internal-linking group: articles in the same cluster link to each other, so the
 // cluster is a topic ("printables you can print at home"), not an article type. `articleType` picks
@@ -28,7 +33,44 @@
 /** @type {readonly KeywordEntry[]} */
 export const KEYWORD_MAP = Object.freeze(
   [
-    // ---- tisknutelné sady (lead magnet) -------------------------------------------------------
+    // ---- generické tisknutelné dotazy: PRIORITA 1, doložená Search Console ---------------------
+    // These three are the only printable keywords with real data behind them (12 months of GSC).
+    // The site already surfaces for them on page 1-2 *without a single page written for them*, which
+    // is as close to a free win as this list gets: the ranking exists, the content does not.
+    {
+      keyword: 'omalovánky k vytisknutí pdf',
+      cluster: 'omalovanky-k-vytisknuti',
+      articleType: 'printable',
+      priority: 1,
+      season: null,
+      notes:
+        'GSC 12 měsíců: 203 imprese, průměrná pozice 9, a přitom pro to nemáme ani jednu stránku. ' +
+        'Lidé hledají rovnou PDF ke stažení, takže slovo „PDF" musí být v titulku, v meta popisu i u formuláře.',
+    },
+    {
+      keyword: 'omalovánky k tisku',
+      cluster: 'omalovanky-k-vytisknuti',
+      articleType: 'printable',
+      priority: 1,
+      season: null,
+      notes:
+        'GSC 12 měsíců: 201 impresí, průměrná pozice 11. Varianta „k tisku" místo „k vytisknutí" — ' +
+        'stejný záměr, jiná formulace. Zaslouží si vlastní stránku, ne přesměrování na jinou frázi.',
+    },
+    {
+      keyword: 'dětské omalovánky k tisku',
+      cluster: 'omalovanky-k-vytisknuti',
+      articleType: 'printable',
+      priority: 2,
+      season: null,
+      notes: 'GSC 12 měsíců: průměrná pozice 10. Nižší objem než dvě fráze výše, proto priorita 2, ne 1.',
+    },
+
+    // ---- tematické sady: PRIORITA 2, zatím bez dat --------------------------------------------
+    // NOTE: none of the themed seeds below carry Search Console numbers, and that is not the same as
+    // "low volume" — the site has never surfaced for them at all, so GSC has nothing to report. They
+    // stay on the neutral 2 until a published page gives them a chance to appear in the data. Do not
+    // demote them for missing impressions they were never in a position to earn.
     {
       keyword: 'omalovánky zvířata k vytisknutí',
       cluster: 'omalovanky-k-vytisknuti',
@@ -120,6 +162,18 @@ export const KEYWORD_MAP = Object.freeze(
       priority: 2,
       season: null,
       notes: 'Zvědavost i nedůvěra — zákazník chce vidět, že za tím stojí ruční práce a péče.',
+    },
+    {
+      keyword: 'jak udělat z fotky omalovánku',
+      cluster: 'jak-to-funguje',
+      articleType: 'trust',
+      priority: 1,
+      season: null,
+      notes:
+        'GSC 12 měsíců: 152 impresí, průměrná pozice ~7. Pozor, je to DIY záměr: člověk se ptá, jak si to ' +
+        'udělat SÁM, ne kde si to koupit. Článek proto musí poctivě popsat, jak na to doma (filtry, aplikace, ' +
+        'obkreslení) a teprve pak vysvětlit, v čem je náš rozdíl: ruční doladění, tisk a kniha s věnováním. ' +
+        'Kdo přijde s DIY otázkou a dostane jen reklamu, odejde a pozici 7 nám to nezachrání.',
     },
   ].map(Object.freeze),
 );

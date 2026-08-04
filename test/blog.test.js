@@ -9,7 +9,7 @@ import { KEYWORD_MAP, ARTICLE_TYPES } from '../src/blog/keywordMap.js';
 import { generatePost, buildBodyHtml, buildDraftPrompt, qcPost, wouldLoseWork, SEO_TITLE_MAX, META_MAX, FORM_PLACEHOLDER } from '../src/blog/draft.js';
 import { PRODUCT_FACTS, OPEN_FACTS } from '../src/blog/productFacts.js';
 import { savePost, readPost, listPosts, deletePost, isValidId, siblingsInCluster } from '../src/blog/store.js';
-import { buildArticleInput, createContentClient, ShopifyContentError } from '../src/shopify/content.js';
+import { buildArticleInput, buildArticleUpdateInput, createContentClient, ShopifyContentError } from '../src/shopify/content.js';
 import { validateConfig, ConfigError } from '../src/config.js';
 
 const NOW = new Date(2026, 4, 1); // 1 May 2026, fixed for deterministic windows
@@ -44,7 +44,13 @@ test('the seed keyword map is well-formed and priced at the neutral priority', (
   for (const e of KEYWORD_MAP) {
     assert.ok(e.keyword.trim() && e.cluster.trim() && e.notes.trim(), `${e.keyword} is fully filled in`);
     assert.ok(ARTICLE_TYPES.includes(e.articleType), `${e.keyword} has a known articleType`);
-    assert.equal(e.priority, 2, 'seed priorities stay neutral until Search Console says otherwise');
+    assert.ok([1, 2, 3].includes(e.priority), `${e.keyword} has a real priority`);
+    // The rule the file is built on: 2 is the neutral default, and moving off it requires evidence.
+    // A priority of 1 or 3 must carry its Search Console numbers in the notes, so nobody can quietly
+    // promote a hunch — the note is the receipt.
+    if (e.priority !== 2) {
+      assert.match(e.notes, /GSC/, `${e.keyword} is off the neutral priority, so its notes must cite the data`);
+    }
     if (e.season) assert.ok(e.season.m >= 1 && e.season.m <= 12 && e.season.d >= 1 && e.season.d <= 31);
   }
   const dupes = KEYWORD_MAP.length - new Set(KEYWORD_MAP.map((e) => e.keyword.toLowerCase())).size;
@@ -488,6 +494,57 @@ test('buildArticleInput always marks the article as a draft (isPublished:false)'
   assert.equal(input.body, '<p>b</p>');
   assert.equal(input.author.name, 'David');
   assert.ok(input.metafields.some((m) => m.key === 'title_tag' && m.value === 'T'));
+});
+
+test('an update never carries a publish state, so it cannot unpublish a live article', () => {
+  const input = buildArticleUpdateInput({ blogId: 'gid://shopify/Blog/1', post: { seoTitle: 'T', bodyHtml: '<p>b</p>', handle: 'h' }, author: 'David' });
+  assert.ok(!('isPublished' in input), 'isPublished is absent, not false');
+  assert.equal(input.title, 'T');
+  assert.equal(input.body, '<p>b</p>');
+  assert.equal(input.handle, 'h');
+  // create still asserts the draft invariant
+  assert.equal(buildArticleInput({ blogId: 'b', post: { seoTitle: 'T', bodyHtml: 'x' } }).isPublished, false);
+});
+
+test('saveArticleDraft updates the article that already holds the handle instead of duplicating it', async () => {
+  const calls = [];
+  const fetchImpl = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    calls.push(body.query.trim().split('\n')[0].trim());
+    if (body.query.includes('articleByHandle')) {
+      return { ok: true, json: async () => ({ data: { articles: { edges: [
+        { node: { id: 'gid://shopify/Article/9', handle: 'taken', isPublished: true, blog: { id: 'gid://shopify/Blog/1' } } },
+      ] } } }) };
+    }
+    return { ok: true, json: async () => ({ data: { articleUpdate: { article: { id: 'gid://shopify/Article/9', handle: 'taken', isPublished: true }, userErrors: [] } } }) };
+  };
+  const client = createContentClient({ storeDomain: 's.myshopify.com', contentToken: 't', fetchImpl });
+  const r = await client.saveArticleDraft({ blogId: 'gid://shopify/Blog/1', post: { seoTitle: 'T', bodyHtml: 'x', handle: 'taken' } });
+  assert.equal(r.action, 'updated');
+  assert.equal(r.article.id, 'gid://shopify/Article/9');
+  assert.ok(calls.some((c) => c.includes('articleByHandle')), 'it looks before it writes');
+  assert.ok(calls.some((c) => c.includes('articleUpdate')), 'and updates');
+  assert.ok(!calls.some((c) => c.includes('articleCreate')), 'never creates a second copy');
+  assert.equal(r.article.isPublished, true, "a published article stays published through an update");
+});
+
+test('saveArticleDraft creates when the handle is free, or when the match is in another blog', async () => {
+  for (const otherBlog of ['gid://shopify/Blog/999', null]) {
+    const calls = [];
+    const fetchImpl = async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      calls.push(body.query.trim().split('\n')[0].trim());
+      if (body.query.includes('articleByHandle')) {
+        const edges = otherBlog ? [{ node: { id: 'gid://shopify/Article/7', handle: 'h', blog: { id: otherBlog } } }] : [];
+        return { ok: true, json: async () => ({ data: { articles: { edges } } }) };
+      }
+      return { ok: true, json: async () => ({ data: { articleCreate: { article: { id: 'gid://shopify/Article/1', handle: 'h', isPublished: false }, userErrors: [] } } }) };
+    };
+    const client = createContentClient({ storeDomain: 's.myshopify.com', contentToken: 't', fetchImpl });
+    const r = await client.saveArticleDraft({ blogId: 'gid://shopify/Blog/1', post: { seoTitle: 'T', bodyHtml: 'x', handle: 'h' } });
+    assert.equal(r.action, 'created', `otherBlog=${otherBlog}: a match in a different blog is not ours to overwrite`);
+    assert.ok(calls.some((c) => c.includes('articleCreate')));
+  }
 });
 
 test('createContentClient requires a store + token', () => {

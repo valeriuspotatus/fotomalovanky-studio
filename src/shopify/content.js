@@ -42,12 +42,39 @@ export function buildArticleInput({ blogId, post, author }) {
   return input;
 }
 
+/**
+ * The update input: everything buildArticleInput carries EXCEPT isPublished.
+ *
+ * Leaving the publish state out is the whole point. Sending isPublished:false on an update would
+ * silently UNPUBLISH an article David had already published — the create-time invariant ("never go
+ * live from here") would become "quietly take live things down". An update only ever rewrites words.
+ */
+export function buildArticleUpdateInput({ blogId, post, author }) {
+  const { isPublished, ...rest } = buildArticleInput({ blogId, post, author });
+  return rest;
+}
+
 const BLOGS_QUERY = `query { blogs(first: 50) { edges { node { id title handle } } } }`;
 const ARTICLE_CREATE = `
   mutation articleCreate($article: ArticleCreateInput!) {
     articleCreate(article: $article) {
       article { id handle title isPublished }
       userErrors { field message }
+    }
+  }`;
+const ARTICLE_UPDATE = `
+  mutation articleUpdate($id: ID!, $article: ArticleUpdateInput!) {
+    articleUpdate(id: $id, article: $article) {
+      article { id handle title isPublished }
+      userErrors { field message }
+    }
+  }`;
+// The lookup goes through the TOP-LEVEL articles connection: Blog.articles takes only pagination
+// arguments, no `query`, so filtering has to happen here and the blog is matched on the node.
+const ARTICLE_BY_HANDLE = `
+  query articleByHandle($q: String!) {
+    articles(first: 20, query: $q) {
+      edges { node { id handle title isPublished blog { id } } }
     }
   }`;
 
@@ -104,5 +131,49 @@ export function createContentClient({ storeDomain, contentToken, apiVersion = '2
     return result.article;
   }
 
-  return { listBlogs, createArticleDraft };
+  /** The article in `blogId` whose handle matches exactly, or null. The connection query is a search,
+   *  not a lookup, so the exact match is re-checked here rather than trusting the first hit. */
+  async function findArticleByHandle({ blogId, handle }) {
+    if (!blogId || !handle) return null;
+    const data = await graphql(ARTICLE_BY_HANDLE, { q: `handle:${handle}` });
+    const nodes = (data?.articles?.edges ?? []).map((e) => e.node);
+    // `query:` is a search, so the exact handle is re-checked, and the blog is matched too: the same
+    // handle can legitimately exist in another blog and that article is not ours to overwrite.
+    return nodes.find((n) => n.handle === handle && n.blog?.id === blogId) ?? null;
+  }
+
+  /** Rewrite an existing article's words in place. Never touches its publish state — see
+   *  buildArticleUpdateInput. Returns the updated article node. */
+  async function updateArticleDraft({ articleId, blogId, post, author }) {
+    if (!articleId) throw new ShopifyContentError('articleId is required to update an article.', 'bad-input');
+    const article = buildArticleUpdateInput({ blogId, post, author });
+    const data = await graphql(ARTICLE_UPDATE, { id: articleId, article });
+    const result = data?.articleUpdate;
+    const errs = result?.userErrors ?? [];
+    if (errs.length) throw new ShopifyContentError(errs.map((e) => e.message).join('; '), 'user-error');
+    if (!result?.article?.id) throw new ShopifyContentError('Shopify nevrátil upravený článek.', 'api');
+    return result.article;
+  }
+
+  /**
+   * Save the post to Shopify without ever making a second copy of it: update the article that already
+   * carries this handle, or create it as a draft if there is none.
+   *
+   * Worth the lookup because the local store's `shopifyArticleId` is not trustworthy on its own —
+   * regenerating a draft resets it to null, and then a blind create either 409s on the taken handle or,
+   * with a tweaked slug, leaves two articles saying nearly the same thing. The store is the source of
+   * truth for what exists; our record is only a cache of it.
+   *
+   * @returns {{article: object, action: 'created'|'updated'}}
+   */
+  async function saveArticleDraft({ blogId, post, author }) {
+    if (!blogId) throw new ShopifyContentError('blogId is required — pick a target blog first.', 'bad-input');
+    const existing = await findArticleByHandle({ blogId, handle: post?.handle });
+    if (existing) {
+      return { article: await updateArticleDraft({ articleId: existing.id, blogId, post, author }), action: 'updated' };
+    }
+    return { article: await createArticleDraft({ blogId, post, author }), action: 'created' };
+  }
+
+  return { listBlogs, createArticleDraft, findArticleByHandle, updateArticleDraft, saveArticleDraft };
 }
