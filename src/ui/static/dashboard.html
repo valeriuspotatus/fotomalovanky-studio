@@ -556,6 +556,7 @@
             <form id="blogOwn" class="blog-own">
               <input id="blogOwnTitle" placeholder="Vlastní téma…">
               <input id="blogOwnKw" placeholder="klíčové slovo (nepovinné)">
+              <input id="blogOwnSet" placeholder="co je v sadě (jen tisknutelné)" title="Popis tisknutelné sady, např. „8 stran zvířat: pes, kočka, kůň…“. Použije se u témat typu printable.">
               <button class="btn btn-secondary sm" type="submit">Napsat na vlastní téma</button>
             </form>
             <div class="blog-topics" id="blogTopics"><div class="cap">Načítám…</div></div>
@@ -2070,7 +2071,7 @@
     if(!topics.length){box.innerHTML='<div class="cap">'+(meta&&meta.enabled===false?"Blog je vypnutý — zapněte ho v nastavení.":"Žádná témata v okně.")+'</div>';return;}
     topics.forEach(t=>{
       const b=el("button","bt-item");b.type="button";
-      const srcLabel=t.source==="calendar"?"Kalendář":t.source==="seo"?"SEO":"Vlastní";
+      const srcLabel=t.source==="map"?"Mapa":t.source==="calendar"?"Kalendář":t.source==="seo"?"SEO":"Vlastní";
       b.innerHTML='<span class="bt-title">'+esc(t.title)+'</span>'+
         '<span class="bt-meta"><span class="bt-src '+esc(t.source||"manual")+'">'+srcLabel+'</span>'+
         (t.keyword?'<span>'+esc(t.keyword)+'</span>':'')+
@@ -2089,6 +2090,9 @@
 
   async function generateBlogDraft(topic){
     if(blogState.cfg&&blogState.cfg.enabled===false){toast("Blog je vypnutý — zapněte blog.enabled.");return;}
+    // A printable article is written around the actual set; without it the model has nothing concrete to list.
+    const setDesc=((bg("blogOwnSet")||{}).value||"").trim();
+    if(setDesc&&topic.articleType==="printable")topic={...topic,setDescription:setDesc};
     setBlogBusy(true,"Píšu článek… (může to trvat půl minuty)");
     try{
       const r=await fetch("/api/blog/draft",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic})});
@@ -2236,7 +2240,7 @@
     bind("beSave",()=>saveBlogDraft(false));bind("bePublish",publishBlog);bind("beDelete",deleteBlogDraft);bind("bePreview",openBlogPreview);
     bind("blogPrevClose",()=>{bg("blogPreview").hidden=true;});
     const own=bg("blogOwn");
-    if(own)own.addEventListener("submit",e=>{e.preventDefault();const t=bg("blogOwnTitle").value.trim();if(!t)return;const k=bg("blogOwnKw").value.trim();generateBlogDraft({title:t,keyword:k||t,intent:"",source:"manual"});bg("blogOwnTitle").value="";bg("blogOwnKw").value="";});
+    if(own)own.addEventListener("submit",e=>{e.preventDefault();const t=bg("blogOwnTitle").value.trim();if(!t)return;const k=bg("blogOwnKw").value.trim();const s=bg("blogOwnSet").value.trim();generateBlogDraft({title:t,keyword:k||t,intent:"",source:"manual",articleType:s?"printable":"gift",setDescription:s});bg("blogOwnTitle").value="";bg("blogOwnKw").value="";bg("blogOwnSet").value="";});
   })();
 
   /* ---- Můj profil (R11, R13) ----

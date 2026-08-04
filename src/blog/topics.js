@@ -1,14 +1,19 @@
-// The blog topic engine: turn "what should we write about right now?" into a ranked candidate list
-// from TWO sources — the marketing calendar (the next occasions, already timed + on-brand) and a
-// Gemini SEO step tuned to today's date (the "hot right now" half). Pure orchestration over an
-// injected text fn, so it's unit-testable against a fixed `now` with a fake model — no network.
+// The blog topic engine: turn "what should we write about right now?" into a ranked candidate list.
+// Sources, in the order they rank:
+//   1. the curated keyword map (keywordMap.js) — the queries we decided to target, by hand,
+//   2. the marketing calendar — the next occasions, already timed + on-brand,
+//   3. (opt-in) a Gemini SEO step tuned to today's date.
 //
-// The AI half is best-effort: if the model fails, the calendar half still yields a full, timely list,
-// so the topic picker is never empty.
+// The AI half used to be first and always on. It invented Czech keywords with no volume behind them,
+// so it now sits behind a flag that defaults OFF: invented keywords are a worse input than a short
+// hand-maintained list. Pure orchestration over an injected text fn, so it's unit-testable against a
+// fixed `now` with a fake model — no network. The list is never empty: the map alone guarantees it,
+// and the calendar backs it up if the map is ever emptied.
 
 import { MARKETING_CAL, occasionKey } from '../creatives/calendar.js';
 import { parseJsonLoose } from '../creatives/adCopy.js';
 import { BLOG_VOICE } from '../brandVoice.js';
+import { KEYWORD_MAP } from './keywordMap.js';
 
 const NICHE = 'personalizované omalovánky a tištěné omalovánkové knihy z vlastních fotek (Fotomalovánky.cz)';
 
@@ -26,6 +31,42 @@ export function upcomingOccasions(now, windowWeeks = 8) {
   return MARKETING_CAL.map((o) => ({ occasion: o, days: daysUntil(o, now) }))
     .filter(({ days }) => days >= 0 && days <= maxDays)
     .sort((a, b) => a.days - b.days);
+}
+
+/** One keyword-map entry as a topic candidate. `days` is null for an evergreen (season-less) entry. */
+function mapTopic(entry, days) {
+  const kw = entry.keyword;
+  return {
+    title: kw.charAt(0).toUpperCase() + kw.slice(1),
+    keyword: kw,
+    intent: entry.notes ?? '',
+    source: 'map',
+    cluster: entry.cluster ?? null,
+    articleType: entry.articleType ?? 'gift',
+    priority: entry.priority ?? 2,
+    days,
+  };
+}
+
+/**
+ * Rank the keyword map: a seasonal entry whose date is inside the window comes first (soonest
+ * first), everything else follows by priority. Outside its window a seasonal entry ranks on
+ * priority like any other — "vánoční omalovánky" in May is not urgent, it is just a keyword.
+ * Ties keep map order, so the file itself is the tie-breaker David can edit.
+ */
+export function rankKeywordEntries(map, now, windowDays) {
+  return map
+    .map((entry, i) => {
+      const days = entry.season ? daysUntil(entry.season, now) : null;
+      const near = days !== null && days <= windowDays;
+      return { entry, days, near, i };
+    })
+    .sort((a, b) => {
+      if (a.near !== b.near) return a.near ? -1 : 1;
+      if (a.near && b.near) return a.days - b.days || a.i - b.i;
+      return (a.entry.priority ?? 2) - (b.entry.priority ?? 2) || a.i - b.i;
+    })
+    .map(({ entry, days }) => mapTopic(entry, days));
 }
 
 /** One calendar occasion as a topic candidate (its angle IS the intent). */
@@ -75,21 +116,35 @@ async function seoTopics({ now, upcoming, generateTextFn, config, limit }) {
 }
 
 /**
- * The ranked topic list: calendar candidates (soonest first) followed by fresh AI SEO suggestions
- * (deduped against the calendar keywords). Never throws — the AI half is optional.
+ * The ranked topic list: curated keyword map first, then calendar occasions (soonest first), then —
+ * only when explicitly asked for — fresh AI SEO suggestions, deduped against both. Never throws:
+ * the AI half is optional and best-effort.
  * @param {object} o
  * @param {Date}   [o.now]            defaults to the real clock
- * @param {function} [o.generateTextFn] ({config, prompt}) => Promise<string>; omit to skip the AI half
+ * @param {function} [o.generateTextFn] ({config, prompt}) => Promise<string>; needed only when useSeo
  * @param {object} [o.config]         the config.ai block passed to generateTextFn
- * @param {number} [o.windowWeeks]    calendar look-ahead (default 8)
+ * @param {number} [o.windowWeeks]    look-ahead for calendar occasions AND seasonal keywords (default 8)
  * @param {number} [o.seoLimit]       how many AI topics to request (default 6)
+ * @param {boolean} [o.useSeo]        opt in to the invented-keyword step. Default OFF, on purpose.
+ * @param {Array}  [o.map]            the keyword map (injectable for tests)
  */
-export async function suggestTopics({ now = new Date(), generateTextFn, config, windowWeeks = 8, seoLimit = 6 } = {}) {
+export async function suggestTopics({
+  now = new Date(),
+  generateTextFn,
+  config,
+  windowWeeks = 8,
+  seoLimit = 6,
+  useSeo = false,
+  map = KEYWORD_MAP,
+} = {}) {
   const upcoming = upcomingOccasions(now, windowWeeks);
+  const curated = rankKeywordEntries(map ?? [], now, windowWeeks * 7);
   const calendar = upcoming.map(calendarTopic);
   let seo = [];
-  if (typeof generateTextFn === 'function') seo = await seoTopics({ now, upcoming, generateTextFn, config, limit: seoLimit });
-  const seen = new Set(calendar.map((t) => t.keyword.toLowerCase()));
+  if (useSeo && typeof generateTextFn === 'function') {
+    seo = await seoTopics({ now, upcoming, generateTextFn, config, limit: seoLimit });
+  }
+  const seen = new Set([...curated, ...calendar].map((t) => t.keyword.toLowerCase()));
   const seoFresh = seo.filter((t) => !seen.has(t.keyword.toLowerCase()));
-  return { topics: [...calendar, ...seoFresh], aiUsed: seo.length > 0 };
+  return { topics: [...curated, ...calendar, ...seoFresh], aiUsed: seo.length > 0 };
 }

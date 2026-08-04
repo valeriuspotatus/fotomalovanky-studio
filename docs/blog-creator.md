@@ -5,16 +5,24 @@ as an **unpublished draft** for David to review and publish by hand. Nothing eve
 
 ## How topics are chosen
 
-`GET /api/blog/topics` returns one ranked list from two sources (`src/blog/topics.js`):
+`GET /api/blog/topics` returns one ranked list from three sources (`src/blog/topics.js`), in this order:
 
-- **Calendar-anchored** — the upcoming `MARKETING_CAL` occasions within an 8-week window, soonest
-  first. Each carries the occasion's `persona`/`angle`/`tone`, so the topics are already on-brand and
-  timely. This half needs no AI, so the picker is never empty.
-- **Hot SEO suggestions** — a Gemini text step seeded with today's date + the upcoming occasions + the
-  niche proposes concrete, high-intent Czech topics, each with a target keyword and a one-line intent.
-  Best-effort: if the model fails, the list degrades to calendar-only.
+1. **The curated keyword map** (`src/blog/keywordMap.js`) — the queries we decided to target, written
+   down by hand. Each entry carries a `cluster` (the internal-linking group), an `articleType`
+   (`printable` / `gift` / `trust`, which picks the draft template), a `priority` and an optional
+   `season`. A seasonal entry inside the 8-week window ranks by how close it is; everything else ranks
+   by priority. **Priorities are corrected from Search Console, never guessed** — every seed sits on
+   the neutral `2` until someone reads the data.
+2. **Calendar-anchored** — the upcoming `MARKETING_CAL` occasions within an 8-week window, soonest
+   first. Each carries the occasion's `persona`/`angle`/`tone`, so the topics are already on-brand and
+   timely. Needs no AI.
+3. **AI keyword suggestions** — *opt-in, off by default* (`blog.aiTopics: true`). A Gemini step
+   proposes Czech topics for today's date. It has no volume data behind it, so it invents plausible
+   keywords nobody types — that's why it moved behind a flag and below the curated map. Best-effort:
+   a model failure just drops this third.
 
-David can also type a **free-text topic** (+ optional keyword) — same downstream flow.
+The map alone guarantees the picker is never empty. David can also type a **free-text topic**
+(+ optional keyword) — same downstream flow.
 
 ## The SEO contract (enforced in code, not left to the model)
 
@@ -23,9 +31,42 @@ then assembles the body HTML deterministically so the heading hierarchy, lists, 
 are consistent. Each field is clamped (SEO title ≤ 60, meta ≤ 155, slug slugified) and a bad model
 response falls back to an editable skeleton — a draft always exists.
 
+Every prompt is grounded in `src/blog/productFacts.js` — the real prices, formats, page counts,
+process and delivery times, read off the live shop. The model is told those numbers are verified and
+that **anything not in the list does not go in the article**. Facts that couldn't be checked live in
+`OPEN_FACTS` as `TODO(David):` questions and are deliberately *never* injected into a prompt.
+
+### Article types
+
+`topic.articleType` picks the template:
+
+- **`printable`** — a lead-magnet page for someone who wants pages to print right now: short intro,
+  what's in the set (from `topic.setDescription`), how to print (A4, 100 % scale), a paragraph that is
+  exactly `{{KLAVIYO_FORM}}` (the download form is gated in Klaviyo/Shopify, not here), then *one*
+  bridge paragraph to the personalised book, then FAQ. **Nothing sells above the form.**
+- **`gift` / `trust`** — the general SEO-article shape, grounded in the same product facts.
+
+A topic can also carry `placeholder` (e.g. `{{BTS_FOTKY}}`) to reserve a spot for something pasted in
+by hand later.
+
+### Internal links
+
+Posts store their `cluster`. The draft step passes up to 3 **real** sibling articles from the same
+cluster (`siblingsInCluster`) into the prompt and the model links them in-text as
+`[text](/blogs/blog/article)`. Assembly honours **only those URLs** — an invented or external link
+loses its markup and renders as plain text, so a hallucinated link can't reach the article.
+`internalLinkHint` is only asked for when there are no siblings yet.
+
+A sibling counts once it has been sent to Shopify *and* we know both its blog handle and article
+handle. Shopify articles arrive unpublished and it never tells us when David publishes them, so a
+link can point at an article still waiting in admin — he sees every link in review.
+
 A non-blocking QC pass (`qcPost`) surfaces warnings: keyword missing from title / first ~100 words,
-title or meta over length, body too short, no internal-link hint, no FAQ, and the brand's **banned
-vocabulary** (AI/algorithm/generování, sleva/akce/výprodej, …). Warnings never block saving.
+title or meta over length, body too short (a `printable` is measured against its own 400-word floor —
+it is short by design, and a warning that always fires is a warning nobody reads), no FAQ, no internal-link hint (only when there are no
+siblings), **no link to existing siblings**, a printable missing `{{KLAVIYO_FORM}}`, **selling above
+the form** in a printable, a missing extra placeholder, and the brand's **banned vocabulary**
+(AI/algorithm/generování, sleva/akce/výprodej, …). Warnings never block saving.
 
 ## Publish flow (draft-only invariant)
 
@@ -69,7 +110,9 @@ target per publish. Until `blog.enabled` + a usable content token are set, the t
 
 ## Files
 
-- `src/blog/topics.js` — topic engine (calendar + AI SEO), pure, injected text fn.
+- `src/blog/keywordMap.js` — the curated keyword map (hand-maintained data, no IO).
+- `src/blog/productFacts.js` — the verified product facts injected into every prompt, + open questions.
+- `src/blog/topics.js` — topic engine (map + calendar + opt-in AI), pure, injected text fn.
 - `src/blog/draft.js` — draft generation, structured-JSON → HTML, clamps, QC, skeleton fallback.
 - `src/blog/store.js` — file-based CRUD + `blog-index.json` under `config.blog.dataDir`.
 - `src/blog/voice.js` — brand voice + banned vocabulary (shared by topics/draft/QC).

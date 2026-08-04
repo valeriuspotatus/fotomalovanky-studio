@@ -53,12 +53,46 @@ function summary(post) {
     seoTitle: post.seoTitle,
     keyword: post.topic?.keyword ?? '',
     source: post.topic?.source ?? 'manual',
+    // The internal-linking group + where the article actually lives on the storefront, so siblings
+    // can be found from the index alone — without opening every post file.
+    cluster: post.topic?.cluster ?? null,
+    articleType: post.topic?.articleType ?? null,
     status: post.status ?? 'koncept',
+    shopifyHandle: post.shopifyHandle ?? null,
+    publishedBlogHandle: post.publishedBlogHandle ?? null,
     hasHero: Boolean(post.heroImage),
     warnings: post.qc?.warnings?.length ?? 0,
     createdAt: post.createdAt ?? null,
     updatedAt: post.updatedAt ?? null,
   };
+}
+
+/**
+ * Up to `limit` sibling articles in the same cluster that already reached Shopify, newest first —
+ * the real internal links a new draft can point at.
+ *
+ * A sibling only counts when we know BOTH handles, because the storefront path is
+ * /blogs/<blog>/<article> and a guessed blog handle is a 404 in the finished article. A post sent to
+ * Shopify before we started recording the blog handle simply isn't offered: no link beats a broken one.
+ *
+ * NOTE: "reached Shopify" is not the same as "live". Articles are created unpublished and David
+ * publishes them by hand, and Shopify never tells us when he does — so a link can point at an article
+ * that is still a draft. He sees every link in review before publishing.
+ */
+export function siblingsInCluster(dataDir, cluster, { limit = 3, excludeId = null } = {}) {
+  if (!cluster) return [];
+  return Object.values(readIndex(dataDir).posts)
+    .filter(
+      (p) =>
+        p.cluster === cluster &&
+        p.id !== excludeId &&
+        p.status === 'odeslano' &&
+        p.shopifyHandle &&
+        p.publishedBlogHandle,
+    )
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+    .slice(0, limit)
+    .map((p) => ({ title: p.seoTitle, url: `/blogs/${p.publishedBlogHandle}/${p.shopifyHandle}` }));
 }
 
 /** Upsert a post (by its id). Stamps createdAt once and updatedAt every save; merges its summary into
