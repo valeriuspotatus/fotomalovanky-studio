@@ -33,7 +33,7 @@ import { MARKETING_CAL, occasionKey } from '../creatives/calendar.js';
 import { readIndex as readCreativesIndex } from '../creatives/adCalendar.js';
 import { suggestTopics } from '../blog/topics.js';
 import { generatePost, recomputePost } from '../blog/draft.js';
-import { listPosts, readPost, savePost, deletePost } from '../blog/store.js';
+import { listPosts, readPost, savePost, deletePost, siblingsInCluster } from '../blog/store.js';
 import { createAdminClient } from '../shopify/adminClient.js';
 import { getMetrics, MetricsError } from '../metricsCache.js';
 import { createContentClient } from '../shopify/content.js';
@@ -1548,6 +1548,8 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           topic,
           generateTextFn: blogTextFn,
           config: config.ai,
+          // Real internal links: the articles already on the storefront in this topic's cluster.
+          siblings: siblingsInCluster(blogDir, topic.cluster),
           wordCountMin: config.blog.wordCountMin,
           wordCountMax: config.blog.wordCountMax,
         });
@@ -1616,7 +1618,14 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         const client = createContentClient({ storeDomain: config.shopify.storeDomain, contentToken: config.shopify.contentToken, apiVersion: config.shopify.apiVersion });
         try {
           const article = await client.createArticleDraft({ blogId: target, post, author: config.blog.author });
-          const updated = savePost(blogDir, { ...post, status: 'odeslano', shopifyArticleId: article.id, shopifyHandle: article.handle, publishedBlogId: target });
+          // The blog's handle is half of the storefront path (/blogs/<blog>/<article>) that later
+          // articles link to. Best-effort: a lookup failure must not fail a successful publish — a
+          // post without it simply never gets offered as an internal link.
+          const blogHandle = await client
+            .listBlogs()
+            .then((blogs) => blogs.find((b) => b.id === target)?.handle ?? null)
+            .catch(() => null);
+          const updated = savePost(blogDir, { ...post, status: 'odeslano', shopifyArticleId: article.id, shopifyHandle: article.handle, publishedBlogId: target, publishedBlogHandle: blogHandle });
           return json(res, 200, { post: updated, article });
         } catch (err) {
           const status = err.code === 'handle-taken' ? 409 : err.code === 'scope' || err.code === 'auth' ? 502 : err.code === 'bad-input' || err.code === 'no-blog' ? 400 : 502;

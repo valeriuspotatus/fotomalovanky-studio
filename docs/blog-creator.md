@@ -31,9 +31,41 @@ then assembles the body HTML deterministically so the heading hierarchy, lists, 
 are consistent. Each field is clamped (SEO title ≤ 60, meta ≤ 155, slug slugified) and a bad model
 response falls back to an editable skeleton — a draft always exists.
 
+Every prompt is grounded in `src/blog/productFacts.js` — the real prices, formats, page counts,
+process and delivery times, read off the live shop. The model is told those numbers are verified and
+that **anything not in the list does not go in the article**. Facts that couldn't be checked live in
+`OPEN_FACTS` as `TODO(David):` questions and are deliberately *never* injected into a prompt.
+
+### Article types
+
+`topic.articleType` picks the template:
+
+- **`printable`** — a lead-magnet page for someone who wants pages to print right now: short intro,
+  what's in the set (from `topic.setDescription`), how to print (A4, 100 % scale), a paragraph that is
+  exactly `{{KLAVIYO_FORM}}` (the download form is gated in Klaviyo/Shopify, not here), then *one*
+  bridge paragraph to the personalised book, then FAQ. **Nothing sells above the form.**
+- **`gift` / `trust`** — the general SEO-article shape, grounded in the same product facts.
+
+A topic can also carry `placeholder` (e.g. `{{BTS_FOTKY}}`) to reserve a spot for something pasted in
+by hand later.
+
+### Internal links
+
+Posts store their `cluster`. The draft step passes up to 3 **real** sibling articles from the same
+cluster (`siblingsInCluster`) into the prompt and the model links them in-text as
+`[text](/blogs/blog/article)`. Assembly honours **only those URLs** — an invented or external link
+loses its markup and renders as plain text, so a hallucinated link can't reach the article.
+`internalLinkHint` is only asked for when there are no siblings yet.
+
+A sibling counts once it has been sent to Shopify *and* we know both its blog handle and article
+handle. Shopify articles arrive unpublished and it never tells us when David publishes them, so a
+link can point at an article still waiting in admin — he sees every link in review.
+
 A non-blocking QC pass (`qcPost`) surfaces warnings: keyword missing from title / first ~100 words,
-title or meta over length, body too short, no internal-link hint, no FAQ, and the brand's **banned
-vocabulary** (AI/algorithm/generování, sleva/akce/výprodej, …). Warnings never block saving.
+title or meta over length, body too short, no FAQ, no internal-link hint (only when there are no
+siblings), **no link to existing siblings**, a printable missing `{{KLAVIYO_FORM}}`, **selling above
+the form** in a printable, a missing extra placeholder, and the brand's **banned vocabulary**
+(AI/algorithm/generování, sleva/akce/výprodej, …). Warnings never block saving.
 
 ## Publish flow (draft-only invariant)
 
@@ -78,6 +110,7 @@ target per publish. Until `blog.enabled` + a usable content token are set, the t
 ## Files
 
 - `src/blog/keywordMap.js` — the curated keyword map (hand-maintained data, no IO).
+- `src/blog/productFacts.js` — the verified product facts injected into every prompt, + open questions.
 - `src/blog/topics.js` — topic engine (map + calendar + opt-in AI), pure, injected text fn.
 - `src/blog/draft.js` — draft generation, structured-JSON → HTML, clamps, QC, skeleton fallback.
 - `src/blog/store.js` — file-based CRUD + `blog-index.json` under `config.blog.dataDir`.
