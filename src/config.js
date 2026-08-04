@@ -302,6 +302,9 @@ export function validateConfig(cfg) {
   const blogId = typeof blogRaw.blogId === 'string' && blogRaw.blogId.trim() ? blogRaw.blogId.trim() : null;
   const wordCountMin = Number.isInteger(blogRaw.wordCountMin) && blogRaw.wordCountMin > 0 ? blogRaw.wordCountMin : 800;
   const wordCountMax = Number.isInteger(blogRaw.wordCountMax) && blogRaw.wordCountMax >= wordCountMin ? blogRaw.wordCountMax : 1500;
+  // Letting the model invent keywords is opt-in and off by default — the curated map in
+  // src/blog/keywordMap.js is the source of topics; AI suggestions have no volume data behind them.
+  const blogAiTopics = blogRaw.aiTopics === true;
   if (blogEnabled && (!storeDomain || !contentToken)) {
     throw new ConfigError(
       'blog.enabled needs Shopify configured with a content token — set shopify.storeDomain and a write_content token (shopify.contentToken / FMA_SHOPIFY_CONTENT_TOKEN, or the orders token if it has the scope).',
@@ -429,7 +432,7 @@ export function validateConfig(cfg) {
     },
     // The Blog Creator. `enabled` false means the tab shows a "not configured" state and nothing
     // publishes. `dataDir` is absolute, outside the repo. Publishing reuses shopify.contentToken.
-    blog: { enabled: blogEnabled, dataDir: blogDir, blogId, author: blogAuthor, wordCountMin, wordCountMax },
+    blog: { enabled: blogEnabled, dataDir: blogDir, blogId, author: blogAuthor, wordCountMin, wordCountMax, aiTopics: blogAiTopics },
     // Where the account file and the stored avatars live. Absolute, outside the repo. Usernames and
     // avatar references only — the password hashes stay in the environment.
     accounts: { dataDir: accountsDir },

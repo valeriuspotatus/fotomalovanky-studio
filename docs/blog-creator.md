@@ -5,16 +5,24 @@ as an **unpublished draft** for David to review and publish by hand. Nothing eve
 
 ## How topics are chosen
 
-`GET /api/blog/topics` returns one ranked list from two sources (`src/blog/topics.js`):
+`GET /api/blog/topics` returns one ranked list from three sources (`src/blog/topics.js`), in this order:
 
-- **Calendar-anchored** — the upcoming `MARKETING_CAL` occasions within an 8-week window, soonest
-  first. Each carries the occasion's `persona`/`angle`/`tone`, so the topics are already on-brand and
-  timely. This half needs no AI, so the picker is never empty.
-- **Hot SEO suggestions** — a Gemini text step seeded with today's date + the upcoming occasions + the
-  niche proposes concrete, high-intent Czech topics, each with a target keyword and a one-line intent.
-  Best-effort: if the model fails, the list degrades to calendar-only.
+1. **The curated keyword map** (`src/blog/keywordMap.js`) — the queries we decided to target, written
+   down by hand. Each entry carries a `cluster` (the internal-linking group), an `articleType`
+   (`printable` / `gift` / `trust`, which picks the draft template), a `priority` and an optional
+   `season`. A seasonal entry inside the 8-week window ranks by how close it is; everything else ranks
+   by priority. **Priorities are corrected from Search Console, never guessed** — every seed sits on
+   the neutral `2` until someone reads the data.
+2. **Calendar-anchored** — the upcoming `MARKETING_CAL` occasions within an 8-week window, soonest
+   first. Each carries the occasion's `persona`/`angle`/`tone`, so the topics are already on-brand and
+   timely. Needs no AI.
+3. **AI keyword suggestions** — *opt-in, off by default* (`blog.aiTopics: true`). A Gemini step
+   proposes Czech topics for today's date. It has no volume data behind it, so it invents plausible
+   keywords nobody types — that's why it moved behind a flag and below the curated map. Best-effort:
+   a model failure just drops this third.
 
-David can also type a **free-text topic** (+ optional keyword) — same downstream flow.
+The map alone guarantees the picker is never empty. David can also type a **free-text topic**
+(+ optional keyword) — same downstream flow.
 
 ## The SEO contract (enforced in code, not left to the model)
 
@@ -69,7 +77,8 @@ target per publish. Until `blog.enabled` + a usable content token are set, the t
 
 ## Files
 
-- `src/blog/topics.js` — topic engine (calendar + AI SEO), pure, injected text fn.
+- `src/blog/keywordMap.js` — the curated keyword map (hand-maintained data, no IO).
+- `src/blog/topics.js` — topic engine (map + calendar + opt-in AI), pure, injected text fn.
 - `src/blog/draft.js` — draft generation, structured-JSON → HTML, clamps, QC, skeleton fallback.
 - `src/blog/store.js` — file-based CRUD + `blog-index.json` under `config.blog.dataDir`.
 - `src/blog/voice.js` — brand voice + banned vocabulary (shared by topics/draft/QC).

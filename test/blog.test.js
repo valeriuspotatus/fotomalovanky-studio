@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { suggestTopics, upcomingOccasions, daysUntil } from '../src/blog/topics.js';
+import { suggestTopics, upcomingOccasions, daysUntil, rankKeywordEntries } from '../src/blog/topics.js';
+import { KEYWORD_MAP, ARTICLE_TYPES } from '../src/blog/keywordMap.js';
 import { generatePost, buildBodyHtml, qcPost, SEO_TITLE_MAX, META_MAX } from '../src/blog/draft.js';
 import { savePost, readPost, listPosts, deletePost, isValidId } from '../src/blog/store.js';
 import { buildArticleInput, createContentClient, ShopifyContentError } from '../src/shopify/content.js';
@@ -28,33 +29,104 @@ test('upcomingOccasions selects the calendar window soonest-first', () => {
   for (let i = 1; i < up.length; i++) assert.ok(up[i].days >= up[i - 1].days, 'sorted by proximity');
 });
 
-test('suggestTopics degrades to calendar-only when no AI fn is given', async () => {
-  const { topics, aiUsed } = await suggestTopics({ now: NOW });
-  assert.equal(aiUsed, false);
-  assert.ok(topics.length >= 4);
-  assert.ok(topics.every((t) => t.source === 'calendar'));
-  assert.ok(topics[0].occasionKey, 'calendar topics carry the occasion key');
+// ---- keyword map -----------------------------------------------------------
+
+const FAKE_MAP = [
+  { keyword: 'evergreen prvni', cluster: 'c', articleType: 'gift', priority: 1, season: null, notes: 'n' },
+  { keyword: 'evergreen treti', cluster: 'c', articleType: 'gift', priority: 3, season: null, notes: 'n' },
+  { keyword: 'blizka sezona', cluster: 'c', articleType: 'printable', priority: 3, season: { m: 5, d: 20 }, notes: 'n' },
+  { keyword: 'vzdalena sezona', cluster: 'c', articleType: 'printable', priority: 1, season: { m: 11, d: 15 }, notes: 'n' },
+];
+
+test('the seed keyword map is well-formed and priced at the neutral priority', () => {
+  assert.ok(KEYWORD_MAP.length >= 11);
+  for (const e of KEYWORD_MAP) {
+    assert.ok(e.keyword.trim() && e.cluster.trim() && e.notes.trim(), `${e.keyword} is fully filled in`);
+    assert.ok(ARTICLE_TYPES.includes(e.articleType), `${e.keyword} has a known articleType`);
+    assert.equal(e.priority, 2, 'seed priorities stay neutral until Search Console says otherwise');
+    if (e.season) assert.ok(e.season.m >= 1 && e.season.m <= 12 && e.season.d >= 1 && e.season.d <= 31);
+  }
+  const dupes = KEYWORD_MAP.length - new Set(KEYWORD_MAP.map((e) => e.keyword.toLowerCase())).size;
+  assert.equal(dupes, 0, 'no duplicate keywords');
 });
 
-test('suggestTopics merges AI SEO topics and dedupes against calendar keywords', async () => {
+test('rankKeywordEntries: a near season outranks priority, a far season does not', () => {
+  const ranked = rankKeywordEntries(FAKE_MAP, NOW, 56); // NOW = 1 May 2026
+  assert.deepEqual(
+    ranked.map((t) => t.keyword),
+    ['blizka sezona', 'evergreen prvni', 'vzdalena sezona', 'evergreen treti'],
+  );
+  assert.equal(ranked[0].days, 19, 'a near-season topic carries its countdown');
+  assert.equal(ranked[1].days, null, 'an evergreen topic has no countdown');
+});
+
+test('rankKeywordEntries sorts several near seasons soonest-first', () => {
+  const map = [
+    { keyword: 'pozdeji', cluster: 'c', articleType: 'printable', priority: 1, season: { m: 6, d: 20 }, notes: '' },
+    { keyword: 'driv', cluster: 'c', articleType: 'printable', priority: 3, season: { m: 5, d: 3 }, notes: '' },
+  ];
+  assert.deepEqual(rankKeywordEntries(map, NOW, 56).map((t) => t.keyword), ['driv', 'pozdeji']);
+});
+
+test('map topics carry the cluster + articleType the draft step needs', async () => {
+  const { topics } = await suggestTopics({ now: NOW });
+  const first = topics.find((t) => t.source === 'map');
+  assert.ok(first.cluster, 'cluster travels to the draft step');
+  assert.ok(ARTICLE_TYPES.includes(first.articleType));
+  assert.ok(first.intent, 'notes become the intent line');
+});
+
+// ---- topic ranking ---------------------------------------------------------
+
+test('suggestTopics ranks the curated map first, calendar second', async () => {
+  const { topics, aiUsed } = await suggestTopics({ now: NOW });
+  assert.equal(aiUsed, false);
+  const firstCalendar = topics.findIndex((t) => t.source === 'calendar');
+  const lastMap = topics.map((t) => t.source).lastIndexOf('map');
+  assert.ok(lastMap >= 0 && firstCalendar > lastMap, 'every map topic outranks every calendar topic');
+  assert.equal(topics.filter((t) => t.source === 'map').length, KEYWORD_MAP.length);
+  assert.ok(topics[firstCalendar].occasionKey, 'calendar topics still carry the occasion key');
+});
+
+test('the AI keyword step is OFF unless asked for, even when a model is available', async () => {
+  let called = false;
+  const fakeAi = async () => {
+    called = true;
+    return JSON.stringify({ topics: [{ title: 'X', keyword: 'x', intent: 'y' }] });
+  };
+  const { topics, aiUsed } = await suggestTopics({ now: NOW, generateTextFn: fakeAi });
+  assert.equal(called, false, 'no model call without useSeo');
+  assert.equal(aiUsed, false);
+  assert.ok(!topics.some((t) => t.source === 'seo'));
+});
+
+test('useSeo merges AI topics last and dedupes against map + calendar keywords', async () => {
   const fakeAi = async () =>
     JSON.stringify({
       topics: [
         { title: 'Omalovánky pro seniory', keyword: 'omalovánky pro seniory', intent: 'aktivizace' },
-        { title: 'Dup', keyword: '1. máj (lásky čas)', intent: 'x' }, // duplicates a calendar keyword
+        { title: 'Dup kalendář', keyword: '1. máj (lásky čas)', intent: 'x' }, // duplicates a calendar keyword
+        { title: 'Dup mapa', keyword: 'omalovánky dinosauři', intent: 'x' }, // duplicates a map keyword
       ],
     });
-  const { topics, aiUsed } = await suggestTopics({ now: NOW, generateTextFn: fakeAi });
+  const { topics, aiUsed } = await suggestTopics({ now: NOW, generateTextFn: fakeAi, useSeo: true });
   assert.equal(aiUsed, true);
   const seo = topics.filter((t) => t.source === 'seo');
-  assert.equal(seo.length, 1, 'the duplicate-keyword SEO topic is dropped');
+  assert.equal(seo.length, 1, 'both duplicate-keyword SEO topics are dropped');
   assert.equal(seo[0].keyword, 'omalovánky pro seniory');
+  assert.equal(topics[topics.length - 1].source, 'seo', 'invented keywords rank last');
 });
 
 test('suggestTopics never throws on a broken AI response', async () => {
-  const { topics, aiUsed } = await suggestTopics({ now: NOW, generateTextFn: async () => 'not json at all' });
+  const { topics, aiUsed } = await suggestTopics({ now: NOW, generateTextFn: async () => 'not json at all', useSeo: true });
   assert.equal(aiUsed, false);
-  assert.ok(topics.length >= 4); // calendar still there
+  assert.ok(topics.length >= 4); // map + calendar still there
+});
+
+test('an empty keyword map still yields a full calendar list (never empty)', async () => {
+  const { topics } = await suggestTopics({ now: NOW, map: [] });
+  assert.ok(topics.length >= 4);
+  assert.ok(topics.every((t) => t.source === 'calendar'));
 });
 
 // ---- draft -----------------------------------------------------------------

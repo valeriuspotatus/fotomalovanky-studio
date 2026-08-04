@@ -1529,10 +1529,11 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       const blogTextFn = config.ai?.enabled ? (a) => generateText({ config: config.ai, model: 'gemini-flash-latest', ...a }) : undefined;
       const blogDir = config.blog?.dataDir;
 
-      // GET /api/blog/topics — the ranked topic list: calendar occasions + (if AI on) hot SEO suggestions.
+      // GET /api/blog/topics — the ranked topic list: curated keyword map, then calendar occasions,
+      // then AI-invented keywords only if blog.aiTopics is explicitly on (default off).
       if (req.method === 'GET' && url.pathname === '/api/blog/topics') {
         if (!config.blog?.enabled) return json(res, 200, { enabled: false, aiEnabled: Boolean(config.ai?.enabled), topics: [] });
-        const { topics, aiUsed } = await suggestTopics({ generateTextFn: blogTextFn, config: config.ai });
+        const { topics, aiUsed } = await suggestTopics({ generateTextFn: blogTextFn, config: config.ai, useSeo: config.blog.aiTopics === true });
         return json(res, 200, { enabled: true, aiEnabled: Boolean(config.ai?.enabled), aiUsed, topics });
       }
 
