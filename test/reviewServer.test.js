@@ -1032,9 +1032,27 @@ test('the generator screen shows the signed-in person, not a profile written int
     // The same operator-only controls the dashboard hides, hidden here too — this sidebar has its
     // own Nastavení link and its own nav, which were reachable regardless of role.
     assert.match(html, /id="settingsLink" data-operator hidden/, 'settings is operator-only here as well');
-    for (const href of ['/#creatives', '/#calendar', '/#mail']) {
-      assert.match(html, new RegExp(`<a data-operator hidden href="${href.replace('/', '\/')}"`), `${href} is operator-only`);
+    for (const view of ['home', 'creatives', 'blog', 'mail']) {
+      assert.match(html, new RegExp(`data-view="${view}" data-operator hidden`), `${view} is operator-only on this sidebar too`);
     }
+
+    // The sidebar lists the same destinations as the dashboard, minus a link to the generator —
+    // this IS the generator — and every one of them is a view that exists. "#todo" sat here and is
+    // not a view at all, so it fell through go()'s guard and quietly landed on the overview.
+    assert.ok(!html.includes('href="/#todo"'), 'no link to a view that does not exist');
+    assert.ok(!html.includes('href="/#calendar"'), 'and none to the one the homepage rework removed');
+    for (const href of ['/#home', '/#orders', '/#queue', '/#creatives', '/#blog', '/#mail', '/#settings']) {
+      assert.ok(html.includes(`href="${href}"`), `${href} is offered, as on the dashboard`);
+    }
+
+    // Můj profil is on the dashboard's footer and was missing here, and it is hidden in ungated
+    // local mode on both — one implicit identity, nothing to tell apart.
+    assert.match(html, /id="profileBtn" hidden/, 'the profile control exists and starts hidden');
+    assert.match(html, /\$\('#profileBtn'\)\.hidden = identity\.implicit === true/, 'and ungated local mode keeps it hidden');
+
+    // The same fallback photo the dashboard uses: a silhouette on one screen and a letter on the
+    // other reads as the picture having been lost on the way here.
+    assert.match(html, /\$\('#userAvatar'\)\.src = identity\.avatar \|\| '\/avatar\.png'/, 'avatar falls back the way the dashboard falls back');
   } finally {
     f.cleanup();
   }
