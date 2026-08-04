@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseArgs, validateTheme, createMeter, buildSheetHtml, resolveCaps, canReroll, CAPS } from '../tools/printables.js';
+import { parseArgs, validateTheme, createMeter, buildSheetHtml, resolveCaps, canReroll, shouldReroll, isPortraitEnough, CAPS } from '../tools/printables.js';
 import zvirata from '../tools/printables/zvirata.js';
 
 // The browser half (assemblePdf) is proved by running the tool, the way the other Playwright work in
@@ -70,6 +70,35 @@ test('the meter is a hard stop, not a suggestion', () => {
 test('the default caps leave room for the 8 pages plus 4 rerolls', () => {
   assert.equal(CAPS.geminiImages, 12);
   assert.equal(CAPS.generatorJobs, zvirata.pages.length + 4);
+});
+
+test('a landscape source is rejected before it can cost a generator job', () => {
+  assert.equal(isPortraitEnough(1408, 768), false, '16:9 — what run 1 kept getting');
+  assert.equal(isPortraitEnough(1024, 1024), false, 'a square still wastes a third of A4');
+  assert.equal(isPortraitEnough(768, 1024), true, '3:4 is what we ask for');
+  assert.equal(isPortraitEnough(900, 1600), true, 'taller than 3:4 is fine too');
+  assert.equal(isPortraitEnough(0, 100), false);
+  assert.equal(isPortraitEnough(undefined, undefined), false, 'unreadable metadata is not a pass');
+});
+
+test('solid fill is never re-rolled, because more steps measurably made it worse', () => {
+  assert.equal(shouldReroll('flagged', 'solid-fill'), false);
+  assert.equal(shouldReroll('flagged', 'near-solid'), true);
+  assert.equal(shouldReroll('flagged', 'near-blank'), true);
+  assert.equal(shouldReroll('flagged', 'unreadable-image'), true);
+  assert.equal(shouldReroll('ok', 'ok'), false, 'a good page is never re-rolled');
+});
+
+test('the zvirata theme asks for a portrait source and an empty white background', () => {
+  assert.equal(zvirata.aspectRatio, '3:4');
+  for (const p of zvirata.pages) {
+    const prompt = p.prompt.toLowerCase();
+    assert.ok(prompt.includes('plain pure white background'), `${p.subject}: white background`);
+    assert.ok(prompt.includes('no cast shadow'), `${p.subject}: no shadow to trace as black`);
+    assert.ok(/no scenery|no landscape/.test(prompt), `${p.subject}: no scene`);
+    assert.ok(prompt.includes('no ground'), `${p.subject}: no ground plane`);
+    assert.ok(prompt.includes('filling most of the frame'), `${p.subject}: subject fills the sheet`);
+  }
 });
 
 test('the sheet is A4 portrait, one page per image, with the footer on each', () => {

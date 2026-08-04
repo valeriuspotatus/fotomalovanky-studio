@@ -23,6 +23,17 @@ const okImage = (data = 'AAAA', mimeType = 'image/png') => ({
   json: async () => ({ candidates: [{ content: { parts: [{ inlineData: { mimeType, data } }] } }] }),
 });
 
+test('generateMarketingImage asks for an aspect ratio through the API, not the prompt', async () => {
+  const cap = {};
+  await generateMarketingImage({ config: CONFIG, prompt: 'a dog', aspectRatio: '3:4', fetchImpl: fakeFetch(okImage(), cap) });
+  assert.deepEqual(cap.body.generationConfig, { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '3:4' } });
+  assert.equal(cap.body.contents[0].parts[0].text, 'a dog', 'the prompt text is left alone');
+
+  const plain = {};
+  await generateMarketingImage({ config: CONFIG, prompt: 'a dog', fetchImpl: fakeFetch(okImage(), plain) });
+  assert.deepEqual(plain.body.generationConfig, { responseModalities: ['IMAGE'] }, 'omitted means the model decides, as before');
+});
+
 test('generateMarketingImage refuses without an API key or a prompt', async () => {
   await assert.rejects(
     () => generateMarketingImage({ config: {}, prompt: 'x' }),
