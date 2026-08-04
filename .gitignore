@@ -91,3 +91,10 @@ npm-debug.log*
 # Free printable sets built by tools/printables.js — generated art + the assembled PDF.
 # Reproducible from the committed theme definition, and heavy. Local only.
 /printables/
+
+# Shopify OAuth client credentials (client id + secret) used to mint an app token.
+# Plaintext secret. Local only, never commit.
+shopify.txt
+
+# Throwaway Shopify OAuth authorize URL (carries client_id + CSRF state). Local only.
+authorize-url.txt
