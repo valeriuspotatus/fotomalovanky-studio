@@ -12,7 +12,7 @@
 export const BRAND_CORE = [
   'Fotomalovánky.cz proměňují osobní fotky zákazníků na omalovánky a tištěné omalovánkové knihy na míru.',
   'Prodáváme emoci a vzpomínku, ne technologii ani slevu. NIKDY nezmiňuj umělou inteligenci, algoritmy,',
-  '„generování“ ani „renderování“ — pro člověka na druhé straně je to ruční, osobní výrobek. Mluv o kouzlu,',
+  '„generování“ ani „renderování“. Pro člověka na druhé straně je to ruční, osobní výrobek. Mluv o kouzlu,',
   'proměně a vytvoření; o vzpomínkách, radosti, společném čase a dárku. Nevymýšlej recenze, slevy, akce,',
   'výprodeje ani konkrétní ceny a termíny. Žádné klišé, žádné křičení velkými písmeny.',
 ].join(' ');
@@ -20,7 +20,7 @@ export const BRAND_CORE = [
 /** Blog tail: long-form advice, formal vykání — the guide's "Web/E-mailing" register. */
 export const BLOG_VOICE = [
   BRAND_CORE,
-  'Píšeme česky, vřele a osobně, vykáním, jako rada od někoho, kdo tomu rozumí — ne jako reklama.',
+  'Píšeme česky, vřele a osobně, vykáním, jako rada od někoho, kdo tomu rozumí, ne jako reklama.',
 ].join(' ');
 
 /** Ad tail: short, warm, a little playful. Stays on vykání to match the templates' seed copy — the

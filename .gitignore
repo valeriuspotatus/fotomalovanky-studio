@@ -87,3 +87,7 @@ PROJECT_EXTRACTION.secrets.md
 # Node
 node_modules/
 npm-debug.log*
+
+# Free printable sets built by tools/printables.js — generated art + the assembled PDF.
+# Reproducible from the committed theme definition, and heavy. Local only.
+/printables/
