@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { ZipArchive } from 'archiver';
-import { loadConfig } from '../config.js';
+import { loadConfig, assertPersistentDataDirs } from '../config.js';
 import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent, pdfPathFor } from '../orchestrator.js';
@@ -677,6 +677,10 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
   // beyond this machine. The Dockerfile sets HOST=0.0.0.0, so a Render deploy that forgot the
   // hashes stops here instead of publishing the studio.
   assertLocalModeIsSafe({ env: authEnv, bindHost });
+  // And the same shape for storage: on a hosted bind, a data directory outside the mounted disk is
+  // scratch space that the next deploy erases without a word. Both guards run before a socket
+  // exists, so a deployment that gets either wrong fails loudly at start instead of quietly later.
+  assertPersistentDataDirs({ config, env: authEnv, bindHost });
   const auth = resolveAuthMode(authEnv);
   const accountsDir = config?.accounts?.dataDir ?? null;
   if (auth.mode === AUTH_MODES.MISCONFIGURED) log(auth.message);
