@@ -386,9 +386,15 @@ export function buildBoard(orders, { runningOrderId = null, pdfBuilt = () => fal
  *
  *  This is what replaced "Odeslat Jirkovi". With WhatsApp gone nothing hands a finished book to the
  *  printer, so without this view an order awaiting print is just one status among nine on a board
- *  he has no other reason to read. */
+ *  he has no other reason to read.
+ *
+ *  Newest first — the opposite of the board it is derived from. The board is a backlog, read oldest
+ *  first so nothing rots at the bottom; this is a work list, and the book that just finished is the
+ *  one to print next. Sorted on the copy `filter` returns, so the board's own order is untouched. */
 export function printQueue(entries) {
-  return entries.filter((entry) => entry.status === ORDER_BOARD_STATES.READY_TO_PRINT);
+  return entries
+    .filter((entry) => entry.status === ORDER_BOARD_STATES.READY_TO_PRINT)
+    .sort((a, b) => b.orderId.localeCompare(a.orderId, 'en', { numeric: true }));
 }
 
 /** The compact overnight rollup the dashboard banner reads, distilled from the night report the
