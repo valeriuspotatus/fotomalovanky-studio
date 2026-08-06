@@ -916,8 +916,8 @@
 
   /* ---- Tisková fronta (U12, R10): what is waiting on the press ----
      The server derives the list (studio.js printQueue) — a book on disk with no printed marker —
-     so the queue and the board can never disagree about an order. Oldest first: the press works the
-     queue in the order the customers sent it, unlike the board, which leads with the newest.
+     so the queue and the board can never disagree about an order. Newest first: the book that just
+     finished is the next one on the press.
      Exactly two controls per row. Anything else an order might need is on the board; adding a
      third control here is how a work list turns back into the screen it was extracted from. */
   function renderQueue(d){

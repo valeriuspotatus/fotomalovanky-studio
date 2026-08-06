@@ -566,6 +566,15 @@ test('the print queue is the books that are built and not yet printed, and nothi
   assert.deepEqual(printQueue(board.orders).map((o) => o.orderId), ['1800']);
 });
 
+test('the press queue runs newest first, without disturbing the board it came from', () => {
+  const waiting = ['1560', '1563-1', '1563-5', '1602'].map((id) => order(id, summary({ total: 1, eligible: 1, ready: true })));
+  const board = buildBoard(waiting, { pdfBuilt: () => true, printed: () => false, sent: () => false });
+
+  assert.deepEqual(board.printQueue.map((o) => o.orderId), ['1602', '1563-5', '1563-1', '1560']);
+  // The board stays oldest-first — the queue sorts the copy `filter` handed it, not the board.
+  assert.deepEqual(board.orders.map((o) => o.orderId), ['1560', '1563-1', '1563-5', '1602']);
+});
+
 test('marking an order printed takes it out of the queue', () => {
   const root = mkdtempSync(join(tmpdir(), 'fma-queue-'));
   try {
