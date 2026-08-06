@@ -116,12 +116,30 @@ export function assessSolidFill(grayPixels, width, height, opts = {}) {
   return { verdict, reason: verdict === 'ok' ? 'ok' : 'solid-fill', solidFill, solidBlob };
 }
 
-/** A coloring SVG must be non-empty and contain actual drawing elements. */
+const PAINT = /(?:stroke|fill)="([^"]*)"/gi;
+const INVISIBLE = /^(?:none|#fff|#ffffff|white)$/i;
+
+/** A coloring SVG must be non-empty, contain actual drawing elements, and actually draw something.
+ *
+ *  That last one is the whole reason this looks at colour. The tracer can return a page whose every
+ *  stroke and fill is white: thousands of real paths, structurally perfect, and blank on paper.
+ *  Nothing else catches it — `hasDrawing` sees the paths, and the raster checks below read the
+ *  `_bw.png`, which is fine, because only the SVG came out wrong. Order 1563-5's fourth photo
+ *  shipped exactly that: 6798 paths, every one #FFFFFF, a white box where the coloring page should
+ *  be. A healthy page from this tracer always carries a dark layer (#000000, or #010101/#020202
+ *  when it quantizes just off-black) alongside its white one. */
 export function assessColoringSvg(svg) {
   if (typeof svg !== 'string' || svg.trim() === '') {
     return { verdict: 'flagged', reason: 'empty-svg' };
   }
   const hasDrawing = /<(path|polyline|polygon|line|circle|ellipse|rect)\b/i.test(svg);
   if (!hasDrawing) return { verdict: 'flagged', reason: 'no-paths' };
+
+  // No paint attributes at all means every element takes SVG's default black fill — a drawing.
+  // Only an SVG that paints, and paints nothing but white, is the failure this is looking for.
+  const paints = [...svg.matchAll(PAINT)].map((m) => m[1].trim());
+  if (paints.length && paints.every((p) => INVISIBLE.test(p))) {
+    return { verdict: 'flagged', reason: 'blank-svg' };
+  }
   return { verdict: 'ok', reason: 'ok' };
 }

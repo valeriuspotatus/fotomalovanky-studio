@@ -123,3 +123,22 @@ test('SVG with a path passes', () => {
   const r = assessColoringSvg('<svg><path d="M0 0 L10 10"/></svg>');
   assert.equal(r.verdict, 'ok');
 });
+
+// Order 1563-5's fourth page: 6798 real paths, every one white. It passed every check there was,
+// and printed as a blank box — the raster QC never sees it, because only the SVG came out wrong.
+test('an SVG that paints nothing but white is flagged, however many paths it has', () => {
+  const white = `<svg><g fill="none">${'<path stroke="#FFFFFF" d="M0 0 L1 1"/>'.repeat(50)}<path fill="#ffffff" d="M2 2 L3 3"/></g></svg>`;
+  const r = assessColoringSvg(white);
+  assert.equal(r.verdict, 'flagged');
+  assert.equal(r.reason, 'blank-svg');
+});
+
+test('the tracer\'s off-black layer counts as ink, and unpainted paths default to black', () => {
+  // Healthy pages from this tracer quantize the dark layer to #010101/#020202, never exactly #000000.
+  for (const ink of ['#000000', '#010101', '#020202']) {
+    const svg = `<svg><path stroke="#FFFFFF" d="M0 0 L1 1"/><path fill="${ink}" d="M2 2 L3 3"/></svg>`;
+    assert.equal(assessColoringSvg(svg).verdict, 'ok', ink);
+  }
+  // No paint attribute at all -> SVG's own default is a black fill, which draws fine.
+  assert.equal(assessColoringSvg('<svg><path d="M0 0 L10 10"/></svg>').verdict, 'ok');
+});

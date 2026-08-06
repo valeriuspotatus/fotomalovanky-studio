@@ -80,6 +80,40 @@ test('a non-2xx response is refused', async () => {
   await assert.rejects(() => safeFetch('https://cdn.tigren.com/a.jpg', { allowlist: ALLOW, fetchImpl: fakeFetch({ status: 404 }), lookup: publicLookup }), /HTTP 404/);
 });
 
+// Order 1564 shipped a 3-photo book from a 4-photo order: the CDN's Cloudflare edge answered one
+// photo with a 403 challenge. A 403 there is transient, so it must be retried, not treated as fatal.
+test('a 403 challenge from the CDN is retried until it lets us through', async () => {
+  const statuses = [403, 403, 200];
+  let i = 0;
+  const fetchImpl = async () => {
+    const status = statuses[i++];
+    return {
+      ok: status === 200,
+      status,
+      headers: { get: () => 'image/jpeg' },
+      arrayBuffer: async () => JPEG.buffer.slice(JPEG.byteOffset, JPEG.byteOffset + JPEG.byteLength),
+    };
+  };
+  const res = await safeFetch('https://cdn.tigren.com/a.jpg', { allowlist: ALLOW, fetchImpl, lookup: publicLookup, sleep: async () => {} });
+  assert.equal(res.ext, 'jpg');
+  assert.equal(i, 3, 'gave up too early or retried too much');
+});
+
+test('a persistent 403 still fails, after the retries', async () => {
+  const fetchImpl = fakeFetch({ status: 403 });
+  await assert.rejects(
+    () => safeFetch('https://cdn.tigren.com/a.jpg', { allowlist: ALLOW, fetchImpl, lookup: publicLookup, attempts: 3, sleep: async () => {} }),
+    /HTTP 403 after 3 attempt/,
+  );
+  assert.equal(fetchImpl.calls.length, 3);
+});
+
+test('a 404 is NOT retried — the photo is genuinely gone', async () => {
+  const fetchImpl = fakeFetch({ status: 404 });
+  await assert.rejects(() => safeFetch('https://cdn.tigren.com/a.jpg', { allowlist: ALLOW, fetchImpl, lookup: publicLookup, sleep: async () => {} }), /HTTP 404/);
+  assert.equal(fetchImpl.calls.length, 1);
+});
+
 test('the happy path returns bytes + an extension from the content-type, and sends NO auth header', async () => {
   for (const [ct, ext] of [['image/jpeg', 'jpg'], ['image/png', 'png'], ['image/webp', 'webp']]) {
     const fetchImpl = fakeFetch({ contentType: ct });
@@ -88,8 +122,9 @@ test('the happy path returns bytes + an extension from the content-type, and sen
     assert.equal(res.contentType, ct);
     assert.ok(res.buffer.length > 0);
     // The CDN is public — the Shopify token must never be attached to this request (token-exfil guard).
+    // A User-Agent is sent (Cloudflare 403s a UA-less request); nothing that could carry a credential is.
     const headers = fetchImpl.calls[0].opts?.headers ?? {};
-    assert.equal(Object.keys(headers).length, 0, 'no headers — certainly no X-Shopify-Access-Token — cross to the CDN');
+    assert.deepEqual(Object.keys(headers), ['User-Agent'], 'only a User-Agent — no X-Shopify-Access-Token — crosses to the CDN');
     assert.equal(fetchImpl.calls[0].opts?.redirect, 'error', 'redirects are not followed (a 30x could bounce off-allowlist)');
   }
 });
