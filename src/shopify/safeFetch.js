@@ -23,6 +23,28 @@ export class PhotoFetchError extends Error {
 
 const DEFAULT_MAX_BYTES = 25 * 1024 * 1024; // photos are ~0.5MB; 25MB is a generous ceiling.
 
+// The photo CDN sits behind Cloudflare's bot check, and Node's fetch sends NO User-Agent — the
+// plainest bot signal there is. A photo already in the edge cache is served anyway (cache HIT skips
+// the check), which is why this went unnoticed: it only bites the objects that miss. Order 1564 is
+// what it cost — photo 2 of 4 was the one uncached object, it 403'd, and the customer's book was
+// quietly built from three photos.
+//
+// So: look like a browser, and retry a 403 rather than treating it as fatal.
+//
+// The retry must fire IMMEDIATELY, which is the counter-intuitive part. Measured against the live
+// object: back-to-back requests alternate 403, 200, 403, 200 — the challenged request warms the
+// edge and its instant follow-up is served — while a 250ms or 2s gap 403s every single time. A
+// polite exponential backoff is therefore exactly the wrong instinct here; the pause is what loses
+// the photo. Later attempts do back off, for the ordinary transient 429/503.
+//
+// No auth header still crosses — see the file header.
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+const RETRY_STATUS = new Set([403, 408, 429, 500, 502, 503, 504]);
+const DEFAULT_ATTEMPTS = 5;
+const IMMEDIATE_RETRIES = 2; // then 2s, 4s
+const DEFAULT_BACKOFF_MS = 2_000;
+
 /** host is allowed when it equals an allowlist entry or is a subdomain of one. Exact-suffix match:
  *  "cdn.tigren.com" allows "cdn.tigren.com" and "x.cdn.tigren.com", not "evilcdn.tigren.com.bad". */
 function hostAllowed(host, allowlist) {
@@ -55,7 +77,15 @@ function isPrivateAddress(addr) {
 
 /** Fetch a photo URL under the guards above. Returns { buffer, contentType, ext }.
  *  Throws PhotoFetchError on any guard failure — the caller marks the order incomplete. */
-export async function safeFetch(url, { allowlist = [], maxBytes = DEFAULT_MAX_BYTES, fetchImpl = fetch, lookup = dns.lookup } = {}) {
+export async function safeFetch(url, {
+  allowlist = [],
+  maxBytes = DEFAULT_MAX_BYTES,
+  fetchImpl = fetch,
+  lookup = dns.lookup,
+  attempts = DEFAULT_ATTEMPTS,
+  backoffMs = DEFAULT_BACKOFF_MS,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+} = {}) {
   let parsed;
   try {
     parsed = new URL(url);
@@ -78,8 +108,13 @@ export async function safeFetch(url, { allowlist = [], maxBytes = DEFAULT_MAX_BY
     if (isPrivateAddress(address)) throw new PhotoFetchError(`${parsed.hostname} resolves to a private address (${address})`);
   }
 
-  const res = await fetchImpl(url, { redirect: 'error' }); // no auth header — see file header
-  if (!res.ok) throw new PhotoFetchError(`photo fetch returned HTTP ${res.status}`);
+  let res;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetchImpl(url, { redirect: 'error', headers: { 'User-Agent': BROWSER_UA } });
+    if (res.ok || !RETRY_STATUS.has(res.status) || attempt >= attempts - 1) break;
+    if (attempt >= IMMEDIATE_RETRIES) await sleep(backoffMs * 2 ** (attempt - IMMEDIATE_RETRIES));
+  }
+  if (!res.ok) throw new PhotoFetchError(`photo fetch returned HTTP ${res.status} after ${attempts} attempt(s)`);
 
   const contentType = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
   if (!contentType.startsWith('image/')) throw new PhotoFetchError(`refused non-image content-type "${contentType || 'unknown'}"`);
