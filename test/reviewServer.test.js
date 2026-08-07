@@ -1140,6 +1140,11 @@ test('the homepage widgets the rework removed are gone, not merely hidden', asyn
     // describes a shrinking part of the day, and the size mix answered a question nobody was asking.
     assert.ok(!html.includes('id="continueRow"'), 'the work card is gone');
     assert.ok(!html.includes('mx-bar'), 'and so is the size-mix bar');
+    // "Stránek na objednávku" went with them: it counted photos that ARRIVED, so it sagged whenever
+    // an order sat waiting on a slow upload and recovered when the photos turned up — a number that
+    // moves for reasons unrelated to the business. The size mix had been the protected version of
+    // the same question; once that went, this was the last survivor of a question nobody asks.
+    assert.ok(!html.includes('pagesPerOrder30d'), 'and the pages-per-order tile');
     assert.match(html, /id="mailUnread"/, 'Pošta reduced to its count');
     assert.match(html, /id="mxBody"/, 'with the metrics section in their place');
   } finally {
