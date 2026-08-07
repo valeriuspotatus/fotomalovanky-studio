@@ -638,6 +638,38 @@ test('a poll that comes back signed-out goes to the sign-in page, not a silent e
   assert.match(REVIEW, /if \(res\.status === 401\) \{ location\.href = '\/login'; return; \}/, 'and the review grid');
 });
 
+// The homepage's paid-vs-organic block exists to answer one question honestly. These lift its rules
+// out of the shipped page and RUN them, because the failure mode is a plausible-looking number
+// rather than a broken page — and a regex over the source would keep passing while the arithmetic
+// silently said the ads were free.
+test('missing spend is not zero: the block says it does not know rather than inventing a return', () => {
+  const state = (spend) => pageFunction('spendState', {})(spend);
+  assert.equal(state(null), 'missing', 'nobody has entered a figure');
+  assert.equal(state({ amount: 0 }), 'zero', 'and a genuine zero is a different answer');
+  assert.equal(state({ amount: 6200 }), 'known');
+
+  // The arithmetic behind it: dividing by a spend of zero must not produce a return at all.
+  const roas = (revenue, amount) => pageFunction('roasOf', {})(revenue, amount);
+  assert.equal(roas(14779, 6200), 2.4, 'revenue over spend, to one decimal');
+  assert.equal(roas(14779, 0), null, 'a zero spend yields no return — not Infinity, which renders as "the ads were free"');
+  assert.equal(roas(0, 6200), 0, 'and spending with nothing to show for it is a real zero');
+});
+
+test('cost per order needs orders, and says nothing when there are none', () => {
+  const per = (amount, orders) => pageFunction('perOrder', {})(amount, orders);
+  assert.equal(per(6200, 21), 295);
+  assert.equal(per(6200, 0), null, 'no orders means no cost per order, not a division by zero');
+});
+
+test('the block is operator-only in the markup, not merely by the route it calls', () => {
+  // /api/studio answers both roles and the identity poll is what reveals these sections, so the
+  // section must ship hidden — otherwise a printer paints the shop's revenue for one frame.
+  const section = /<section id="channelsSection"([^>]*)>/.exec(PAGE);
+  assert.ok(section, 'the block is still a section this test can find');
+  assert.match(section[1], /data-operator/, 'carries data-operator');
+  assert.match(section[1], /\bhidden\b/, 'and ships hidden, like the economics block beside it');
+});
+
 test('a printer session lands on the print queue; the operator lands on the board', () => {
   // The page's real landing rule, LIFTED OUT AND RUN — not matched against a regex. The rule decides
   // the first screen each person sees, and "the source contains this string" would keep passing if
