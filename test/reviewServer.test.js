@@ -1135,7 +1135,11 @@ test('the homepage widgets the rework removed are gone, not merely hidden', asyn
     assert.match(html, /id="recentBody"/, 'the recent list is back, and earns its place by naming the source');
     // Kept, per the brief.
     assert.match(html, /class="overnight"/, 'the overnight strip is untouched');
-    assert.match(html, /id="continueRow"/, 'and "Pokračovat v práci" stays');
+    // "Pokračovat v práci" is gone now, and the tier-mix bar with it. Both were removed on the
+    // operator's word: the backend runs itself, so a card pointing at the one order needing a human
+    // describes a shrinking part of the day, and the size mix answered a question nobody was asking.
+    assert.ok(!html.includes('id="continueRow"'), 'the work card is gone');
+    assert.ok(!html.includes('mx-bar'), 'and so is the size-mix bar');
     assert.match(html, /id="mailUnread"/, 'Pošta reduced to its count');
     assert.match(html, /id="mxBody"/, 'with the metrics section in their place');
   } finally {

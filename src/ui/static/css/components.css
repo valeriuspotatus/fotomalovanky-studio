@@ -118,18 +118,11 @@ svg{display:block}
 .w-neutral{background:var(--neutral-soft);color:var(--ink-2)}
 
 /* ============================ CONTINUE-WORKING ============================ */
-.continue{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.cwork{padding:18px}
-.cwork .head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
-.cwork .head h3{font-family:var(--font-display);font-weight:600;font-size:16px}
-.cwork .body{display:flex;gap:16px;align-items:center}
-.cwork .meta{flex:1;min-width:0}
 .progress{height:7px;border-radius:var(--r-full);background:var(--surface-3);overflow:hidden;margin:10px 0 8px}
 .progress i{display:block;height:100%;border-radius:var(--r-full);background:var(--success);transition:width var(--dur-slow) var(--ease)}
 .progress.run i{background:var(--running)}
 .progress.run.indet i{width:32%;animation:prog-indet 1.15s ease-in-out infinite}
 @keyframes prog-indet{0%{transform:translateX(-120%)}100%{transform:translateX(360%)}}
-.cwork .note{color:var(--ink-2);font-size:12.5px}
 .btn.mt{margin-top:14px}
 .gen-visual{width:74px;height:74px;border-radius:var(--r-md);background:var(--info-soft);display:grid;place-items:center;flex-shrink:0}
 .gen-visual svg{width:30px;height:30px;stroke:var(--info)}
@@ -302,7 +295,7 @@ svg.chart{width:100%;height:auto;display:block;overflow:visible}
 }
 @media (max-width:900px){
   .app{grid-template-columns:1fr}.sidebar{display:none}.main{padding:20px}
-  .kpis{grid-template-columns:repeat(2,1fr)}.continue{grid-template-columns:1fr}.tools{grid-template-columns:repeat(2,1fr)}
+  .kpis{grid-template-columns:repeat(2,1fr)}.tools{grid-template-columns:repeat(2,1fr)}
   .topbar{flex-direction:column}.search{min-width:0}.sheet .grid{grid-template-columns:1fr}
 }
 /* Objednávky toolbar — the on-demand Shopify fetch button */

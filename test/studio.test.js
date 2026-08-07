@@ -748,13 +748,11 @@ test('the board offers a printer nothing the server would refuse him', () => {
     assert.ok(!lineWith(cls).includes('isOperator()'), `${cls} stays available to the printer — printing is his job`);
   }
 
-  // The home card's "continue" CTA is the same question asked once more: its most-actionable state
-  // is `printed`, whose only action is dispatch. Offering that as a printer's first screen is
-  // offering him a 403.
-  const [, forOperator, forPrinter] = /const priority=isOperator\(\)\?(\[[^\]]*\]):(\[[^\]]*\]);/.exec(PAGE);
-  assert.ok(JSON.parse(forOperator).includes('printed'), 'the operator is shown the book waiting to be posted');
-  assert.ok(!JSON.parse(forPrinter).includes('printed'), 'the printer is not — he cannot post it');
-  assert.ok(JSON.parse(forPrinter).includes('ready-to-print'), 'his card features the book waiting to be printed instead');
+  // The home card's "continue" CTA used to ask this same question a second time — its most-actionable
+  // state was `printed`, whose only action is dispatch, so a printer's first screen offered him a 403.
+  // The card is gone, and with it that second surface. The row actions above are now the only place
+  // the board offers an action, which is one rule to keep right instead of two.
+  assert.ok(!PAGE.includes('const priority=isOperator()'), 'the work card and its role-aware CTA are gone');
 });
 
 test('the purge panel\'s two numbers describe the set they are attached to', () => {
