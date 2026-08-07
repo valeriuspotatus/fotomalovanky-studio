@@ -727,7 +727,7 @@ test('the printer is refused every route that spends money, writes to a customer
     // POSTs. /api/_shutdown is deliberately only ever exercised as the REFUSED case — the allowed
     // case would stop the process running this suite.
     for (const path of [
-      '/api/spend',
+      '/api/spend', '/api/backfill-attribution',
       '/api/_scan', '/api/_pick-folder', '/api/_shutdown', '/api/_open/generator', '/api/_open/folder/1510',
       '/api/mail/send', '/api/mail/delete', '/api/mail/flag',
       '/api/blog/draft', '/api/blog/posts', '/api/blog/publish',

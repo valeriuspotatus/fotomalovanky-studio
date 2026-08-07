@@ -34,7 +34,8 @@ import { readIndex as readCreativesIndex } from '../creatives/adCalendar.js';
 import { suggestTopics } from '../blog/topics.js';
 import { generatePost, recomputePost, wouldLoseWork } from '../blog/draft.js';
 import { listPosts, readPost, savePost, deletePost, siblingsInCluster } from '../blog/store.js';
-import { createAdminClient } from '../shopify/adminClient.js';
+import { createAdminClient, ShopifyApiError } from '../shopify/adminClient.js';
+import { backfillAttribution } from '../backfillAttribution.js';
 import { getMetrics, MetricsError } from '../metricsCache.js';
 import { spendForWindow, writeAdSpend, AdSpendError, SPEND_SOURCES } from '../adSpend.js';
 import { ROLLING_DAYS } from '../metrics.js';
@@ -476,6 +477,9 @@ export const ROUTE_POLICY = Object.freeze([
   // metrics beside it and for the same reason: this is the shop's money, on a screen the printer
   // opens to print books.
   { id: 'GET|POST /api/spend', audience: AUDIENCES.OPERATOR, methods: ['GET', 'POST'], tokens: ['/api/spend'], match: atPath('/api/spend'), sample: '/api/spend' },
+  // The one-shot that fills the Zdroj column in for orders downloaded before it existed. Operator
+  // only: it rewrites order sidecars and talks to the shop.
+  { id: 'POST /api/backfill-attribution', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/backfill-attribution'], match: atPath('/api/backfill-attribution'), sample: '/api/backfill-attribution' },
   // The box and the filesystem around it: re-pointing the inbox, the native folder dialog, and the
   // button that stops the server everybody else is using.
   { id: 'POST /api/_scan', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/_scan'], match: atPath('/api/_scan'), sample: '/api/_scan' },
@@ -1440,6 +1444,36 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           return json(res, 200, { saved });
         } catch (err) {
           if (err instanceof AdSpendError) return json(res, 400, { error: err.message, code: err.code });
+          throw err;
+        }
+      }
+
+      // POST /api/backfill-attribution { write? } — fill the Zdroj column in for the back catalogue.
+      //
+      // This exists because the CLI cannot reach the machine that matters: the studio runs on Render,
+      // where there is no shell. Without it the column reads "bez zdroje" for every order downloaded
+      // before attribution was recorded, until the whole back catalogue ages out.
+      //
+      // Dry by default — `write: true` is what actually patches — and idempotent either way, so the
+      // worst a stray double-click costs is a second pass reporting nothing to do.
+      if (req.method === 'POST' && url.pathname === '/api/backfill-attribution') {
+        const shop = config.shopify ?? null;
+        if (!shop?.enabled || !shop?.accessToken) {
+          return json(res, 409, { error: 'Shopify není propojené — není se čeho ptát.', code: 'not-configured' });
+        }
+        const { write } = await readJson(req, 1024);
+        try {
+          const counts = await backfillAttribution({
+            config,
+            client: createAdminClient({ storeDomain: shop.storeDomain, accessToken: shop.accessToken, apiVersion: shop.apiVersion }),
+            write: write === true,
+          });
+          // The per-folder lines carry order numbers and campaign names; the page only needs the
+          // counts, so the detail stays in the run rather than crossing to a browser.
+          const { lines, ...summary } = counts;
+          return json(res, 200, { ...summary, write: write === true });
+        } catch (err) {
+          if (err instanceof ShopifyApiError) return json(res, 503, { error: err.message, code: 'shopify' });
           throw err;
         }
       }
