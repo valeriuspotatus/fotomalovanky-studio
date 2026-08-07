@@ -440,6 +440,14 @@ export function validateConfig(cfg) {
     studio: { firstLiveOrder },
     retentionDays,
     manualTouchThreshold: cfg.manualTouchThreshold ?? null,
+    // How often the server sweeps the inbox and starts generating, in seconds; 0 turns that off.
+    // server.js has always read this and its own comment has always said 0 disables auto-run — but
+    // the key was never carried through here, so the switch could not be reached from config.json
+    // and every instance swept on the 15-second default. That matters now that the studio runs in
+    // two places: a second instance polling the same shop generates the same orders against the
+    // same GPU account. Undefined keeps the server's default, so nothing changes for an install
+    // that never sets it.
+    autoRunSeconds: Number.isInteger(cfg.autoRunSeconds) && cfg.autoRunSeconds >= 0 ? cfg.autoRunSeconds : undefined,
   };
 }
 

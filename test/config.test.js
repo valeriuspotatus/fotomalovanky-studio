@@ -274,3 +274,15 @@ test('a directory the config never set is not invented, and never blamed', () =>
   assert.doesNotThrow(() => assertPersistentDataDirs({ config: sparse, env: {}, bindHost: '0.0.0.0' }));
   assert.doesNotThrow(() => assertPersistentDataDirs({ config: {}, env: {}, bindHost: '0.0.0.0' }));
 });
+
+test('autoRunSeconds reaches the server, so 0 can actually stop the inbox sweep', () => {
+  // server.js has always read `config.autoRunSeconds` and its own comment has always said 0
+  // disables auto-run — but the key was not carried through the loader, so the switch could not be
+  // reached from config.json and every instance swept on the 15-second default. That is only a
+  // curiosity while the studio runs in one place; with a second instance polling the same shop it
+  // is two machines generating the same orders against the same GPU account.
+  assert.equal(validateConfig({ ...good, autoRunSeconds: 0 }).autoRunSeconds, 0, 'zero survives the loader');
+  assert.equal(validateConfig({ ...good, autoRunSeconds: 30 }).autoRunSeconds, 30);
+  assert.equal(validateConfig(good).autoRunSeconds, undefined, 'unset leaves the server on its own default');
+  assert.equal(validateConfig({ ...good, autoRunSeconds: -5 }).autoRunSeconds, undefined, 'and nonsense does not become a timer');
+});
