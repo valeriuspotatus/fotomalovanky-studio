@@ -715,7 +715,7 @@ test('the printer is refused every route that spends money, writes to a customer
   try {
     // GETs.
     for (const path of [
-      '/api/settings', '/api/mail', '/api/mail/message?uid=1', '/api/mail/templates',
+      '/api/settings', '/api/metrics', '/api/spend', '/api/mail', '/api/mail/message?uid=1', '/api/mail/templates',
       '/api/blog/topics', '/api/blog/posts', '/api/blog/blogs',
       '/api/creatives/calendar', '/api/studio/templates', '/api/studio/validate', '/studio/preview', '/studio/render',
       '/api/autopilot/status', '/creatives/ad/12-24-vanoce/x.png',
@@ -727,6 +727,7 @@ test('the printer is refused every route that spends money, writes to a customer
     // POSTs. /api/_shutdown is deliberately only ever exercised as the REFUSED case — the allowed
     // case would stop the process running this suite.
     for (const path of [
+      '/api/spend',
       '/api/_scan', '/api/_pick-folder', '/api/_shutdown', '/api/_open/generator', '/api/_open/folder/1510',
       '/api/mail/send', '/api/mail/delete', '/api/mail/flag',
       '/api/blog/draft', '/api/blog/posts', '/api/blog/publish',
@@ -1053,6 +1054,31 @@ test('the generator screen shows the signed-in person, not a profile written int
     // The same fallback photo the dashboard uses: a silhouette on one screen and a letter on the
     // other reads as the picture having been lost on the way here.
     assert.match(html, /\$\('#userAvatar'\)\.src = identity\.avatar \|\| '\/avatar\.png'/, 'avatar falls back the way the dashboard falls back');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('ad spend: the operator reads it back; the printer reaches neither verb', async () => {
+  const f = await roleServer();
+  try {
+    for (const call of [f.get('/api/spend', f.printer), f.post('/api/spend', f.printer, { amount: 1 })]) {
+      const res = await call;
+      assert.equal(res.status, 403, 'spend is the shop’s money, and the printer’s screen is a work list');
+    }
+
+    // The fixture configures no data dir, which is the state a fresh install is in. The page has to
+    // render that as "we don't know", never as zero — zero would compute a return on spend of
+    // infinity and read as "the ads were free".
+    const empty = await f.get('/api/spend', f.operator);
+    assert.equal(empty.status, 200);
+    const body = await empty.json();
+    assert.equal(body.spend, null, 'missing stays missing');
+    assert.equal(body.configured, false);
+
+    const refused = await f.post('/api/spend', f.operator, { amount: 6200 });
+    assert.equal(refused.status, 409, 'and writing has nowhere to go until the data dir is set');
+    assert.equal((await refused.json()).code, 'not-configured');
   } finally {
     f.cleanup();
   }
