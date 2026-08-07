@@ -98,3 +98,10 @@ shopify.txt
 
 # Throwaway Shopify OAuth authorize URL (carries client_id + CSRF state). Local only.
 authorize-url.txt
+
+# Google service-account key for Search Console. A private key in plaintext — it was sitting
+# untracked and unignored, one `git add -A` from being published. Local only, never commit.
+gsc-key.json
+
+# WhatsApp Web session cache. Regenerated on demand, and it holds session material.
+.wwebjs_cache/
