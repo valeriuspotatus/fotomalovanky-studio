@@ -404,7 +404,7 @@
                matters more here than on the block above — /api/studio answers BOTH roles, so without
                it a printer session would paint real order rows. -->
           <section id="recentSection" data-operator hidden>
-            <div class="sec-h"><h2>Poslední objednávky</h2><a href="#orders" onclick="go('orders');return false">Všechny →</a></div>
+            <div class="sec-h"><h2>Poslední objednávky</h2><span><button class="ch-add" id="backfillBtn" hidden>Doplnit zdroje</button> <a href="#orders" onclick="go('orders');return false">Všechny →</a></span></div>
             <div class="table"><table>
               <thead><tr><th>Objednávka</th><th>Zdroj</th><th>Titulek</th><th>Stav</th></tr></thead>
               <tbody id="recentBody"></tbody>
@@ -890,9 +890,32 @@
   const CH_LABEL={paid:"placené",organic:"organické",direct:"direct",other:"jiné",unknown:"bez zdroje"};
   const sourceLabel=(a)=>!a||a.channel==="unknown"?CH_LABEL.unknown:(CH_LABEL[a.channel]||a.channel)+(a.campaign?" · "+a.campaign:"");
 
+  /* The back catalogue was downloaded before the shop's channel was recorded, so those rows read
+     "bez zdroje" forever unless something fills them in. The CLI that does it cannot reach the
+     deployed studio — there is no shell on Render — so the button offers it here, and only while
+     there is actually something to fill: once every row has a source it stops appearing. */
+  async function runBackfill(btn){
+    btn.disabled=true;btn.textContent="Doplňuji…";
+    try{
+      const r=await fetch("/api/backfill-attribution",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({write:true})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){toast(j.error||"Doplnění se nezdařilo.");return;}
+      toast(`Doplněno ${j.patched} objednávek${j.unresolved||j.failed?` · ${j.unresolved+j.failed} se nepodařilo`:""}.`);
+      fetchStudio();
+    }catch{toast("Server neodpovídá.");}
+    finally{btn.disabled=false;btn.textContent="Doplnit zdroje";}
+  }
+
   function renderRecent(d){
     const b=document.getElementById("recentBody");
     if(!b)return;
+    // Offered only when some order actually lacks a source — a button for work already done is
+    // clutter, and this one is a migration, not a feature.
+    const btn=document.getElementById("backfillBtn");
+    if(btn){
+      btn.hidden=!(d.orders||[]).some(o=>!o.attribution||o.attribution.channel==="unknown");
+      btn.onclick=()=>runBackfill(btn);
+    }
     // The board arrives oldest-first; this view wants what just happened.
     const rows=[...(d.orders||[])].sort((x,y)=>y.orderId.localeCompare(x.orderId,"en",{numeric:true})).slice(0,RECENT_ROWS);
     b.innerHTML=rows.length?rows.map(o=>{
