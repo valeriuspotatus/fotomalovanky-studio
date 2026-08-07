@@ -1243,6 +1243,10 @@ async function refresh(force) {
   inFlight = true;
   try {
     const res = await fetch('/api/state');
+    // A 401 is a dead session, not a blip. Without this the grid parses the "sign in please" body,
+    // finds no orders in it, and paints an empty studio that keeps claiming it is live — and since
+    // sessions live in the server process, every redeploy produces exactly that screen.
+    if (res.status === 401) { location.href = '/login'; return; }
     const data = await res.json();
     paintIdentity(data.identity);
     render(data, force);
