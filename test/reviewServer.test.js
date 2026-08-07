@@ -1125,9 +1125,14 @@ test('the homepage widgets the rework removed are gone, not merely hidden', asyn
   const f = await roleServer();
   try {
     const html = await (await f.get('/', f.operator)).text();
-    for (const gone of ['id="kpi-queued"', 'id="recentBody"', 'id="upList"', 'Nástroje studia', 'Poslední objednávky', '<h3>Generování</h3>']) {
+    // "Poslední objednávky" is deliberately NOT in this list any more. The rework removed it because
+    // it restated the board; it is back because it now carries the one column the board does not —
+    // where each order came from — which is the whole point of a marketing homepage. The rest of
+    // these stayed removed.
+    for (const gone of ['id="kpi-queued"', 'id="upList"', 'Nástroje studia', '<h3>Generování</h3>']) {
       assert.ok(!html.includes(gone), `${gone} should be gone from the homepage`);
     }
+    assert.match(html, /id="recentBody"/, 'the recent list is back, and earns its place by naming the source');
     // Kept, per the brief.
     assert.match(html, /class="overnight"/, 'the overnight strip is untouched');
     assert.match(html, /id="continueRow"/, 'and "Pokračovat v práci" stays');

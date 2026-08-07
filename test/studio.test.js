@@ -670,6 +670,26 @@ test('the block is operator-only in the markup, not merely by the route it calls
   assert.match(section[1], /\bhidden\b/, 'and ships hidden, like the economics block beside it');
 });
 
+test('the recent-orders list names an unattributed order rather than leaving a blank cell', () => {
+  // "bez zdroje" is the truth for about a fifth of orders. An empty cell would read as a rendering
+  // fault, and the operator would go looking for a bug instead of accepting the answer.
+  const label = (a) => pageFunction('sourceLabel', {})(a);
+  assert.equal(label(null), 'bez zdroje', 'no attribution at all');
+  assert.equal(label({ channel: 'unknown', campaign: null }), 'bez zdroje', 'and an explicit unknown reads the same');
+  assert.equal(label({ channel: 'paid', campaign: 'A+ sales - 3-2026' }), 'placené · A+ sales - 3-2026');
+  assert.equal(label({ channel: 'organic', campaign: null }), 'organické', 'no campaign, no separator dangling');
+  assert.equal(label({ channel: 'direct', campaign: null }), 'direct');
+});
+
+test('the recent list is operator-only in the markup, which matters more here than for the money block', () => {
+  // /api/studio answers BOTH roles, so unlike the revenue block this one is not protected by its
+  // route at all — without the attribute a printer session paints real customer order rows.
+  const section = /<section id="recentSection"([^>]*)>/.exec(PAGE);
+  assert.ok(section, 'the list is still a section this test can find');
+  assert.match(section[1], /data-operator/);
+  assert.match(section[1], /\bhidden\b/);
+});
+
 test('a printer session lands on the print queue; the operator lands on the board', () => {
   // The page's real landing rule, LIFTED OUT AND RUN — not matched against a regex. The rule decides
   // the first screen each person sees, and "the source contains this string" would keep passing if

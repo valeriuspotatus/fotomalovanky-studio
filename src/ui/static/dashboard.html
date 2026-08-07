@@ -41,6 +41,8 @@
   .ch-rest{margin-top:10px;padding-top:9px;border-top:1px dashed var(--border);display:flex;gap:var(--sp-5);flex-wrap:wrap;font-size:12.5px;color:var(--ink-3)}
   .ch-rest b{color:var(--ink-2);font-weight:600}
   .ch-caveat{margin-top:8px;font-size:11.5px;color:var(--ink-3);line-height:1.5}
+  .rc-src{font-size:12.5px;color:var(--ink-2)}
+  .rc-src.muted{color:var(--ink-3);font-style:italic}
   .mx-refresh{background:none;border:0;color:var(--ink-3);font:inherit;font-size:12px;cursor:pointer}
   .mx-refresh:hover{color:var(--brand)}
   .mx-note{color:var(--ink-3);font-size:13px;padding:var(--sp-3) 0}
@@ -400,6 +402,18 @@
           <section id="channelsSection" data-operator hidden>
             <div class="sec-h"><h2>Placené vs organické</h2><span class="ch-sub">30 dní · podle zdroje objednávky</span></div>
             <div id="chBody"><div class="mx-note">Načítám…</div></div>
+          </section>
+
+          <!-- Poslední objednávky. A glance, not a second copy of the board: what came in lately and
+               where from, which is the column Objednávky does not carry. `data-operator hidden`
+               matters more here than on the block above — /api/studio answers BOTH roles, so without
+               it a printer session would paint real order rows. -->
+          <section id="recentSection" data-operator hidden>
+            <div class="sec-h"><h2>Poslední objednávky</h2><a href="#orders" onclick="go('orders');return false">Všechny →</a></div>
+            <div class="table"><table>
+              <thead><tr><th>Objednávka</th><th>Zdroj</th><th>Titulek</th><th>Stav</th></tr></thead>
+              <tbody id="recentBody"></tbody>
+            </table></div>
           </section>
 
           <section>
@@ -872,7 +886,33 @@
     // parcel sits on a desk for a week.
     document.getElementById("nav-orders").textContent=(d.counts.total||0)-(d.counts.sent||0);
     document.getElementById("nav-gen").textContent=d.counts.generating||0;
+    renderRecent(d);
     renderContinue(d);
+  }
+
+  /* ---- Poslední objednávky ---------------------------------------------------
+     Newest first and capped: the board is one click away, and a list that grew with the shop would
+     become the board rather than a glance at it. */
+  const RECENT_ROWS=6;
+
+  /** How a row names its origin. An order with nothing recorded says so plainly — "bez zdroje" is
+   *  the truth, and an empty cell would read as a rendering fault instead. */
+  const sourceLabel=(a)=>!a||a.channel==="unknown"?"bez zdroje":(a.campaign?({paid:"placené",organic:"organické",direct:"direct",other:"jiné"}[a.channel]||a.channel)+" · "+a.campaign:({paid:"placené",organic:"organické",direct:"direct",other:"jiné"}[a.channel]||a.channel));
+
+  function renderRecent(d){
+    const b=document.getElementById("recentBody");
+    if(!b)return;
+    // The board arrives oldest-first; this view wants what just happened.
+    const rows=[...(d.orders||[])].sort((x,y)=>y.orderId.localeCompare(x.orderId,"en",{numeric:true})).slice(0,RECENT_ROWS);
+    b.innerHTML=rows.length?rows.map(o=>{
+      const a=o.attribution;
+      const muted=!a||a.channel==="unknown";
+      return `<tr>
+        <td><span class="oid">${esc(o.orderId)}</span></td>
+        <td class="rc-src${muted?" muted":""}">${esc(sourceLabel(a))}</td>
+        <td><span class="ded-cell">${o.dedication?"„"+esc(o.dedication)+"“":"—"}</span></td>
+        <td>${chipHtml(o.status)}</td></tr>`;
+    }).join(""):'<tr><td colspan="4" class="empty">Zatím žádné objednávky.</td></tr>';
   }
 
   function renderContinue(d){
