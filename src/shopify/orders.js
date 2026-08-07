@@ -114,11 +114,15 @@ export function extractJobs(node, opts = {}) {
   }
   if (!books.length) return [];
 
+  // One purchase is one visit, so every book of a multi-book purchase shares its attribution.
+  const attribution = attributionFrom(node);
+
   const of = books.length;
   return books.map((b, i) => ({
     orderId: of === 1 ? purchaseId : `${purchaseId}-${i + 1}`,
     purchase: { orderId: purchaseId, position: i + 1, of },
     copies: b.copies,
+    attribution,
     updatedAt: node.updatedAt ?? null,
     financialStatus: node.displayFinancialStatus ?? null,
     email: (node.email ?? '').trim(),

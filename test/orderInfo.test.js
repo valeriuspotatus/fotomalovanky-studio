@@ -22,6 +22,9 @@ test('the shop\'s own spelling reaches the title page with its accents', () => {
       copies: 1,
       customer: null,
       products: [],
+      // Nor any attribution: an order downloaded before the shop's channel was recorded reads as
+      // unknown, exactly like one the shop genuinely could not attribute.
+      attribution: { source: null, medium: null, campaign: null, channel: 'unknown' },
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -67,7 +70,7 @@ test('a customer who wrote nothing said nothing', () => {
   try {
     write(dir, { order: '1479', dedication: '' });
     assert.equal(shopDedication(dir), '');
-    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '', expectedPhotos: null, purchase: { orderId: '1479', position: 1, of: 1 }, copies: 1, customer: null, products: [] });
+    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '', expectedPhotos: null, purchase: { orderId: '1479', position: 1, of: 1 }, copies: 1, customer: null, products: [], attribution: { source: null, medium: null, campaign: null, channel: 'unknown' } });
 
     write(dir, { order: '1479', dedication: '   ' });
     assert.equal(shopDedication(dir), '', 'whitespace is not a dedication');

@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { materializeOrder } from '../src/shopify/materialize.js';
 import { isPhoto } from '../src/organize.js';
+import { readOrderInfo } from '../src/orderInfo.js';
 
 // The upload host serves some photos as PNG/WebP, but organize.js only ingests .jpg/.jpeg — so an
 // order like #1525 downloaded as PNG would land in the folder yet be silently skipped by the
@@ -149,6 +150,49 @@ test('a photo that cannot be fetched marks only its own book incomplete', async 
     const b = await materializeOrder(book(2, { photos: ['https://cdn.example/b1.jpg'], dedication: 'B', variant: 'Tištěné / 1' }), { inboxRoot: root, safeFetch: failing });
     assert.equal(a.incomplete, false, 'the healthy book is unaffected by its sibling');
     assert.equal(b.incomplete, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the sidecar records where the order came from, and an order built by hand reads as unknown', async () => {
+  // The board's "Zdroj" column is drawn from this, written once at download rather than re-pulled
+  // per row. A manual pull or a test carries no attribution, and that is not an error.
+  const root = mkdtempSync(join(tmpdir(), 'fma-mat-'));
+  try {
+    const sourced = await materializeOrder(
+      { ...ORDER, orderId: '1701', photos: ['https://cdn.example/a.jpg'], attribution: { source: 'facebook', medium: 'paid', campaign: 'A+ sales - 3-2026' } },
+      { inboxRoot: root, safeFetch: jpegFetch },
+    );
+    const sidecar = JSON.parse(readFileSync(join(sourced.orderDir, 'objednavka.json'), 'utf8'));
+    assert.deepEqual(
+      sidecar.attribution,
+      { source: 'facebook', medium: 'paid', campaign: 'A+ sales - 3-2026', channel: 'paid' },
+      'the channel is resolved once, here, so no consumer has to classify it again',
+    );
+
+    const byHand = await materializeOrder({ ...ORDER, orderId: '1702', photos: ['https://cdn.example/a.jpg'] }, { inboxRoot: root, safeFetch: jpegFetch });
+    const plain = JSON.parse(readFileSync(join(byHand.orderDir, 'objednavka.json'), 'utf8'));
+    assert.equal(plain.attribution, null);
+    assert.equal(readOrderInfo(byHand.orderDir).attribution.channel, 'unknown', 'and it reads back as unknown, not as a crash');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a sidecar an operator hand-edited cannot inject a channel the dashboard does not know', () => {
+  // The file sits on disk next to the photographs; somebody can open it. The channel is rebuilt
+  // from the known set rather than trusted, so a stray value reads as unknown rather than becoming
+  // a column heading nobody wrote.
+  const root = mkdtempSync(join(tmpdir(), 'fma-mat-'));
+  try {
+    const dir = join(root, '1703');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'objednavka.json'), JSON.stringify({ order: '1703', attribution: { channel: '<script>', source: 'x'.repeat(500), campaign: 42 } }));
+    const a = readOrderInfo(dir).attribution;
+    assert.equal(a.channel, 'unknown');
+    assert.equal(a.source.length, 120, 'and a runaway source is capped');
+    assert.equal(a.campaign, null, 'a non-string campaign is dropped rather than coerced');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

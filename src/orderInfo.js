@@ -10,6 +10,11 @@
 // half-written file is not an error, it is simply no answer.
 
 import { existsSync, readFileSync } from 'node:fs';
+
+/** The channel names the sidecar may carry. Anything else in the file reads as unknown — the value
+ *  is rebuilt from this set rather than trusted, because a sidecar is a file on disk that a person
+ *  can open and edit. */
+const CHANNELS = new Set(['paid', 'organic', 'direct', 'other', 'unknown']);
 import { join } from 'node:path';
 
 export const ORDER_INFO = 'objednavka.json';
@@ -45,7 +50,19 @@ export function readOrderInfo(orderDir) {
     copies: Number.isInteger(parsed.copies) && parsed.copies > 0 ? parsed.copies : 1,
     customer: parseCustomer(parsed.customer),
     products: parseProducts(parsed.products),
+    attribution: parseAttribution(parsed.attribution),
   };
+}
+
+/** Where this order came from, as materialize.js recorded it. Every order downloaded before that
+ *  field existed has none, and that is not an error — it reads as unknown, exactly like an order
+ *  the shop genuinely could not attribute. Both are honest; inventing a channel would not be. */
+function parseAttribution(raw) {
+  const none = { source: null, medium: null, campaign: null, channel: 'unknown' };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return none;
+  const str = (v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 120) : null);
+  const channel = typeof raw.channel === 'string' && CHANNELS.has(raw.channel) ? raw.channel : 'unknown';
+  return { source: str(raw.source), medium: str(raw.medium), campaign: str(raw.campaign), channel };
 }
 
 /** Which book of a purchase this folder is. One customer can buy several books in one checkout;
