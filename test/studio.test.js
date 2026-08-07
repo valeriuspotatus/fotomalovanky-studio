@@ -612,6 +612,32 @@ function pageFunction(name, deps) {
   return new Function(...names, `return (${src[1]});`)(...names.map((k) => deps[k]));
 }
 
+// A redeploy drops every session, because the session table lives in the server process. The board
+// then polls, gets 401, and used to `return` on it exactly as it does for a dropped connection —
+// leaving the full studio on screen with nothing in it. That screen cost an afternoon to a report of
+// "all my orders are gone and intake is broken", when the orders were all present and the autopilot
+// was mid-run on a new one. Lifted out and RUN, because the whole bug was a status nobody looked at.
+test('a poll that comes back signed-out goes to the sign-in page, not a silent empty board', () => {
+  const bounce = (status) => {
+    const location = { href: '/' };
+    const handled = pageFunction('signedOut', { location })({ status });
+    return { handled, href: location.href };
+  };
+
+  assert.deepEqual(bounce(401), { handled: true, href: '/login' }, 'a dead session lands on the sign-in page');
+  assert.deepEqual(bounce(200), { handled: false, href: '/' }, 'a good response is left alone');
+  // Not every non-2xx is a dead session: 403 is the printer reaching an operator-only route, and 503
+  // is the server restarting. Bouncing either would throw someone off a working page.
+  assert.deepEqual(bounce(403), { handled: false, href: '/' }, 'a role refusal is not a sign-out');
+  assert.deepEqual(bounce(503), { handled: false, href: '/' }, 'nor is a server blip');
+
+  // And it is actually wired into the pollers — the rule above is worth nothing unwired.
+  assert.match(PAGE, /fetch\("\/api\/studio"\);if\(signedOut\(res\)\|\|!res\.ok\)return;/, 'the board poller checks it');
+  assert.match(PAGE, /fetch\("\/api\/mail"\);if\(signedOut\(r\)\|\|!r\.ok\)return;/, 'and so does the mail poller');
+  const REVIEW = readFileSync(new URL('../src/ui/static/index.html', import.meta.url), 'utf8');
+  assert.match(REVIEW, /if \(res\.status === 401\) \{ location\.href = '\/login'; return; \}/, 'and the review grid');
+});
+
 test('a printer session lands on the print queue; the operator lands on the board', () => {
   // The page's real landing rule, LIFTED OUT AND RUN — not matched against a regex. The rule decides
   // the first screen each person sees, and "the source contains this string" would keep passing if

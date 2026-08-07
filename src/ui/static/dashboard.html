@@ -1117,8 +1117,15 @@
     }finally{metricsInFlight=false;}
   }
 
+  /* A dead session is not a dropped connection, and the pollers below used to treat them as the same
+     thing: `if(!res.ok) return` — keep the last board and try again. For a blip that is right. For a
+     401 it left the whole studio on screen and empty, silently throwing away a "sign in please" every
+     few seconds, which reads as "every order I ever had is gone". Sessions live in the server process,
+     so EVERY redeploy signs everyone out and produces exactly that screen. Go to the sign-in page. */
+  const signedOut=(res)=>res.status===401&&(location.href="/login",true);
+
   async function fetchStudio(){
-    try{const res=await fetch("/api/studio");if(!res.ok)return;studioData=await res.json();applyIdentity(studioData.identity);renderStudio();}
+    try{const res=await fetch("/api/studio");if(signedOut(res)||!res.ok)return;studioData=await res.json();applyIdentity(studioData.identity);renderStudio();}
     catch(e){/* offline / not the live server — keep the last board */}
   }
   setInterval(()=>{const v=(location.hash||"#home").slice(1);if(["home","orders","queue"].includes(v))fetchStudio();},2500);
@@ -1246,7 +1253,7 @@
   }
   async function fetchMail(){
     if(!isOperator())return; // the printer has no route to the mailbox; don't poll a 403 every minute
-    try{const r=await fetch("/api/mail");if(!r.ok)return;renderMail(await r.json());}
+    try{const r=await fetch("/api/mail");if(signedOut(r)||!r.ok)return;renderMail(await r.json());}
     catch(e){/* offline / not the live server — keep the last state */}
   }
   fetchMail();
