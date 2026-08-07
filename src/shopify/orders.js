@@ -129,6 +129,58 @@ export function extractJobs(node, opts = {}) {
   }));
 }
 
+// ---- where the order came from --------------------------------------------------------------
+//
+// The shop already records this. `customerJourneySummary.firstVisit` carries the UTM parameters the
+// ad platform appended and, failing that, a name derived from the referrer — so the studio can say
+// which orders paid advertising produced without a tracking pixel, a second integration, or any
+// cooperation from the ad account. Confirmed live: order 1565 arrives as facebook / paid /
+// "A+ sales - 3-2026", 1562 as direct, 1560 with no journey data at all.
+//
+// `landingPage` and `referrerUrl` are not read here even though the API offers them. A referrer can
+// carry a query string, this data reaches an on-disk cache and an operator's screen, and nothing the
+// studio shows needs either field.
+
+/** Media that mean somebody paid for the click. Shopify passes the ad platform's own `utm_medium`
+ *  through untouched, and the live store shows both spellings from the same Meta account. */
+const PAID_MEDIA = new Set(['paid', 'cpc', 'ppc', 'paid_social', 'paidsocial', 'paid-social']);
+
+/** Search engines whose unpaid clicks are the "organic" the dashboard reports. Matched as a
+ *  substring because the source arrives both as a bare name ("Google") and as a URL
+ *  ("https://search.seznam.cz/"). */
+const SEARCH_SOURCES = ['google', 'seznam', 'bing', 'duckduckgo', 'yahoo', 'ecosia'];
+
+const clean = (v) => (typeof v === 'string' ? v.trim() : '');
+
+/** One order's first-visit attribution: `{ source, medium, campaign }`, each null when absent.
+ *  UTM parameters win over the referrer-derived source — they are what the ad platform actually
+ *  stamped on the link, where the referrer is whatever the browser happened to send. */
+export function attributionFrom(node) {
+  const visit = node?.customerJourneySummary?.firstVisit;
+  const utm = visit?.utmParameters;
+  return {
+    source: clean(utm?.source) || clean(visit?.source) || null,
+    medium: clean(utm?.medium) || null,
+    campaign: clean(utm?.campaign) || null,
+  };
+}
+
+/** Which column of the dashboard an order belongs in.
+ *
+ *  `other` exists so the organic figure stays honest. An unpromoted Instagram or Facebook click is
+ *  neither paid nor search, and folding it into organic would inflate the one number the page uses
+ *  to argue that free traffic outperforms bought traffic. It sits with direct and unattributed,
+ *  outside both tiles, where it cannot flatter either. */
+export function channelOf(attribution) {
+  const source = (attribution?.source ?? '').toLowerCase();
+  const medium = (attribution?.medium ?? '').toLowerCase();
+  if (PAID_MEDIA.has(medium)) return 'paid';
+  if (!source) return 'unknown';
+  if (SEARCH_SOURCES.some((s) => source.includes(s))) return 'organic';
+  if (source === 'direct') return 'direct';
+  return 'other';
+}
+
 /** The photo count a "… / N" variant title advertises ("🖨️ Tištěné omalovánky / 4" -> 4), or null.
  *  Used to seed `expectedPhotos` so the intake count check is meaningful for autopilot orders.
  *
