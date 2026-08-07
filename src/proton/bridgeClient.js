@@ -6,6 +6,26 @@
 // imapflow is imported lazily so the module still loads when the dependency or Bridge isn't there
 // yet (the feature ships "offline" until David installs Bridge), and so tests can inject a fake.
 
+import { isLoopbackHost } from '../auth/sessions.js';
+
+/**
+ * TLS options for a mail connection.
+ *
+ * `rejectUnauthorized: false` was hardcoded here because the only host this ever spoke to was Proton
+ * Bridge on loopback, where it is correct: Bridge mints its own certificate and the traffic never
+ * leaves the machine. The moment the studio points at a real mailbox over the internet — which is
+ * the only way the deployed instance can read mail at all, since Bridge is a desktop app — that same
+ * setting means the client accepts ANY certificate anyone presents. That hands the mailbox password
+ * and every customer's mail to whoever can sit in the middle.
+ *
+ * So: unverified on loopback, verified everywhere else. There is no configuration switch to turn
+ * this off, deliberately — a flag for "skip certificate checks on a remote host" is a flag someone
+ * sets while debugging and never unsets.
+ */
+export function tlsFor(host) {
+  return { rejectUnauthorized: !isLoopbackHost(host) };
+}
+
 export class BridgeError extends Error {
   /** code: 'offline' (Bridge not reachable) | 'auth' (bad Bridge credentials) | 'unknown'. */
   constructor(code, message, cause) {
@@ -67,6 +87,7 @@ export function embedImages({ html = '', attachments = [] } = {}) {
 export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass, secure = false, mailbox = 'INBOX', imapFactory, parseFactory } = {}) {
   const factory = imapFactory ?? (() => import('imapflow'));
   const parser = parseFactory ?? (() => import('mailparser')); // lazy: the reader path pulls in mailparser only when a message is opened
+  const tls = tlsFor(host);
 
   /** Fetch mailbox totals + the most recent `limit` envelopes. Returns
    *  { total, unread, messages: [{ from, subject, date, seen }] }. Throws BridgeError on failure. */
@@ -79,9 +100,7 @@ export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass
       auth: { user, pass },
       logger: false,
       emitLogs: false,
-      // Bridge presents a locally-generated self-signed cert on 127.0.0.1; there is no public CA to
-      // validate it against, and the connection never leaves the loopback interface.
-      tls: { rejectUnauthorized: false },
+      tls,
     });
 
     try {
@@ -133,7 +152,7 @@ export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass
     if (uid == null) throw new BridgeError('unknown', 'A message uid is required to open it.');
     const { ImapFlow } = await factory();
     const { simpleParser } = await parser();
-    const client = new ImapFlow({ host, port, secure, auth: { user, pass }, logger: false, emitLogs: false, tls: { rejectUnauthorized: false } });
+    const client = new ImapFlow({ host, port, secure, auth: { user, pass }, logger: false, emitLogs: false, tls });
 
     try {
       await client.connect();
@@ -194,7 +213,7 @@ export function createBridgeClient({ host = '127.0.0.1', port = 1143, user, pass
    *  small write operations below (delete / flag), which each need one authenticated round-trip. */
   async function withMailbox(box, work) {
     const { ImapFlow } = await factory();
-    const client = new ImapFlow({ host, port, secure, auth: { user, pass }, logger: false, emitLogs: false, tls: { rejectUnauthorized: false } });
+    const client = new ImapFlow({ host, port, secure, auth: { user, pass }, logger: false, emitLogs: false, tls });
     try {
       await client.connect();
     } catch (err) {

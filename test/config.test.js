@@ -286,3 +286,20 @@ test('autoRunSeconds reaches the server, so 0 can actually stop the inbox sweep'
   assert.equal(validateConfig(good).autoRunSeconds, undefined, 'unset leaves the server on its own default');
   assert.equal(validateConfig({ ...good, autoRunSeconds: -5 }).autoRunSeconds, undefined, 'and nonsense does not become a timer');
 });
+
+test('a remote mailbox must be reached over TLS, or the config is refused', () => {
+  // secure:false is right for Proton Bridge on loopback — nothing can intercept traffic that never
+  // leaves the machine. Against a real host it puts the mailbox password and every customer's mail
+  // on the wire in the clear, so it is refused at load rather than left to "work".
+  const mail = { enabled: true, user: 'info@fotomalovanky.cz', pass: 'x' };
+
+  assert.doesNotThrow(() => validateConfig({ ...good, mail: { ...mail } }), 'Bridge on the default loopback host is fine');
+  assert.doesNotThrow(() => validateConfig({ ...good, mail: { ...mail, host: '127.0.0.1', secure: false } }));
+  assert.doesNotThrow(() => validateConfig({ ...good, mail: { ...mail, host: 'imap.migadu.com', port: 993, secure: true } }), 'and a remote host over TLS is fine');
+
+  assert.throws(
+    () => validateConfig({ ...good, mail: { ...mail, host: 'imap.migadu.com', port: 143, secure: false } }),
+    /mail\.secure must be true/,
+    'a remote host without TLS is refused',
+  );
+});

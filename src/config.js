@@ -152,7 +152,17 @@ export function validateConfig(cfg) {
   const mailLimit = Number.isInteger(mailRaw.recentLimit) && mailRaw.recentLimit > 0 ? mailRaw.recentLimit : 6;
   if (mailEnabled && (!mailUser || !mailPass)) {
     throw new ConfigError(
-      'mail.user and mail.pass are required when mail.enabled is true (the Proton Bridge IMAP username and its Bridge-generated password).',
+      'mail.user and mail.pass are required when mail.enabled is true (the IMAP username and its password).',
+    );
+  }
+  // A mailbox somewhere other than this machine must be reached over TLS. `secure: false` is right
+  // for Proton Bridge on loopback, where the traffic never leaves the machine and there is nothing
+  // to intercept; against a real host it puts the mailbox password and every customer's mail on the
+  // wire in the clear. Refused at load rather than left to fail as a mail tile that quietly never
+  // connects — or worse, one that connects.
+  if (mailEnabled && !isLoopbackHost(mailHost) && !mailSecure) {
+    throw new ConfigError(
+      `mail.secure must be true when mail.host is a remote server (${mailHost}) — sending the mailbox password over an unencrypted connection. Use the provider's TLS port (usually 993 for IMAP, 465 for SMTP) with secure: true.`,
     );
   }
 

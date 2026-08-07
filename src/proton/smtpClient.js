@@ -4,6 +4,8 @@
 // sends on its own. nodemailer is imported lazily so the module loads even where the dep/Bridge isn't
 // present yet, and so tests can inject a fake transport.
 
+import { tlsFor } from './bridgeClient.js';
+
 export class SmtpError extends Error {
   /** code: 'bad-input' | 'auth' | 'offline' | 'send'. */
   constructor(code, message, cause) {
@@ -26,8 +28,10 @@ export function createSmtpClient({ host = '127.0.0.1', port = 1025, user, pass, 
     (async () => {
       const nm = await import('nodemailer');
       const createTransport = nm.createTransport ?? nm.default?.createTransport;
-      // Bridge presents a self-signed cert on loopback and upgrades via STARTTLS on the SMTP port.
-      return createTransport({ host, port, secure, auth: { user, pass }, tls: { rejectUnauthorized: false } });
+      // Certificate verification is off ONLY on loopback, where Bridge presents its own self-signed
+      // cert and the traffic never leaves the machine — see tlsFor(). Sending through a real mail
+      // host without verification would offer the mailbox password to anyone in the middle.
+      return createTransport({ host, port, secure, auth: { user, pass }, tls: tlsFor(host) });
     });
 
   /** Send one message. `to` and `text` are required; `inReplyTo`/`references` thread a reply; the From
