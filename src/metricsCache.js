@@ -35,6 +35,13 @@ export class MetricsError extends Error {
   }
 }
 
+/** The channel names `channelOf` can return. The rebuild below writes only these, so a channel row
+ *  can never carry a free-form source string onto the disk. */
+const CHANNELS = new Set(['paid', 'organic', 'direct', 'other', 'unknown']);
+
+/** A campaign name is text somebody typed into an ad platform. Capped rather than trusted whole. */
+const MAX_CAMPAIGN_CHARS = 80;
+
 /** Exactly the fields allowed onto the disk. Anything computeMetrics grows later is absent until
  *  somebody adds it here on purpose — which is the point, because the input to that function is
  *  customer orders. */
@@ -45,6 +52,8 @@ const CACHEABLE = Object.freeze([
   'revenueLastMonth',
   'aov30d',
   'tierMix30d',
+  'channels30d',
+  'campaigns30d',
   'pagesPerOrder30d',
   'weeklyTrend',
   'currency',
@@ -59,6 +68,23 @@ export function cacheableMetrics(metrics) {
     const v = metrics?.[key];
     if (key === 'tierMix30d') {
       out[key] = (Array.isArray(v) ? v : []).map((t) => ({ tier: Number(t?.tier) || 0, lineItems: Number(t?.lineItems) || 0, share: Number(t?.share) || 0 }));
+    } else if (key === 'channels30d') {
+      // A fixed set of five channel names, so the string is bounded rather than copied through:
+      // `source` on the attribution can be a full URL, and rebuilding from a known list is what
+      // stops one reaching the disk if a later change starts carrying it on the row.
+      out[key] = (Array.isArray(v) ? v : [])
+        .filter((r) => CHANNELS.has(r?.channel))
+        .map((r) => ({ channel: r.channel, orders: Number(r?.orders) || 0, revenue: Number(r?.revenue) || 0, aov: Number(r?.aov) || 0 }));
+    } else if (key === 'campaigns30d') {
+      // The campaign name IS operator-supplied text from the ad platform, so it is length-capped
+      // rather than trusted whole — a campaign named with a pasted URL should not become a URL on
+      // disk. Names in the live store run to about twenty characters.
+      out[key] = (Array.isArray(v) ? v : []).map((r) => ({
+        campaign: String(r?.campaign ?? '').slice(0, MAX_CAMPAIGN_CHARS),
+        orders: Number(r?.orders) || 0,
+        revenue: Number(r?.revenue) || 0,
+        aov: Number(r?.aov) || 0,
+      }));
     } else if (key === 'weeklyTrend') {
       out[key] = (Array.isArray(v) ? v : []).map((w) => ({ week: String(w?.week ?? ''), orders: Number(w?.orders) || 0, revenue: Number(w?.revenue) || 0 }));
     } else if (key === 'currency') {

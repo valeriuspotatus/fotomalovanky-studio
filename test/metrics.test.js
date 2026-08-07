@@ -218,3 +218,89 @@ test('the currency comes from the shop, not from an assumption', () => {
   const m = computeMetrics([order({ at: '2026-08-01T09:00:00Z', currency: 'EUR' })], { now: NOW });
   assert.equal(m.currency, 'EUR');
 });
+
+// ---- where the revenue came from --------------------------------------------
+// The rollups behind "Placené vs organické". The shapes are the live store's: facebook with a paid
+// medium, Google with no UTM at all, and about a fifth of orders with no journey data.
+
+/** A journey summary in the API's shape, attached to a fixture order. */
+const from = (source, utm = null) => ({ customerJourneySummary: { firstVisit: { source, utmParameters: utm } } });
+const sourced = (o, journey) => ({ ...o, ...journey });
+
+const PAID = { source: 'facebook', medium: 'paid', campaign: 'A+ sales - 3-2026' };
+
+test('revenue splits by channel, with averages, ordered by revenue', () => {
+  const m = computeMetrics(
+    [
+      sourced(order({ at: '2026-08-02T10:00:00Z', total: '700' }), from('https://facebook.com/', PAID)),
+      sourced(order({ at: '2026-08-02T10:00:00Z', total: '900' }), from('Facebook', { ...PAID, medium: 'cpc' })),
+      sourced(order({ at: '2026-08-02T10:00:00Z', total: '1300' }), from('Google')),
+    ],
+    { now: NOW },
+  );
+  assert.deepEqual(m.channels30d, [
+    { channel: 'paid', orders: 2, revenue: 1600, aov: 800 },
+    { channel: 'organic', orders: 1, revenue: 1300, aov: 1300 },
+  ], 'paid leads on revenue, and both media spellings land in the one bucket');
+});
+
+test('an order with no journey data is its own row, not folded into direct', () => {
+  // Dropping it would make every other channel's share look larger than it is; calling it direct
+  // would invent a channel the shop never observed.
+  const m = computeMetrics(
+    [
+      sourced(order({ at: '2026-08-02T10:00:00Z', total: '500' }), from('direct')),
+      order({ at: '2026-08-02T10:00:00Z', total: '900' }), // no journey summary at all
+    ],
+    { now: NOW },
+  );
+  const rows = Object.fromEntries(m.channels30d.map((r) => [r.channel, r]));
+  assert.equal(rows.unknown.orders, 1);
+  assert.equal(rows.unknown.revenue, 900);
+  assert.equal(rows.direct.orders, 1, 'and direct stays exactly what it was');
+});
+
+test('a purchase counts its channel once, however many books it holds', () => {
+  // Per order, not per line item: a two-book purchase is one click. Counting per line item would
+  // report the ads producing more orders than the shop received.
+  const m = computeMetrics(
+    [sourced(order({ at: '2026-08-02T10:00:00Z', total: '1580', books: [4, 4] }), from('https://facebook.com/', PAID))],
+    { now: NOW },
+  );
+  assert.deepEqual(m.channels30d, [{ channel: 'paid', orders: 1, revenue: 1580, aov: 1580 }]);
+  assert.equal(m.campaigns30d[0].orders, 1, 'and the campaign counts it once too');
+});
+
+test('campaigns roll up only where a campaign was recorded', () => {
+  const m = computeMetrics(
+    [
+      sourced(order({ at: '2026-08-02T10:00:00Z', total: '700' }), from('facebook', PAID)),
+      sourced(order({ at: '2026-08-02T10:00:00Z', total: '800' }), from('facebook', PAID)),
+      sourced(order({ at: '2026-08-02T10:00:00Z', total: '600' }), from('facebook', { source: 'facebook', medium: 'paid', campaign: 'A+ sales' })),
+      sourced(order({ at: '2026-08-02T10:00:00Z', total: '1300' }), from('Google')),
+    ],
+    { now: NOW },
+  );
+  assert.deepEqual(m.campaigns30d, [
+    { campaign: 'A+ sales - 3-2026', orders: 2, revenue: 1500, aov: 750 },
+    { campaign: 'A+ sales', orders: 1, revenue: 600, aov: 600 },
+  ], 'the organic order joins no campaign');
+});
+
+test('the rollups obey the same window and the same money rules as everything else', () => {
+  const m = computeMetrics(
+    [
+      sourced(order({ at: '2026-06-01T10:00:00Z', total: '5000' }), from('facebook', PAID)), // outside 30 days
+      sourced(order({ at: '2026-08-02T10:00:00Z', total: '400', status: 'REFUNDED' }), from('facebook', PAID)),
+      sourced(order({ at: '2026-08-02T10:00:00Z', total: '700' }), from('facebook', PAID)),
+    ],
+    { now: NOW },
+  );
+  assert.deepEqual(m.channels30d, [{ channel: 'paid', orders: 1, revenue: 700, aov: 700 }]);
+});
+
+test('no orders means empty rollups, not a row of zeroes', () => {
+  const m = computeMetrics([], { now: NOW });
+  assert.deepEqual(m.channels30d, []);
+  assert.deepEqual(m.campaigns30d, []);
+});
