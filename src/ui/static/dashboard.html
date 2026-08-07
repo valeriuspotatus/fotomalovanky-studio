@@ -18,6 +18,32 @@
   .mx-val{font-family:var(--font-display);font-size:26px;line-height:1.1;color:var(--ink)}
   .mx-d{display:inline-block;margin-top:6px;font-size:11.5px;color:var(--ink-3)}
   .mx-d.up{color:var(--success)} .mx-d.down{color:var(--danger)}
+  /* Placené vs organické — built from the .mx-* cards beside it, so it reads as the same page.
+     Every value here is a token; nothing introduces a colour or a radius of its own. */
+  .ch-sub{font-size:12.5px;color:var(--ink-3)}
+  .ch-duo{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .ch-tile .mx-lab{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-2)}
+  .ch-src{color:var(--ink-3);font-size:11.5px}
+  .ch-rows{margin-top:var(--sp-3);padding-top:10px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:7px}
+  .ch-row{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3);font-size:12.5px}
+  .ch-k{color:var(--ink-2)}
+  .ch-v{font-weight:650;font-variant-numeric:tabular-nums}
+  .ch-v.good{color:var(--success)}
+  .ch-hand{display:inline-block;background:var(--warning-soft);color:var(--warning);font-size:10px;font-weight:700;padding:1px 6px;border-radius:var(--r-full);vertical-align:1px}
+  .ch-none{margin-top:var(--sp-3);padding-top:10px;border-top:1px solid var(--border);font-size:12.5px;color:var(--ink-2);line-height:1.5}
+  .ch-add{display:block;margin-top:8px;background:none;border:0;padding:0;font:inherit;font-size:12.5px;font-weight:600;color:var(--brand);cursor:pointer}
+  .ch-edit{margin-top:2px}
+  .ch-add:hover{color:var(--brand-hover)}
+  .ch-tab{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  .ch-tab th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);font-weight:700;padding:0 0 6px}
+  .ch-tab td{padding:8px 0;border-top:1px solid var(--border)}
+  .ch-tab .n{text-align:right;font-variant-numeric:tabular-nums}
+  .ch-mean{margin-top:var(--sp-3);font-size:13.5px;color:var(--ink);line-height:1.55}
+  .ch-rest{margin-top:10px;padding-top:9px;border-top:1px dashed var(--border);display:flex;gap:var(--sp-5);flex-wrap:wrap;font-size:12.5px;color:var(--ink-3)}
+  .ch-rest b{color:var(--ink-2);font-weight:600}
+  .ch-caveat{margin-top:8px;font-size:11.5px;color:var(--ink-3);line-height:1.5}
+  .rc-src{font-size:12.5px;color:var(--ink-2)}
+  .rc-src.muted{color:var(--ink-3);font-style:italic}
   .mx-refresh{background:none;border:0;color:var(--ink-3);font:inherit;font-size:12px;cursor:pointer}
   .mx-refresh:hover{color:var(--brand)}
   .mx-note{color:var(--ink-3);font-size:13px;padding:var(--sp-3) 0}
@@ -27,12 +53,6 @@
 
   /* One stacked bar. The 2px gap is the surface showing through, which is what separates adjacent
      blocks — opacity alone would not, and it keeps working for a colour-blind reader. */
-  .mx-bar{display:flex;gap:2px;height:26px;border-radius:var(--r-sm);overflow:hidden;margin-top:4px}
-  .mx-seg{background:var(--brand);min-width:3px}
-  .mx-leg{display:flex;flex-wrap:wrap;gap:var(--sp-3);margin-top:10px}
-  .mx-key{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)}
-  .mx-key i{width:10px;height:10px;border-radius:3px;background:var(--brand);flex-shrink:0}
-  .mx-key b{color:var(--ink);font-weight:600}
 
   /* 12 weeks of revenue. Recessive: no gridlines, no axis rules — the bars carry it. */
   .mx-trend{width:100%;height:120px;margin-top:6px;overflow:visible}
@@ -369,10 +389,28 @@
             <div id="mxBody"><div class="mx-note">Načítám…</div></div>
           </section>
 
-          <section>
-            <div class="sec-h"><h2>Pokračovat v práci</h2></div>
-            <div class="continue" id="continueRow"></div>
+          <!-- Placené vs organické. The question this page exists to answer: is the money spent on
+               ads coming back, and how does it compare to the traffic that costs nothing.
+               `data-operator hidden` is not decoration — the page ships hidden and the identity poll
+               reveals it, which is how the block beside it avoids painting revenue for a printer
+               during the first frame. -->
+          <section id="channelsSection" data-operator hidden>
+            <div class="sec-h"><h2>Placené vs organické</h2><span class="ch-sub">30 dní · podle zdroje objednávky</span></div>
+            <div id="chBody"><div class="mx-note">Načítám…</div></div>
           </section>
+
+          <!-- Poslední objednávky. A glance, not a second copy of the board: what came in lately and
+               where from, which is the column Objednávky does not carry. `data-operator hidden`
+               matters more here than on the block above — /api/studio answers BOTH roles, so without
+               it a printer session would paint real order rows. -->
+          <section id="recentSection" data-operator hidden>
+            <div class="sec-h"><h2>Poslední objednávky</h2><a href="#orders" onclick="go('orders');return false">Všechny →</a></div>
+            <div class="table"><table>
+              <thead><tr><th>Objednávka</th><th>Zdroj</th><th>Titulek</th><th>Stav</th></tr></thead>
+              <tbody id="recentBody"></tbody>
+            </table></div>
+          </section>
+
         </div>
 
         <aside class="rail">
@@ -839,60 +877,33 @@
     // parcel sits on a desk for a week.
     document.getElementById("nav-orders").textContent=(d.counts.total||0)-(d.counts.sent||0);
     document.getElementById("nav-gen").textContent=d.counts.generating||0;
-    renderContinue(d);
+    renderRecent(d);
   }
 
-  function renderContinue(d){
-    const row=document.getElementById("continueRow");
-    // Most-actionable first: a finished book just needs sending, then an approved order needs its PDF,
-    // then a reviewed order needs checking. The CTA follows the split state so the home card and the
-    // board never disagree about what to do next (N1).
-    // Feature the order being generated right now (the newest work) first, so the card jumps to a fresh
-    // order the moment it starts; fall back to the most-actionable finished order when nothing is running.
-    // 'printed' is on the OPERATOR's list only: its one action is "Označit odeslané", and dispatch is
-    // refused for the printer on the server (ROUTE_POLICY). Featuring it for Jirka would put a CTA he
-    // cannot complete at the top of his first screen — same reflection rule as the row buttons.
-    const priority=isOperator()?["generating","printed","ready-to-print","approved","pending-review"]:["generating","ready-to-print","approved","pending-review"];
-    let pick=null;
-    for(const st of priority){pick=d.orders.find(o=>o.status===st);if(pick)break;}
-    let c1;
-    if(pick){
-      // href, label + a one-word progress note keyed to the state.
-      const CTA={
-        generating:{href:"/review",label:"Zobrazit generátor",note:"generuje se"},
-        printed:{href:"#orders",label:"Označit odeslané",note:"vytištěno, čeká na odeslání"},
-        "ready-to-print":{href:"#orders",label:"Označit vytištěno",note:"připraveno k tisku"},
-        approved:{href:"/review",label:"Vytvořit PDF",note:"schváleno"},
-        "pending-review":{href:"/review",label:"Zkontrolovat",note:"zkontrolovat"}
-      }[pick.status];
-      const isGen=pick.status==="generating";
-      const shown=isGen?Math.max(0,(pick.photos.total||0)-(pick.photos.pending||0)):pick.photos.eligible;
-      const pct=pick.photos.total?Math.round(shown/pick.photos.total*100):0;
-      c1=`<div class="card cwork"><div class="head"><h3>Objednávka ${esc(pick.orderId)}</h3>${chipHtml(pick.status)}</div>
-        <div class="meta">
-          <div style="display:flex;align-items:center;gap:8px"><span class="mono" style="font-weight:600;font-size:13px">${shown}/${pick.photos.total}</span><span style="color:var(--ink-2);font-size:12.5px">${CTA.note}</span></div>
-          <div class="progress${isGen?" run":""}"><i style="width:${pct}%"></i></div>
-          <div class="note">${pick.dedication?"Titulek „"+esc(pick.dedication)+"“":"Bez titulku"}</div>
-          <a class="btn btn-primary mt" href="${CTA.href}">${CTA.label} <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
-        </div></div>`;
-    } else {
-      c1=`<div class="card cwork"><div class="head"><h3>Pokračovat</h3></div><div class="meta"><div class="note">Nic právě nečeká na dokončení. Až se něco vygeneruje nebo schválí, objeví se tady.</div><a class="btn btn-secondary mt" href="/review">Otevřít generátor</a></div></div>`;
-    }
-    const gen=d.counts.generating||0;
-    // Real generation progress. The order on the GPU right now (run.orderId) drives a determinate bar
-    // from its photo counts (total-pending, refreshed every studio poll). When something's running but
-    // no per-order count is visible (e.g. the overnight autopilot), fall back to an animated
-    // indeterminate bar — never the frozen sham 62%.
-    const cur=(d.run&&d.run.orderId)?d.orders.find(o=>o.orderId===d.run.orderId):null;
-    const running=gen>0||(d.run&&d.run.active)||(d.autopilot&&d.autopilot.running);
-    const done=cur?Math.max(0,(cur.photos.total||0)-(cur.photos.pending||0)):0;
-    const determinate=Boolean(cur&&cur.photos.total);
-    const pct=determinate?Math.round(done/cur.photos.total*100):0;
-    const chip=cur?`${done}/${cur.photos.total} fotek`:(gen?`${gen} aktivní`:"probíhá");
-    const status=running?(cur?`Objednávka ${esc(cur.orderId)} · ${done}/${cur.photos.total} fotek hotovo`:(gen?gen+" úloh právě běží":"Zpracovávám…")):"Žádná úloha právě neběží";
-    const barCls=running&&!determinate?"progress run indet":"progress run";
-    const barStyle=determinate?`width:${pct}%`:(running?"":"width:0%");
-    row.innerHTML=c1;
+  /* ---- Poslední objednávky ---------------------------------------------------
+     Newest first and capped: the board is one click away, and a list that grew with the shop would
+     become the board rather than a glance at it. */
+  const RECENT_ROWS=6;
+
+  /** How a row names its origin. An order with nothing recorded says so plainly — "bez zdroje" is
+   *  the truth, and an empty cell would read as a rendering fault instead. */
+  const CH_LABEL={paid:"placené",organic:"organické",direct:"direct",other:"jiné",unknown:"bez zdroje"};
+  const sourceLabel=(a)=>!a||a.channel==="unknown"?CH_LABEL.unknown:(CH_LABEL[a.channel]||a.channel)+(a.campaign?" · "+a.campaign:"");
+
+  function renderRecent(d){
+    const b=document.getElementById("recentBody");
+    if(!b)return;
+    // The board arrives oldest-first; this view wants what just happened.
+    const rows=[...(d.orders||[])].sort((x,y)=>y.orderId.localeCompare(x.orderId,"en",{numeric:true})).slice(0,RECENT_ROWS);
+    b.innerHTML=rows.length?rows.map(o=>{
+      const a=o.attribution;
+      const muted=!a||a.channel==="unknown";
+      return `<tr>
+        <td><span class="oid">${esc(o.orderId)}</span></td>
+        <td class="rc-src${muted?" muted":""}">${esc(sourceLabel(a))}</td>
+        <td><span class="ded-cell">${o.dedication?"„"+esc(o.dedication)+"“":"—"}</span></td>
+        <td>${chipHtml(o.status)}</td></tr>`;
+    }).join(""):'<tr><td colspan="4" class="empty">Zatím žádné objednávky.</td></tr>';
   }
 
   // The active board hides finished orders; a toggle reveals them. "Done" is now ONLY 'sent' — the
@@ -1016,23 +1027,6 @@
     return `<span class="mx-d ${cls}">${d>0?"+":""}${d} % vs. minulý měsíc</span>`;
   }
 
-  function tierBar(mix){
-    if(!mix||!mix.length)return '<div class="mx-note">Za posledních 30 dní žádné prodané knihy.</div>';
-    const max=mix.length;
-    const seg=mix.map((t,i)=>{
-      // Rising opacity across the tiers present, floored so the lightest block never disappears.
-      const o=(0.42+0.58*(max===1?1:i/(max-1))).toFixed(2);
-      return `<span class="mx-seg" style="flex:${t.share||0.001};opacity:${o}" title="${t.tier} fotek — ${Math.round((t.share||0)*100)} % (${t.lineItems})"></span>`;
-    }).join("");
-    // A legend, because identity is never colour alone — and the share is written out, so a reader
-    // who cannot separate two opacities still gets the number.
-    const leg=mix.map((t,i)=>{
-      const o=(0.42+0.58*(max===1?1:i/(max-1))).toFixed(2);
-      return `<span class="mx-key"><i style="opacity:${o}"></i>${t.tier} fotek <b>${Math.round((t.share||0)*100)} %</b></span>`;
-    }).join("");
-    return `<div class="mx-bar">${seg}</div><div class="mx-leg">${leg}</div>`;
-  }
-
   function trendSvg(weeks,currentWeek){
     if(!weeks||!weeks.length)return "";
     const W=520,H=120,pad=2;
@@ -1077,15 +1071,6 @@
           <div class="mx-val">${czk(m.aov30d)}</div>
           <span class="mx-d flat">${m.counted} objednávek</span>
         </div>
-        <div class="mx-card">
-          <div class="mx-lab">Stránek na objednávku (30 dní)</div>
-          <div class="mx-val">${new Intl.NumberFormat("cs-CZ",{maximumFractionDigits:1}).format(m.pagesPerOrder30d||0)}</div>
-          <span class="mx-d flat">vyrobených stran</span>
-        </div>
-      </div>
-      <div class="mx-card wide">
-        <div class="mx-lab">Mix velikostí (30 dní, podle prodané varianty)</div>
-        ${tierBar(m.tierMix30d)}
       </div>
       <div class="mx-card wide">
         <div class="mx-lab">Tržby po týdnech (12 týdnů)</div>
@@ -1103,6 +1088,132 @@
     box.innerHTML=`<div class="mx-off"><div class="mo-t">${esc(t[0])}</div><div class="mo-s">${esc(message||t[1])}</div></div>`;
   }
 
+  /* ---- Placené vs organické -------------------------------------------------
+     Two tiles on the same terms, so the comparison is readable rather than inferred.
+
+     THE HONEST-NUMBER RULES, and they are the whole point of this block:
+
+     · Missing spend is not zero. With no figure entered, the tile says so and shows no return —
+       zero would divide into a return of infinity and read as "the ads were free", which is the
+       most flattering possible lie about the one number this page answers.
+     · Organic's zero IS known. It genuinely costs nothing, which is a different state from "nobody
+       told us", and the two must not render the same way.
+     · The unattributed orders are stated on the face of the block. About a fifth of orders carry no
+       source, and a comparison that quietly excluded them would overstate both columns. */
+
+  /* `free` is what earns an infinite return, NOT an amount of zero.
+     Organic's tile is handed a sentinel that says "this channel costs nothing"; a typed 0 is the
+     operator telling us they spent nothing on ads this month, which is a claim about a paid channel
+     and must not render as the same thing. Keyed on amount alone, a typed 0 rendered "Návratnost ∞"
+     on the PAID tile, pixel-identical to organic — the lie adSpend.js exists to prevent. */
+  const spendState=(spend)=>spend==null?"missing":spend.free?"free":spend.amount>0?"known":"zero";
+  const roasOf=(revenue,amount)=>amount>0?Math.round((revenue/amount)*10)/10:null;
+  const perOrder=(amount,orders)=>orders>0?Math.round(amount/orders):null;
+
+  const chRow=(k,v,tone)=>`<div class="ch-row"><span class="ch-k">${esc(k)}</span><span class="ch-v${tone?" "+tone:""}">${v}</span></div>`;
+
+  /** One tile. `spend` is null for a channel nobody paid for, and the zero it renders is a fact
+   *  rather than an absence — see the rules above. */
+  /** "před 3 dny" for a stored figure, so a stale spend number cannot pass for a fresh one. */
+  const spendAge=(iso)=>{const d=Math.floor((Date.now()-new Date(iso).getTime())/86400000);return d<=0?"dnes":d===1?"včera":`před ${d} dny`;};
+
+  function channelTile(label, source, row, spend){
+    const rev=row?.revenue||0, orders=row?.orders||0;
+    const state=spendState(spend);
+    const amount=state==="known"?spend.amount:0;
+    // The edit affordance renders in EVERY state, not just when the figure is missing. It used to
+    // live only on the missing arm, which meant that once a number was typed there was no way back
+    // to it from the page — and re-typing it was the one action that corrupted the total.
+    const edit=`<button class="ch-add" id="spendAdd">${state==="missing"?"Zadat útratu":"Upravit útratu"}</button>`;
+    const rows=state==="missing"
+      ? `<div class="ch-none">Útrata za období není zadaná — návratnost se nedá spočítat.${edit}</div>`
+      : chRow("Útrata",`${czk(amount)}${state!=="free"&&spend.source==="typed"?` <span class="ch-hand">ručně · ${esc(spendAge(spend.at))}</span>`:""}`)
+        + chRow("Návratnost",state==="free"?(rev>0?"∞":"—"):(roasOf(rev,amount)!=null?roasOf(rev,amount).toLocaleString("cs-CZ")+"×":"—"),rev>0?"good":"")
+        + chRow("Cena za objednávku",state==="free"?czk(0):(perOrder(amount,orders)!=null?czk(perOrder(amount,orders)):"—"))
+        + (state==="free"?"":`<div class="ch-edit">${edit}</div>`);
+    return `<div class="mx-card ch-tile">
+      <div class="mx-lab">${esc(label)}<span class="ch-src">${esc(source)}</span></div>
+      <div class="mx-val">${czk(rev)}</div>
+      <span class="mx-d flat">${czkNum(orders)} obj. · průměr ${czk(row?.aov||0)}</span>
+      <div class="ch-rows">${rows}</div>
+    </div>`;
+  }
+
+  /** The one written line. Generated from the two tiles' own numbers so it can never drift from
+   *  them, and deliberately silent when there is not enough on both sides to compare. */
+  // cs-CZ throughout: a decimal point in the middle of a Czech sentence is somebody else's number.
+  const ratio1=(n)=>new Intl.NumberFormat("cs-CZ",{minimumFractionDigits:1,maximumFractionDigits:1}).format(n);
+
+  /* Guards every divisor it actually uses, not just the order counts — a paid order with zero
+     revenue makes the AOV ratio Infinity and the sentence would claim the organic order is
+     "o Infinity % větší". Written as a single-expression arrow so the test can LIFT it out of this
+     page and run the arithmetic, which is the only way a sentence that asserts "81 % větší" can be
+     trusted; a regex over this source would pass while the number was wrong. */
+  const meaningLine=(paid,organic)=>!paid||!organic||!paid.orders||!organic.orders||!paid.aov||!organic.aov?"":[
+      paid.orders/organic.orders>=1.1?`Placené přineslo <b>${ratio1(paid.orders/organic.orders)}× víc objednávek</b>`
+        :paid.orders/organic.orders<=0.9?`Organické přineslo <b>${ratio1(organic.orders/paid.orders)}× víc objednávek</b>`:"",
+      organic.aov/paid.aov>=1.1?`organické objednávky jsou <b>o ${Math.round((organic.aov/paid.aov-1)*100)} % větší</b> — a nic nestojí`
+        :organic.aov/paid.aov<=0.9?`placené objednávky jsou <b>o ${Math.round((paid.aov/organic.aov-1)*100)} % větší</b>`:"",
+    ].filter(Boolean).join(", ").replace(/.+/,(s)=>s+".");
+
+  function renderChannels(){
+    const box=document.getElementById("chBody");
+    if(!box)return;
+    const m=metricsState;
+    if(!m||!Array.isArray(m.channels30d)){box.innerHTML=`<div class="mx-note">Zatím není z čeho počítat.</div>`;return;}
+    const by=Object.fromEntries(m.channels30d.map(r=>[r.channel,r]));
+    const paid=by.paid, organic=by.organic;
+    const counted=m.channels30d.reduce((n,r)=>n+r.orders,0);
+    const unknown=by.unknown;
+
+    const rest=["direct","other","unknown"].map(k=>by[k]).filter(Boolean)
+      .map(r=>`<span><b>${esc(CH_LABEL[r.channel]||r.channel)}</b> ${czkNum(r.orders)} obj. / ${czk(r.revenue)}</span>`).join("");
+
+    const camps=(m.campaigns30d||[]).map(c=>`<tr><td>${esc(c.campaign)}</td><td class="n">${czkNum(c.orders)}</td><td class="n">${czk(c.revenue)}</td><td class="n">${czk(c.aov)}</td></tr>`).join("");
+
+    box.innerHTML=`
+      <div class="mx-grid ch-duo">
+        ${channelTile("Placené","Meta",paid,spendData)}
+        ${channelTile("Organické","Google + Seznam",organic,{amount:0,source:"none",free:true})}
+      </div>
+      <div class="mx-card wide">
+        ${camps?`<div class="mx-lab">Kampaně</div><table class="ch-tab"><thead><tr><th>Kampaň</th><th class="n">Obj.</th><th class="n">Tržby</th><th class="n">Průměr</th></tr></thead><tbody>${camps}</tbody></table>`:""}
+        ${meaningLine(paid,organic)?`<div class="ch-mean">${meaningLine(paid,organic)}</div>`:""}
+        ${rest?`<div class="ch-rest">${rest}</div>`:""}
+        ${unknown&&counted?`<div class="ch-caveat">U ${czkNum(unknown.orders)} z ${czkNum(counted)} objednávek Shopify zdroj nezaznamenalo (${czk(unknown.revenue)}) — nejsou v žádném ze sloupců výše.</div>`:""}
+      </div>`;
+    const add=document.getElementById("spendAdd");
+    if(add)add.onclick=promptForSpend;
+  }
+
+  /** Typing a figure in. A prompt rather than a form: it is one number, entered rarely, and a modal
+      for it would be more chrome than the thing it collects. */
+  async function promptForSpend(){
+    const raw=window.prompt("Kolik jste za posledních 30 dní utratili za reklamu? (Kč)", spendData&&spendData.amount!=null?String(spendData.amount):"");
+    if(raw==null)return;
+    const amount=Number(String(raw).replace(/\s/g,"").replace(",","."));
+    if(!Number.isFinite(amount)||amount<0){toast("To nevypadá jako částka.");return;}
+    const to=new Date(), from=new Date(to.getTime()-30*86400000);
+    try{
+      const r=await fetch("/api/spend",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({amount,from:from.toISOString(),to:to.toISOString()})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){toast(j.error||"Uložení se nezdařilo.");return;}
+      await fetchSpend();
+      renderChannels();
+    }catch{toast("Server neodpovídá.");}
+  }
+
+  let spendData=null;
+  async function fetchSpend(){
+    try{
+      // Timed out on purpose: this is awaited inside fetchMetrics's in-flight guard, so a hung
+      // response would wedge every later refresh of the economics block, not just this one.
+      const r=await fetch("/api/spend",{signal:AbortSignal.timeout(8000)});
+      if(signedOut(r)||!r.ok)return;
+      spendData=(await r.json()).spend;
+    }catch(e){/* offline — leave the last figure */}
+  }
+
   let metricsInFlight=false;
   async function fetchMetrics(force){
     if(metricsInFlight)return;
@@ -1110,10 +1221,18 @@
     try{
       const r=await fetch("/api/metrics"+(force?"?refresh=1":""));
       const j=await r.json().catch(()=>({}));
-      if(!r.ok){renderMetricsProblem(j.code,j.error);return;}
+      // renderChannels() on EVERY exit, including the failures. It used to sit only on the happy
+      // path, so any Shopify hiccup left the comparison frozen on "Načítám…" forever — a spinner
+      // that never resolves reads as a broken page, where the empty state reads as "no data yet".
+      if(!r.ok){renderMetricsProblem(j.code,j.error);metricsState=null;renderChannels();return;}
       renderMetrics(j);
+      // Spend is read alongside, never before: the comparison needs the revenue either way, and a
+      // spend fetch that failed must leave the tiles standing rather than blanking the block.
+      await fetchSpend();
+      renderChannels();
     }catch(e){
       renderMetricsProblem("unavailable",e.message);
+      metricsState=null;renderChannels();
     }finally{metricsInFlight=false;}
   }
 

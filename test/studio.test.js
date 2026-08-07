@@ -638,6 +638,89 @@ test('a poll that comes back signed-out goes to the sign-in page, not a silent e
   assert.match(REVIEW, /if \(res\.status === 401\) \{ location\.href = '\/login'; return; \}/, 'and the review grid');
 });
 
+// The homepage's paid-vs-organic block exists to answer one question honestly. These lift its rules
+// out of the shipped page and RUN them, because the failure mode is a plausible-looking number
+// rather than a broken page — and a regex over the source would keep passing while the arithmetic
+// silently said the ads were free.
+test('missing spend is not zero: the block says it does not know rather than inventing a return', () => {
+  const state = (spend) => pageFunction('spendState', {})(spend);
+  assert.equal(state(null), 'missing', 'nobody has entered a figure');
+  assert.equal(state({ amount: 0 }), 'zero', 'and a genuine zero is a different answer');
+  assert.equal(state({ amount: 6200 }), 'known');
+
+  // The arithmetic behind it: dividing by a spend of zero must not produce a return at all.
+  const roas = (revenue, amount) => pageFunction('roasOf', {})(revenue, amount);
+  assert.equal(roas(14779, 6200), 2.4, 'revenue over spend, to one decimal');
+  assert.equal(roas(14779, 0), null, 'a zero spend yields no return — not Infinity, which renders as "the ads were free"');
+  assert.equal(roas(0, 6200), 0, 'and spending with nothing to show for it is a real zero');
+});
+
+test('a typed zero is not organic\'s free zero, and must not render an infinite return', () => {
+  // Keyed on amount alone, a typed 0 rendered "Návratnost ∞" on the PAID tile — pixel-identical to
+  // organic's structural zero, with the "ručně" badge suppressed. The operator telling us they
+  // spent nothing on ads is a claim about a paid channel, not a channel that costs nothing.
+  const state = (spend) => pageFunction('spendState', {})(spend);
+  assert.equal(state({ amount: 0, source: 'typed' }), 'zero', 'a typed zero is its own state');
+  assert.equal(state({ amount: 0, source: 'none', free: true }), 'free', 'only the organic sentinel is free');
+  assert.notEqual(state({ amount: 0, source: 'typed' }), state({ amount: 0, free: true }), 'and the two never collapse');
+});
+
+test('the meaning line states a comparison it can actually support', () => {
+  // It asserts things like "organic orders are 81% bigger" on the operator's homepage. Lifted and
+  // RUN, because a regex over the page would pass while the arithmetic said something false.
+  const line = (paid, organic) => pageFunction('meaningLine', { ratio1: (n) => n.toFixed(1) })(paid, organic);
+
+  const out = line({ orders: 21, aov: 704 }, { orders: 8, aov: 1277 });
+  assert.match(out, /2\.6× víc objednávek/, 'paid brought 2.6x the orders');
+  assert.match(out, /o 81 % větší/, 'and organic orders are 81% bigger');
+
+  // Every divisor guarded: a channel with orders but no revenue must not produce "o Infinity %".
+  assert.equal(line({ orders: 5, aov: 0 }, { orders: 5, aov: 800 }), '', 'zero paid AOV says nothing');
+  assert.equal(line({ orders: 5, aov: 700 }, { orders: 0, aov: 0 }), '', 'and neither does an empty channel');
+  assert.equal(line(null, { orders: 5, aov: 800 }), '');
+
+  // Near-parity is not a story worth telling.
+  assert.equal(line({ orders: 10, aov: 700 }, { orders: 10, aov: 700 }), '');
+});
+
+test('cost per order needs orders, and says nothing when there are none', () => {
+  const per = (amount, orders) => pageFunction('perOrder', {})(amount, orders);
+  assert.equal(per(6200, 21), 295);
+  assert.equal(per(6200, 0), null, 'no orders means no cost per order, not a division by zero');
+});
+
+test('the block is operator-only in the markup, not merely by the route it calls', () => {
+  // /api/studio answers both roles and the identity poll is what reveals these sections, so the
+  // section must ship hidden — otherwise a printer paints the shop's revenue for one frame.
+  const section = /<section id="channelsSection"([^>]*)>/.exec(PAGE);
+  assert.ok(section, 'the block is still a section this test can find');
+  assert.match(section[1], /data-operator/, 'carries data-operator');
+  assert.match(section[1], /\bhidden\b/, 'and ships hidden, like the economics block beside it');
+});
+
+test('the recent-orders list names an unattributed order rather than leaving a blank cell', () => {
+  // "bez zdroje" is the truth for about a fifth of orders. An empty cell would read as a rendering
+  // fault, and the operator would go looking for a bug instead of accepting the answer.
+  // The label map is lifted from the page too, not retyped here — a copy would keep passing after
+  // the shipped map drifted, which is the failure this whole lifting approach exists to avoid.
+  const CH_LABEL = JSON.parse(/const CH_LABEL=(\{[^}]*\});/.exec(PAGE)[1].replace(/(\w+):/g, '"$1":'));
+  const label = (a) => pageFunction('sourceLabel', { CH_LABEL })(a);
+  assert.equal(label(null), 'bez zdroje', 'no attribution at all');
+  assert.equal(label({ channel: 'unknown', campaign: null }), 'bez zdroje', 'and an explicit unknown reads the same');
+  assert.equal(label({ channel: 'paid', campaign: 'A+ sales - 3-2026' }), 'placené · A+ sales - 3-2026');
+  assert.equal(label({ channel: 'organic', campaign: null }), 'organické', 'no campaign, no separator dangling');
+  assert.equal(label({ channel: 'direct', campaign: null }), 'direct');
+});
+
+test('the recent list is operator-only in the markup, which matters more here than for the money block', () => {
+  // /api/studio answers BOTH roles, so unlike the revenue block this one is not protected by its
+  // route at all — without the attribute a printer session paints real customer order rows.
+  const section = /<section id="recentSection"([^>]*)>/.exec(PAGE);
+  assert.ok(section, 'the list is still a section this test can find');
+  assert.match(section[1], /data-operator/);
+  assert.match(section[1], /\bhidden\b/);
+});
+
 test('a printer session lands on the print queue; the operator lands on the board', () => {
   // The page's real landing rule, LIFTED OUT AND RUN — not matched against a regex. The rule decides
   // the first screen each person sees, and "the source contains this string" would keep passing if
@@ -696,13 +779,11 @@ test('the board offers a printer nothing the server would refuse him', () => {
     assert.ok(!lineWith(cls).includes('isOperator()'), `${cls} stays available to the printer — printing is his job`);
   }
 
-  // The home card's "continue" CTA is the same question asked once more: its most-actionable state
-  // is `printed`, whose only action is dispatch. Offering that as a printer's first screen is
-  // offering him a 403.
-  const [, forOperator, forPrinter] = /const priority=isOperator\(\)\?(\[[^\]]*\]):(\[[^\]]*\]);/.exec(PAGE);
-  assert.ok(JSON.parse(forOperator).includes('printed'), 'the operator is shown the book waiting to be posted');
-  assert.ok(!JSON.parse(forPrinter).includes('printed'), 'the printer is not — he cannot post it');
-  assert.ok(JSON.parse(forPrinter).includes('ready-to-print'), 'his card features the book waiting to be printed instead');
+  // The home card's "continue" CTA used to ask this same question a second time — its most-actionable
+  // state was `printed`, whose only action is dispatch, so a printer's first screen offered him a 403.
+  // The card is gone, and with it that second surface. The row actions above are now the only place
+  // the board offers an action, which is one rule to keep right instead of two.
+  assert.ok(!PAGE.includes('const priority=isOperator()'), 'the work card and its role-aware CTA are gone');
 });
 
 test('the purge panel\'s two numbers describe the set they are attached to', () => {

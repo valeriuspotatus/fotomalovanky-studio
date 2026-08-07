@@ -16,13 +16,18 @@
 // bucketing on UTC would file it under the wrong month — visibly wrong on exactly the two days a
 // month anybody checks. Intl does the conversion; there is no timezone dependency to add.
 
-import { expectedPhotosFrom, lineItemPhotoCount } from './shopify/orders.js';
+import { expectedPhotosFrom, lineItemPhotoCount, attributionFrom, channelOf } from './shopify/orders.js';
 
 /** The statuses that mean the shop was actually paid. */
 const COUNTED = new Set(['PAID', 'PARTIALLY_REFUNDED']);
 
 const DAY_MS = 86_400_000;
-const ROLLING_DAYS = 30;
+
+/** The rolling window every "30 days" figure on the homepage is measured over. Exported because the
+ *  ad-spend route must read spend over exactly this span: dividing a 30-day revenue by a 7-day spend
+ *  is wrong by a factor of four and looks entirely reasonable on screen. One definition, imported —
+ *  not a second `30` typed beside a comment promising to keep it in step with this one. */
+export const ROLLING_DAYS = 30;
 const TREND_WEEKS = 12;
 
 /** An order's calendar date in a given zone, as plain numbers. `en-CA` formats as YYYY-MM-DD, which
@@ -110,6 +115,8 @@ export function computeMetrics(nodes, { now = new Date(), timeZone = 'Europe/Pra
 
   const tiers = new Map(); // photo count -> line items
   const weeks = new Map(); // "2026-W31" -> { orders, revenue }
+  const channels = new Map(); // "paid" | "organic" | "direct" | "other" | "unknown" -> { orders, revenue }
+  const campaigns = new Map(); // campaign name -> { orders, revenue }
 
   for (const node of Array.isArray(nodes) ? nodes : []) {
     if (!node || typeof node !== 'object') continue;
@@ -139,6 +146,29 @@ export function computeMetrics(nodes, { now = new Date(), timeZone = 'Europe/Pra
     if (created.getTime() >= windowStart) {
       orders30d++;
       revenue30d += amount;
+
+      // WHERE THE ORDER CAME FROM. Bucketed per order, never per line item: a purchase is one
+      // click, and a two-book order would otherwise count its channel twice and report the ads
+      // producing more orders than the shop received.
+      //
+      // The unattributed bucket is a row like any other, on purpose. Roughly a fifth of orders
+      // carry no journey data, and dropping them would make every channel's share of revenue look
+      // larger than it is — the page states the unattributed share precisely so the comparison
+      // cannot be read as accounting.
+      const attribution = attributionFrom(node);
+      const channel = channelOf(attribution);
+      const chBucket = channels.get(channel) ?? { orders: 0, revenue: 0 };
+      chBucket.orders++;
+      chBucket.revenue += amount;
+      channels.set(channel, chBucket);
+
+      if (attribution.campaign) {
+        const cpBucket = campaigns.get(attribution.campaign) ?? { orders: 0, revenue: 0 };
+        cpBucket.orders++;
+        cpBucket.revenue += amount;
+        campaigns.set(attribution.campaign, cpBucket);
+      }
+
       for (const edge of node.lineItems?.edges ?? []) {
         const item = edge?.node;
         if (!item) continue;
@@ -163,6 +193,14 @@ export function computeMetrics(nodes, { now = new Date(), timeZone = 'Europe/Pra
     .sort((a, b) => a[0] - b[0])
     .map(([tier, lineItems]) => ({ tier, lineItems, share: tierItems ? Math.round((lineItems / tierItems) * 1000) / 1000 : 0 }));
 
+  // Both rollups come out revenue-first, which is the order the comparison is read in and the order
+  // the page renders without sorting again.
+  const rows = (map, label) => [...map.entries()]
+    .map(([key, v]) => ({ [label]: key, orders: v.orders, revenue: Math.round(v.revenue * 100) / 100, aov: mean2(v.revenue, v.orders) }))
+    .sort((a, b) => b.revenue - a.revenue);
+  const channels30d = rows(channels, 'channel');
+  const campaigns30d = rows(campaigns, 'campaign');
+
   // Every one of the last 12 weeks appears, including the quiet ones: a gap silently dropped from a
   // trend reads as "no data here" when it means "no orders that week", and those are opposite news.
   const weeklyTrend = [];
@@ -179,6 +217,8 @@ export function computeMetrics(nodes, { now = new Date(), timeZone = 'Europe/Pra
     revenueLastMonth: Math.round(revenueLastMonth * 100) / 100,
     aov30d: mean2(revenue30d, orders30d),
     tierMix30d,
+    channels30d,
+    campaigns30d,
     pagesPerOrder30d: mean2(photos30d, orders30d),
     weeklyTrend,
     currency: currency ?? 'CZK',

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractJobs, expectedPhotosFrom } from '../src/shopify/orders.js';
+import { extractJobs, expectedPhotosFrom, attributionFrom, channelOf } from '../src/shopify/orders.js';
 
 // The pure extraction from a real PUBLIC Admin API order node. The public API returns customAttributes
 // as {key,value} with NO `type` field (the admin-internal `type:"URL"` is not present) — so extraction
@@ -194,4 +194,72 @@ test('an order name that already contains a hyphen does not collide with a posit
   const split = extractJobs(node({ name: '#1524-9', items: [item({ attrs: photoAttrs(2, 'a') }), item({ attrs: photoAttrs(2, 'b') })] }));
   assert.deepEqual(split.map((j) => j.orderId), ['1524-9-1', '1524-9-2'], 'suffixes append rather than overwrite');
   assert.equal(new Set(split.map((j) => j.orderId)).size, 2, 'the ids stay unique, which is what every order-keyed consumer relies on');
+});
+
+// ---- where the order came from ---------------------------------------------------------------
+// Fixtures are the real shapes the live store returns, taken from orders 1560-1565 on 2026-08-06.
+// The point of these is that the shop already knows the answer: no pixel, no second integration.
+
+/** A journey summary in the API's own shape. `utm` null means the visit carried no UTM parameters. */
+const journey = (source, utm = null) => ({
+  customerJourneySummary: { firstVisit: { source, utmParameters: utm } },
+});
+
+test('a paid Meta click keeps its campaign and reads as paid', () => {
+  const a = attributionFrom(journey('https://facebook.com/', { source: 'facebook', medium: 'paid', campaign: 'A+ sales - 3-2026' }));
+  assert.deepEqual(a, { source: 'facebook', medium: 'paid', campaign: 'A+ sales - 3-2026' });
+  assert.equal(channelOf(a), 'paid');
+});
+
+test('the same account also stamps cpc, and that is paid too', () => {
+  // Both spellings arrive from the one Meta account; keying on "paid" alone would file half the ad
+  // spend as if nobody had paid for it.
+  const a = attributionFrom(journey('Facebook', { source: 'facebook', medium: 'cpc', campaign: 'A+ sales' }));
+  assert.equal(channelOf(a), 'paid');
+});
+
+test('an unpaid search click reads as organic, whether the source is a name or a URL', () => {
+  const google = attributionFrom(journey('Google'));
+  assert.deepEqual(google, { source: 'Google', medium: null, campaign: null });
+  assert.equal(channelOf(google), 'organic');
+  assert.equal(channelOf(attributionFrom(journey('https://search.seznam.cz/'))), 'organic', 'Seznam arrives as a URL');
+});
+
+test('direct is direct', () => {
+  assert.equal(channelOf(attributionFrom(journey('direct'))), 'direct');
+});
+
+test('an order with no journey data reads as unknown and does not throw', () => {
+  assert.deepEqual(attributionFrom({}), { source: null, medium: null, campaign: null });
+  assert.equal(channelOf(attributionFrom({})), 'unknown');
+  assert.equal(channelOf(attributionFrom(null)), 'unknown');
+  assert.equal(channelOf(attributionFrom({ customerJourneySummary: { firstVisit: null } })), 'unknown');
+  assert.equal(channelOf(null), 'unknown', 'and a missing attribution object is unknown, not a crash');
+});
+
+test('an unpromoted social click is "other", so it cannot inflate the organic figure', () => {
+  // The organic tile is the page's argument that free traffic outperforms bought traffic. An
+  // Instagram post click is free, but it is not search, and lumping it in would flatter that
+  // argument with revenue the blog and SEO work did not earn.
+  const a = attributionFrom(journey('Instagram'));
+  assert.equal(channelOf(a), 'other');
+  assert.notEqual(channelOf(a), 'organic');
+});
+
+test('the extractor carries no referrer and no landing page', () => {
+  // Both are available on the API and deliberately unread: a referrer can hold a query string, and
+  // this data reaches an on-disk cache and the operator's screen.
+  const a = attributionFrom({
+    customerJourneySummary: {
+      firstVisit: {
+        source: 'Google',
+        referrerUrl: 'https://www.google.com/search?q=omalovanky+z+fotky',
+        landingPage: 'https://fotomalovanky.cz/?utm_content=secret',
+        utmParameters: null,
+      },
+    },
+  });
+  assert.deepEqual(Object.keys(a).sort(), ['campaign', 'medium', 'source']);
+  assert.ok(!JSON.stringify(a).includes('search?q='), 'no referrer survives extraction');
+  assert.ok(!JSON.stringify(a).includes('utm_content'), 'no landing page survives extraction');
 });

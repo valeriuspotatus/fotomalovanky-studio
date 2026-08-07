@@ -715,7 +715,7 @@ test('the printer is refused every route that spends money, writes to a customer
   try {
     // GETs.
     for (const path of [
-      '/api/settings', '/api/mail', '/api/mail/message?uid=1', '/api/mail/templates',
+      '/api/settings', '/api/metrics', '/api/spend', '/api/mail', '/api/mail/message?uid=1', '/api/mail/templates',
       '/api/blog/topics', '/api/blog/posts', '/api/blog/blogs',
       '/api/creatives/calendar', '/api/studio/templates', '/api/studio/validate', '/studio/preview', '/studio/render',
       '/api/autopilot/status', '/creatives/ad/12-24-vanoce/x.png',
@@ -727,6 +727,7 @@ test('the printer is refused every route that spends money, writes to a customer
     // POSTs. /api/_shutdown is deliberately only ever exercised as the REFUSED case — the allowed
     // case would stop the process running this suite.
     for (const path of [
+      '/api/spend',
       '/api/_scan', '/api/_pick-folder', '/api/_shutdown', '/api/_open/generator', '/api/_open/folder/1510',
       '/api/mail/send', '/api/mail/delete', '/api/mail/flag',
       '/api/blog/draft', '/api/blog/posts', '/api/blog/publish',
@@ -1058,6 +1059,50 @@ test('the generator screen shows the signed-in person, not a profile written int
   }
 });
 
+test('the printer is not sent where an order came from — hiding it in markup is not withholding it', async () => {
+  // /api/studio answers BOTH roles, so unlike the revenue routes this one is not gated. The
+  // homepage keeps the Zdroj column off a printer's screen with `data-operator hidden`, but the
+  // campaign names were in his response body regardless. The wire has to match the screen.
+  const f = await roleServer();
+  try {
+    const asPrinter = await (await f.get('/api/studio', f.printer)).json();
+    assert.ok(Array.isArray(asPrinter.orders) && asPrinter.orders.length, 'the printer still gets his board');
+    for (const o of asPrinter.orders) {
+      assert.ok(!('attribution' in o), `order ${o.orderId} must not carry attribution for the printer`);
+    }
+
+    const asOperator = await (await f.get('/api/studio', f.operator)).json();
+    assert.ok(asOperator.orders.every((o) => 'attribution' in o), 'and the operator still gets it');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('ad spend: the operator reads it back; the printer reaches neither verb', async () => {
+  const f = await roleServer();
+  try {
+    for (const call of [f.get('/api/spend', f.printer), f.post('/api/spend', f.printer, { amount: 1 })]) {
+      const res = await call;
+      assert.equal(res.status, 403, 'spend is the shop’s money, and the printer’s screen is a work list');
+    }
+
+    // The fixture configures no data dir, which is the state a fresh install is in. The page has to
+    // render that as "we don't know", never as zero — zero would compute a return on spend of
+    // infinity and read as "the ads were free".
+    const empty = await f.get('/api/spend', f.operator);
+    assert.equal(empty.status, 200);
+    const body = await empty.json();
+    assert.equal(body.spend, null, 'missing stays missing');
+    assert.equal(body.configured, false);
+
+    const refused = await f.post('/api/spend', f.operator, { amount: 6200 });
+    assert.equal(refused.status, 409, 'and writing has nowhere to go until the data dir is set');
+    assert.equal((await refused.json()).code, 'not-configured');
+  } finally {
+    f.cleanup();
+  }
+});
+
 test('metrics is the shop revenue: refused for the printer, and 503 with a code when there is nothing to show', async () => {
   const f = await roleServer();
   try {
@@ -1099,12 +1144,26 @@ test('the homepage widgets the rework removed are gone, not merely hidden', asyn
   const f = await roleServer();
   try {
     const html = await (await f.get('/', f.operator)).text();
-    for (const gone of ['id="kpi-queued"', 'id="recentBody"', 'id="upList"', 'Nástroje studia', 'Poslední objednávky', '<h3>Generování</h3>']) {
+    // "Poslední objednávky" is deliberately NOT in this list any more. The rework removed it because
+    // it restated the board; it is back because it now carries the one column the board does not —
+    // where each order came from — which is the whole point of a marketing homepage. The rest of
+    // these stayed removed.
+    for (const gone of ['id="kpi-queued"', 'id="upList"', 'Nástroje studia', '<h3>Generování</h3>']) {
       assert.ok(!html.includes(gone), `${gone} should be gone from the homepage`);
     }
+    assert.match(html, /id="recentBody"/, 'the recent list is back, and earns its place by naming the source');
     // Kept, per the brief.
     assert.match(html, /class="overnight"/, 'the overnight strip is untouched');
-    assert.match(html, /id="continueRow"/, 'and "Pokračovat v práci" stays');
+    // "Pokračovat v práci" is gone now, and the tier-mix bar with it. Both were removed on the
+    // operator's word: the backend runs itself, so a card pointing at the one order needing a human
+    // describes a shrinking part of the day, and the size mix answered a question nobody was asking.
+    assert.ok(!html.includes('id="continueRow"'), 'the work card is gone');
+    assert.ok(!html.includes('mx-bar'), 'and so is the size-mix bar');
+    // "Stránek na objednávku" went with them: it counted photos that ARRIVED, so it sagged whenever
+    // an order sat waiting on a slow upload and recovered when the photos turned up — a number that
+    // moves for reasons unrelated to the business. The size mix had been the protected version of
+    // the same question; once that went, this was the last survivor of a question nobody asks.
+    assert.ok(!html.includes('pagesPerOrder30d'), 'and the pages-per-order tile');
     assert.match(html, /id="mailUnread"/, 'Pošta reduced to its count');
     assert.match(html, /id="mxBody"/, 'with the metrics section in their place');
   } finally {

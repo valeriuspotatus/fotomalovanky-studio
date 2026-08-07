@@ -36,6 +36,8 @@ import { generatePost, recomputePost, wouldLoseWork } from '../blog/draft.js';
 import { listPosts, readPost, savePost, deletePost, siblingsInCluster } from '../blog/store.js';
 import { createAdminClient } from '../shopify/adminClient.js';
 import { getMetrics, MetricsError } from '../metricsCache.js';
+import { spendForWindow, writeAdSpend, AdSpendError, SPEND_SOURCES } from '../adSpend.js';
+import { ROLLING_DAYS } from '../metrics.js';
 import { createContentClient } from '../shopify/content.js';
 import { ingestOrders, IngestError } from '../ingest.js';
 import { selectAutoRunOrders } from '../autoRun.js';
@@ -266,6 +268,12 @@ const MAX_LOG_LINES = 400;
 // batch. Ticking them all would generate every order they have ever shipped.
 const AUTO_TICK_LIMIT = 8;
 
+// The homepage compares paid against organic over a rolling window, so spend is read over exactly
+// the span the revenue was measured over — imported from metrics.js rather than retyped here. A
+// return-on-spend figure that divided a 30-day revenue by a 7-day spend would be wrong by a factor
+// of four and look entirely reasonable on screen.
+const SPEND_WINDOW_DAYS = ROLLING_DAYS;
+
 // Never ask PATH for a Windows binary. PATH is capped near 2047 characters and a machine that has
 // grown past it silently loses its tail — this operator's had dropped System32, so a bare "cmd"
 // resolved to nothing. ComSpec and SystemRoot are set by Windows itself and say where the real
@@ -464,6 +472,10 @@ export const ROUTE_POLICY = Object.freeze([
   // Unit economics for the homepage. Operator-only: it is the shop's revenue, and the printer's
   // screen is a work list.
   { id: 'GET /api/metrics', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/metrics'], match: atPath('/api/metrics'), sample: '/api/metrics' },
+  // What the shop spent on advertising, and the operator typing a figure in. Same audience as the
+  // metrics beside it and for the same reason: this is the shop's money, on a screen the printer
+  // opens to print books.
+  { id: 'GET|POST /api/spend', audience: AUDIENCES.OPERATOR, methods: ['GET', 'POST'], tokens: ['/api/spend'], match: atPath('/api/spend'), sample: '/api/spend' },
   // The box and the filesystem around it: re-pointing the inbox, the native folder dialog, and the
   // button that stops the server everybody else is using.
   { id: 'POST /api/_scan', audience: AUDIENCES.OPERATOR, methods: ['POST'], tokens: ['/api/_scan'], match: atPath('/api/_scan'), sample: '/api/_scan' },
@@ -1260,7 +1272,13 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         // The dashboard polls this one, so the identity travels here too: the page decides which
         // views to build from it, and it must not paint an operator's nav for a printer for the
         // 2.5 seconds before a second request answers.
-        return json(res, 200, { ...board, inbox, identity: identityFor(req), run: { active: run.active, orderId: run.orderId }, autopilot: { running: autopilot.running, error: autopilot.error, report: autopilot.report } });
+        const identity = identityFor(req);
+        // Where an order came from is marketing data, and this is the one route both roles reach.
+        // The homepage hides the column with `data-operator hidden`, but hiding it in markup is not
+        // withholding it — the campaign names were in the printer's response body regardless. Strip
+        // them here, where the role is known, so the wire matches the screen.
+        const orders = identity?.role === 'operator' ? board.orders : board.orders.map(({ attribution, ...rest }) => rest);
+        return json(res, 200, { ...board, orders, inbox, identity, run: { active: run.active, orderId: run.orderId }, autopilot: { running: autopilot.running, error: autopilot.error, report: autopilot.report } });
       }
 
       // GET /api/mail — the read-only Proton inbox tile. Always 200 with a stable shape: the tile
@@ -1391,6 +1409,41 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       // metricsCache.js, which reduces the aggregate through an allowlist before it reaches the disk.
       //
       // `?refresh=1` forces a pull past a fresh cache, for the operator who just changed a price.
+      // GET /api/spend — what the shop spent on advertising over the same rolling window the
+      // metrics use, or null when nobody has said. Null is the honest answer and the page renders
+      // it as "we don't know" rather than as zero, which would read as "the ads were free".
+      if (req.method === 'GET' && url.pathname === '/api/spend') {
+        const dataDir = config.shopify?.dataDir ?? null;
+        const to = new Date();
+        const from = new Date(to.getTime() - SPEND_WINDOW_DAYS * 86_400_000);
+        // One response shape whether or not a data dir is configured — a body whose keys depend on
+        // which branch ran makes the page's own null-handling the only thing standing between a
+        // fresh install and a `window.days` of undefined.
+        const window = { from: from.toISOString(), to: to.toISOString(), days: SPEND_WINDOW_DAYS };
+        if (!dataDir) return json(res, 200, { spend: null, configured: false, window });
+        return json(res, 200, {
+          spend: spendForWindow(dataDir, { from: window.from, to: window.to }),
+          configured: true,
+          window,
+        });
+      }
+
+      // POST /api/spend { amount, from, to, currency? } — the operator types a figure in. Always
+      // stored as `typed`, whatever the body claims: a request cannot promote itself to a fetched
+      // record and quietly lose to a later hand-entered correction.
+      if (req.method === 'POST' && url.pathname === '/api/spend') {
+        const dataDir = config.shopify?.dataDir ?? null;
+        if (!dataDir) return json(res, 409, { error: 'Není nastavená složka pro data (shopify.dataDir).', code: 'not-configured' });
+        const body = await readJson(req, 4 * 1024);
+        try {
+          const saved = writeAdSpend(dataDir, { ...body, source: SPEND_SOURCES.TYPED });
+          return json(res, 200, { saved });
+        } catch (err) {
+          if (err instanceof AdSpendError) return json(res, 400, { error: err.message, code: err.code });
+          throw err;
+        }
+      }
+
       if (req.method === 'GET' && url.pathname === '/api/metrics') {
         const shop = config.shopify ?? null;
         const listOrders = shop?.enabled && shop?.accessToken

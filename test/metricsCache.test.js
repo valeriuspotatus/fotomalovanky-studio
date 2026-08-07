@@ -234,3 +234,31 @@ test('with no data dir there is nowhere to cache, and that is said plainly', () 
   assert.equal(readMetricsCache(null), null);
   assert.throws(() => writeMetricsCache(null, {}), (err) => err instanceof MetricsError && err.code === 'not-configured');
 });
+
+test('the channel and campaign rows carry counts, never the source string that produced them', () => {
+  // `attribution.source` can be a full URL ("https://search.seznam.cz/") and a campaign name is
+  // whatever somebody typed into an ad platform. Both reach this file, which lives on a mounted
+  // disk a backup or a support session can read — so the rebuild writes a bounded channel name and
+  // a length-capped campaign, and copies nothing else off the row.
+  const clean = cacheableMetrics({
+    channels30d: [
+      { channel: 'organic', orders: 8, revenue: 10215, aov: 1276.88, source: 'https://search.seznam.cz/', sampleOrder: '#1563' },
+      { channel: 'sneaky', orders: 1, revenue: 1, aov: 1 },
+    ],
+    campaigns30d: [
+      { campaign: 'A+ sales - 3-2026', orders: 17, revenue: 11700, aov: 688.24, referrer: 'https://facebook.com/?u=hofbauerova@example.cz' },
+    ],
+  });
+  const raw = JSON.stringify(clean);
+
+  assert.deepEqual(clean.channels30d, [{ channel: 'organic', orders: 8, revenue: 10215, aov: 1276.88 }], 'the row is rebuilt, and an unknown channel name is dropped entirely');
+  assert.deepEqual(clean.campaigns30d, [{ campaign: 'A+ sales - 3-2026', orders: 17, revenue: 11700, aov: 688.24 }]);
+  assert.doesNotMatch(raw, /https?:\/\//, 'no URL survives, from either row');
+  assert.doesNotMatch(raw, /@/, 'no address survives');
+  assert.ok(!raw.includes('#1563'), 'and no order number');
+});
+
+test('a campaign named with something enormous is capped rather than written whole', () => {
+  const clean = cacheableMetrics({ campaigns30d: [{ campaign: 'x'.repeat(500), orders: 1, revenue: 1, aov: 1 }] });
+  assert.equal(clean.campaigns30d[0].campaign.length, 80);
+});

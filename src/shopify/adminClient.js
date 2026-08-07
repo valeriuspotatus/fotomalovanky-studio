@@ -7,6 +7,13 @@
 // `displayFinancialStatus`, `lineItems.customAttributes` and `lineItems.variantTitle` (scalar).
 // It CANNOT read the `customer{}` or `variant{}` connections — requesting them fails the whole
 // query with ACCESS_DENIED, so the selection below deliberately avoids them.
+//
+// `customerJourneySummary` IS readable on this token — confirmed live against orders 1560-1565.
+// It is what makes "where did this order come from" free: the shop already records the first
+// visit's source and UTM parameters, so channel and campaign revenue need no tracking pixel and
+// no second integration. Only `firstVisit` is selected, and within it only the fields the studio
+// shows — `landingPage` and `referrerUrl` are deliberately NOT requested, because a referrer can
+// carry a query string and nothing downstream needs one.
 
 export class ShopifyApiError extends Error {
   constructor(message) {
@@ -30,6 +37,12 @@ const ORDER_FIELDS = `
       quantity
       customAttributes { key value }
     } }
+  }
+  customerJourneySummary {
+    firstVisit {
+      source
+      utmParameters { source medium campaign }
+    }
   }`;
 
 /** Build a client bound to one store + token. `fetchImpl` is injected so tests never touch the

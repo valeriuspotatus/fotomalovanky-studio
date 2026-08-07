@@ -260,6 +260,11 @@ function boardEntry(order, status) {
     inInbox: Boolean(order.inInbox),
     status,
     dedication: order.dedication ?? '',
+    // Channel and campaign only — the board is a screen, and the raw source can be a full URL.
+    attribution: {
+      channel: order.attribution?.channel ?? 'unknown',
+      campaign: order.attribution?.campaign ?? null,
+    },
     photos: {
       total: s.total ?? 0,
       eligible: s.eligible ?? 0,

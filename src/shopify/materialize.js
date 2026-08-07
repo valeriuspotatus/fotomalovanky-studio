@@ -11,7 +11,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { ORDER_INFO } from '../orderInfo.js';
-import { expectedPhotosFrom } from './orders.js';
+import { expectedPhotosFrom, channelOf } from './orders.js';
 import { safeFetch as defaultSafeFetch } from './safeFetch.js';
 
 /** organize.js only ingests .jpg/.jpeg (isPhoto), but the upload host serves some photos as PNG/WebP.
@@ -88,6 +88,13 @@ export async function materializeOrder(order, {
     products,
     photos: order.photos,
     layout: order.layout,
+    // Where the order came from, recorded once at download. The board reads it from here rather
+    // than asking Shopify again: the aggregate on the homepage answers "how is the shop doing" for
+    // a whole window, while this answers "where did THIS one come from" for a single row, and the
+    // second question has no business re-pulling ninety days of orders to answer it.
+    //
+    // An order object built by hand — a manual pull, a test — carries none, and reads as unknown.
+    attribution: order.attribution ? { ...order.attribution, channel: channelOf(order.attribution) } : null,
     source: 'shopify-admin-api',
     downloadedAt: now(),
   };
