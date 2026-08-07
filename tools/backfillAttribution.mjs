@@ -24,7 +24,7 @@
 //   node tools/backfillAttribution.mjs           # say what would change, touch nothing
 //   node tools/backfillAttribution.mjs --write   # do it
 
-import { existsSync, readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig } from '../src/config.js';
 import { createAdminClient } from '../src/shopify/adminClient.js';
@@ -43,8 +43,20 @@ function orderDirs(root) {
     .filter((o) => existsSync(join(o.dir, ORDER_INFO)));
 }
 
-/** A multi-book folder is "1563-5"; Shopify knows it as order 1563. */
-const purchaseNumber = (orderId) => String(orderId).split('-')[0];
+/** The order number Shopify knows this folder by.
+ *
+ *  Read from the sidecar, which materialize.js already wrote — NOT derived by splitting the folder
+ *  name on "-". A multi-book folder is "1563-5" and Shopify knows it as 1563, but an order whose
+ *  own NAME contains a hyphen is a real case this shop has (test/shopifyOrders.test.js pins
+ *  "1524-9" as a name, not a suffix), and splitting it would ask Shopify for order 1524 and write
+ *  another customer's channel onto this one. The sidecar's `purchase.orderId` is the answer the
+ *  extractor already computed; the split survives only as a last resort for a folder written before
+ *  that field existed. */
+function purchaseNumber(sidecar, folderName) {
+  const fromSidecar = sidecar?.purchase?.orderId ?? sidecar?.order;
+  if (typeof fromSidecar === 'string' && fromSidecar.trim()) return fromSidecar.trim();
+  return String(folderName).split('-')[0];
+}
 
 const roots = [config.paths?.inbox, config.paths?.outbox].filter(Boolean);
 const seen = new Map(); // orderId -> [dirs], because a book exists in both inbox and outbox
@@ -67,6 +79,7 @@ let patched = 0;
 let already = 0;
 let unresolved = 0;
 let unreadable = 0;
+let failed = 0;
 
 for (const [orderId, dirs] of [...seen.entries()].sort((a, b) => a[0].localeCompare(b[0], 'en', { numeric: true }))) {
   for (const dir of dirs) {
@@ -79,22 +92,36 @@ for (const [orderId, dirs] of [...seen.entries()].sort((a, b) => a[0].localeComp
       unreadable++;
       continue;
     }
-    if (sidecar?.attribution) {
+    // `JSON.parse("null")` succeeds. Assigning onto that below would throw outside the try and take
+    // the whole run down on one odd file, half-way through a backlog.
+    if (!sidecar || typeof sidecar !== 'object' || Array.isArray(sidecar)) {
+      console.log(`  ${orderId.padEnd(10)} sidecar is not an object — skipped`);
+      unreadable++;
+      continue;
+    }
+    if (sidecar.attribution) {
       already++;
       continue;
     }
 
-    const number = purchaseNumber(orderId);
+    const number = purchaseNumber(sidecar, orderId);
     if (!cache.has(number)) {
       try {
         const node = await client.fetchOrderByName(number);
         cache.set(number, node ? attributionFrom(node) : null);
       } catch (err) {
+        // A throttled or failed lookup is NOT "this order does not exist". Counting them together
+        // makes a rate-limited run read as a shop missing half its orders, and the operator would
+        // go looking for the wrong problem.
         console.log(`  ${orderId.padEnd(10)} Shopify lookup failed — skipped (${err.message})`);
-        cache.set(number, null);
+        cache.set(number, { failed: true });
       }
     }
     const attribution = cache.get(number);
+    if (attribution?.failed) {
+      failed++;
+      continue;
+    }
     if (!attribution) {
       console.log(`  ${orderId.padEnd(10)} not found in Shopify — skipped`);
       unresolved++;
@@ -104,9 +131,16 @@ for (const [orderId, dirs] of [...seen.entries()].sort((a, b) => a[0].localeComp
     const value = { ...attribution, channel: channelOf(attribution) };
     console.log(`  ${orderId.padEnd(10)} ${value.channel}${value.campaign ? ' · ' + value.campaign : ''}${write ? '' : '   (dry run)'}`);
     if (write) {
-      // One key. The rest of this file is the customer's dedication and their email address.
+      // One key. The rest of this file is the customer's dedication and their email address —
+      // which is also why the write goes through a temp file and a rename. This is the one tool
+      // that rewrites files it did not create, and a plain in-place write interrupted by a crash or
+      // a full disk leaves a truncated sidecar. `readOrderInfo` treats an unparseable sidecar as
+      // "no answer", so the loss would be silent: the dedication reverts to a guess from the photo
+      // filenames and the email needed to reach the customer is simply gone.
       sidecar.attribution = value;
-      writeFileSync(path, JSON.stringify(sidecar, null, 2) + '\n', 'utf8');
+      const tmp = `${path}.tmp-${process.pid}`;
+      writeFileSync(tmp, JSON.stringify(sidecar, null, 2) + '\n', 'utf8');
+      renameSync(tmp, path);
     }
     patched++;
   }
@@ -114,6 +148,6 @@ for (const [orderId, dirs] of [...seen.entries()].sort((a, b) => a[0].localeComp
 
 console.log(
   `\n${write ? 'Patched' : 'Would patch'} ${patched} folder(s). ` +
-    `${already} already had it, ${unresolved} not found in Shopify, ${unreadable} unreadable.` +
+    `${already} already had it, ${unresolved} not found in Shopify, ${failed} lookup(s) failed, ${unreadable} unreadable.` +
     (write ? '' : '\nRe-run with --write to apply.'),
 );

@@ -32,6 +32,7 @@
   .ch-hand{display:inline-block;background:var(--warning-soft);color:var(--warning);font-size:10px;font-weight:700;padding:1px 6px;border-radius:var(--r-full);vertical-align:1px}
   .ch-none{margin-top:var(--sp-3);padding-top:10px;border-top:1px solid var(--border);font-size:12.5px;color:var(--ink-2);line-height:1.5}
   .ch-add{display:block;margin-top:8px;background:none;border:0;padding:0;font:inherit;font-size:12.5px;font-weight:600;color:var(--brand);cursor:pointer}
+  .ch-edit{margin-top:2px}
   .ch-add:hover{color:var(--brand-hover)}
   .ch-tab{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
   .ch-tab th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);font-weight:700;padding:0 0 6px}
@@ -886,7 +887,8 @@
 
   /** How a row names its origin. An order with nothing recorded says so plainly — "bez zdroje" is
    *  the truth, and an empty cell would read as a rendering fault instead. */
-  const sourceLabel=(a)=>!a||a.channel==="unknown"?"bez zdroje":(a.campaign?({paid:"placené",organic:"organické",direct:"direct",other:"jiné"}[a.channel]||a.channel)+" · "+a.campaign:({paid:"placené",organic:"organické",direct:"direct",other:"jiné"}[a.channel]||a.channel));
+  const CH_LABEL={paid:"placené",organic:"organické",direct:"direct",other:"jiné",unknown:"bez zdroje"};
+  const sourceLabel=(a)=>!a||a.channel==="unknown"?CH_LABEL.unknown:(CH_LABEL[a.channel]||a.channel)+(a.campaign?" · "+a.campaign:"");
 
   function renderRecent(d){
     const b=document.getElementById("recentBody");
@@ -1099,7 +1101,12 @@
      · The unattributed orders are stated on the face of the block. About a fifth of orders carry no
        source, and a comparison that quietly excluded them would overstate both columns. */
 
-  const spendState=(spend)=>spend==null?"missing":spend.amount>0?"known":"zero";
+  /* `free` is what earns an infinite return, NOT an amount of zero.
+     Organic's tile is handed a sentinel that says "this channel costs nothing"; a typed 0 is the
+     operator telling us they spent nothing on ads this month, which is a claim about a paid channel
+     and must not render as the same thing. Keyed on amount alone, a typed 0 rendered "Návratnost ∞"
+     on the PAID tile, pixel-identical to organic — the lie adSpend.js exists to prevent. */
+  const spendState=(spend)=>spend==null?"missing":spend.free?"free":spend.amount>0?"known":"zero";
   const roasOf=(revenue,amount)=>amount>0?Math.round((revenue/amount)*10)/10:null;
   const perOrder=(amount,orders)=>orders>0?Math.round(amount/orders):null;
 
@@ -1107,15 +1114,23 @@
 
   /** One tile. `spend` is null for a channel nobody paid for, and the zero it renders is a fact
    *  rather than an absence — see the rules above. */
+  /** "před 3 dny" for a stored figure, so a stale spend number cannot pass for a fresh one. */
+  const spendAge=(iso)=>{const d=Math.floor((Date.now()-new Date(iso).getTime())/86400000);return d<=0?"dnes":d===1?"včera":`před ${d} dny`;};
+
   function channelTile(label, source, row, spend){
     const rev=row?.revenue||0, orders=row?.orders||0;
     const state=spendState(spend);
     const amount=state==="known"?spend.amount:0;
+    // The edit affordance renders in EVERY state, not just when the figure is missing. It used to
+    // live only on the missing arm, which meant that once a number was typed there was no way back
+    // to it from the page — and re-typing it was the one action that corrupted the total.
+    const edit=`<button class="ch-add" id="spendAdd">${state==="missing"?"Zadat útratu":"Upravit útratu"}</button>`;
     const rows=state==="missing"
-      ? `<div class="ch-none">Útrata za období není zadaná — návratnost se nedá spočítat.<button class="ch-add" id="spendAdd">Zadat útratu</button></div>`
-      : chRow("Útrata",`${czk(amount)}${state==="known"&&spend.source==="typed"?' <span class="ch-hand">ručně</span>':""}`)
-        + chRow("Návratnost",state==="zero"?(rev>0?"∞":"—"):(roasOf(rev,amount)!=null?roasOf(rev,amount).toLocaleString("cs-CZ")+"×":"—"),rev>0?"good":"")
-        + chRow("Cena za objednávku",state==="zero"?czk(0):(perOrder(amount,orders)!=null?czk(perOrder(amount,orders)):"—"));
+      ? `<div class="ch-none">Útrata za období není zadaná — návratnost se nedá spočítat.${edit}</div>`
+      : chRow("Útrata",`${czk(amount)}${state!=="free"&&spend.source==="typed"?` <span class="ch-hand">ručně · ${esc(spendAge(spend.at))}</span>`:""}`)
+        + chRow("Návratnost",state==="free"?(rev>0?"∞":"—"):(roasOf(rev,amount)!=null?roasOf(rev,amount).toLocaleString("cs-CZ")+"×":"—"),rev>0?"good":"")
+        + chRow("Cena za objednávku",state==="free"?czk(0):(perOrder(amount,orders)!=null?czk(perOrder(amount,orders)):"—"))
+        + (state==="free"?"":`<div class="ch-edit">${edit}</div>`);
     return `<div class="mx-card ch-tile">
       <div class="mx-lab">${esc(label)}<span class="ch-src">${esc(source)}</span></div>
       <div class="mx-val">${czk(rev)}</div>
@@ -1126,18 +1141,20 @@
 
   /** The one written line. Generated from the two tiles' own numbers so it can never drift from
    *  them, and deliberately silent when there is not enough on both sides to compare. */
-  function meaningLine(paid,organic){
-    if(!paid||!organic||!paid.orders||!organic.orders)return "";
-    const more=paid.orders/organic.orders, bigger=organic.aov/paid.aov;
-    // cs-CZ throughout: a decimal point in the middle of a Czech sentence is somebody else's number.
-    const x=(n)=>new Intl.NumberFormat("cs-CZ",{minimumFractionDigits:1,maximumFractionDigits:1}).format(n);
-    const parts=[];
-    if(more>=1.1)parts.push(`Placené přineslo <b>${x(more)}× víc objednávek</b>`);
-    else if(more<=0.9)parts.push(`Organické přineslo <b>${x(1/more)}× víc objednávek</b>`);
-    if(bigger>=1.1)parts.push(`organické objednávky jsou <b>o ${Math.round((bigger-1)*100)} % větší</b> — a nic nestojí`);
-    else if(bigger<=0.9)parts.push(`placené objednávky jsou <b>o ${Math.round((1/bigger-1)*100)} % větší</b>`);
-    return parts.join(", ")+(parts.length?".":"");
-  }
+  // cs-CZ throughout: a decimal point in the middle of a Czech sentence is somebody else's number.
+  const ratio1=(n)=>new Intl.NumberFormat("cs-CZ",{minimumFractionDigits:1,maximumFractionDigits:1}).format(n);
+
+  /* Guards every divisor it actually uses, not just the order counts — a paid order with zero
+     revenue makes the AOV ratio Infinity and the sentence would claim the organic order is
+     "o Infinity % větší". Written as a single-expression arrow so the test can LIFT it out of this
+     page and run the arithmetic, which is the only way a sentence that asserts "81 % větší" can be
+     trusted; a regex over this source would pass while the number was wrong. */
+  const meaningLine=(paid,organic)=>!paid||!organic||!paid.orders||!organic.orders||!paid.aov||!organic.aov?"":[
+      paid.orders/organic.orders>=1.1?`Placené přineslo <b>${ratio1(paid.orders/organic.orders)}× víc objednávek</b>`
+        :paid.orders/organic.orders<=0.9?`Organické přineslo <b>${ratio1(organic.orders/paid.orders)}× víc objednávek</b>`:"",
+      organic.aov/paid.aov>=1.1?`organické objednávky jsou <b>o ${Math.round((organic.aov/paid.aov-1)*100)} % větší</b> — a nic nestojí`
+        :organic.aov/paid.aov<=0.9?`placené objednávky jsou <b>o ${Math.round((paid.aov/organic.aov-1)*100)} % větší</b>`:"",
+    ].filter(Boolean).join(", ").replace(/.+/,(s)=>s+".");
 
   function renderChannels(){
     const box=document.getElementById("chBody");
@@ -1150,14 +1167,14 @@
     const unknown=by.unknown;
 
     const rest=["direct","other","unknown"].map(k=>by[k]).filter(Boolean)
-      .map(r=>`<span><b>${esc({direct:"direct",other:"jiné",unknown:"bez zdroje"}[r.channel])}</b> ${czkNum(r.orders)} obj. / ${czk(r.revenue)}</span>`).join("");
+      .map(r=>`<span><b>${esc(CH_LABEL[r.channel]||r.channel)}</b> ${czkNum(r.orders)} obj. / ${czk(r.revenue)}</span>`).join("");
 
     const camps=(m.campaigns30d||[]).map(c=>`<tr><td>${esc(c.campaign)}</td><td class="n">${czkNum(c.orders)}</td><td class="n">${czk(c.revenue)}</td><td class="n">${czk(c.aov)}</td></tr>`).join("");
 
     box.innerHTML=`
       <div class="mx-grid ch-duo">
         ${channelTile("Placené","Meta",paid,spendData)}
-        ${channelTile("Organické","Google + Seznam",organic,{amount:0,source:"none"})}
+        ${channelTile("Organické","Google + Seznam",organic,{amount:0,source:"none",free:true})}
       </div>
       <div class="mx-card wide">
         ${camps?`<div class="mx-lab">Kampaně</div><table class="ch-tab"><thead><tr><th>Kampaň</th><th class="n">Obj.</th><th class="n">Tržby</th><th class="n">Průměr</th></tr></thead><tbody>${camps}</tbody></table>`:""}
@@ -1172,7 +1189,7 @@
   /** Typing a figure in. A prompt rather than a form: it is one number, entered rarely, and a modal
       for it would be more chrome than the thing it collects. */
   async function promptForSpend(){
-    const raw=window.prompt("Kolik jste za posledních 30 dní utratili za reklamu? (Kč)");
+    const raw=window.prompt("Kolik jste za posledních 30 dní utratili za reklamu? (Kč)", spendData&&spendData.amount!=null?String(spendData.amount):"");
     if(raw==null)return;
     const amount=Number(String(raw).replace(/\s/g,"").replace(",","."));
     if(!Number.isFinite(amount)||amount<0){toast("To nevypadá jako částka.");return;}
@@ -1189,7 +1206,9 @@
   let spendData=null;
   async function fetchSpend(){
     try{
-      const r=await fetch("/api/spend");
+      // Timed out on purpose: this is awaited inside fetchMetrics's in-flight guard, so a hung
+      // response would wedge every later refresh of the economics block, not just this one.
+      const r=await fetch("/api/spend",{signal:AbortSignal.timeout(8000)});
       if(signedOut(r)||!r.ok)return;
       spendData=(await r.json()).spend;
     }catch(e){/* offline — leave the last figure */}
@@ -1202,7 +1221,10 @@
     try{
       const r=await fetch("/api/metrics"+(force?"?refresh=1":""));
       const j=await r.json().catch(()=>({}));
-      if(!r.ok){renderMetricsProblem(j.code,j.error);return;}
+      // renderChannels() on EVERY exit, including the failures. It used to sit only on the happy
+      // path, so any Shopify hiccup left the comparison frozen on "Načítám…" forever — a spinner
+      // that never resolves reads as a broken page, where the empty state reads as "no data yet".
+      if(!r.ok){renderMetricsProblem(j.code,j.error);metricsState=null;renderChannels();return;}
       renderMetrics(j);
       // Spend is read alongside, never before: the comparison needs the revenue either way, and a
       // spend fetch that failed must leave the tiles standing rather than blanking the block.
@@ -1210,6 +1232,7 @@
       renderChannels();
     }catch(e){
       renderMetricsProblem("unavailable",e.message);
+      metricsState=null;renderChannels();
     }finally{metricsInFlight=false;}
   }
 

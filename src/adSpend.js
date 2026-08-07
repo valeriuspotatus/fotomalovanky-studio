@@ -16,7 +16,7 @@
 // 0o600 for the reason metricsCache.js gives: on Render this lands on a mounted disk that a backup,
 // a support session or a stray `ls` can reach.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const AD_SPEND_FILE = 'adSpend.json';
@@ -26,6 +26,7 @@ export const adSpendPath = (dataDir) => join(dataDir, AD_SPEND_FILE);
 export const SPEND_SOURCES = Object.freeze({ TYPED: 'typed', META: 'meta' });
 
 const MAX_RECORDS = 400; // ~8 years of weekly figures; a cap so a loop cannot grow the file forever
+const MAX_AMOUNT = 1e12; // a thousand billion crowns of ad spend is a typo, not a budget
 
 /** A spend-seam failure, phrased for the operator. Carries `seam` like the other drivers. */
 export class AdSpendError extends Error {
@@ -43,7 +44,10 @@ const isIso = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
  *  reasoning as the metrics allowlist, applied to a file that is written from an HTTP body. */
 function cleanRecord(r) {
   const amount = Number(r?.amount);
-  if (!Number.isFinite(amount) || amount < 0) return null;
+  // Number.isFinite rejects Infinity as well as NaN, and that is load-bearing rather than tidy:
+  // JSON.stringify writes Infinity as `null`, which reads back as 0, which renders as a genuine
+  // zero spend and therefore an infinite return — the exact lie this module exists to prevent.
+  if (!Number.isFinite(amount) || amount < 0 || amount > MAX_AMOUNT) return null;
   if (!isIso(r?.from) || !isIso(r?.to)) return null;
   if (Date.parse(r.from) > Date.parse(r.to)) return null;
   const source = r?.source === SPEND_SOURCES.META ? SPEND_SOURCES.META : SPEND_SOURCES.TYPED;
@@ -76,19 +80,49 @@ export function readAdSpend(dataDir) {
     .sort((a, b) => Date.parse(b.from) - Date.parse(a.from));
 }
 
-/** Store one figure. A typed record replaces an existing record for the same period and source, so
- *  correcting a typo does not leave two contradictory figures in the file. */
+/** Do two periods cover any of the same time? */
+const overlaps = (a, b) => Date.parse(a.from) <= Date.parse(b.to) && Date.parse(a.to) >= Date.parse(b.from);
+
+/** Store one figure. A new record REPLACES any same-source record whose period it overlaps.
+ *
+ *  Overlap, not an exact period match, and this is the whole correctness of the store. The page
+ *  writes a rolling 30 days ending *now*, so a figure entered today and the same figure entered
+ *  tomorrow have different bounds by a day — an exact match never fires, both records survive, both
+ *  overlap the displayed window, and `spendForWindow` sums them. Typing 6 200 three times stored
+ *  18 600 and turned a true 2.38x return into 0.79x. The page's most likely use — enter a figure,
+ *  come back, enter the updated one — silently produced the wrong headline number.
+ *
+ *  Adjacent weekly figures do not overlap each other, so they still sum. A wider figure entered
+ *  later supersedes the slices it covers, which is what "I'll just type the month" should mean. */
 export function writeAdSpend(dataDir, record, { now = Date.now } = {}) {
   if (!dataDir) throw new AdSpendError('an ad-spend data directory is required (shopify.dataDir).', 'not-configured');
   const clean = cleanRecord({ ...record, at: new Date(now()).toISOString() });
   if (!clean) throw new AdSpendError('a spend figure needs a non-negative amount and a from/to period.', 'invalid');
 
-  const kept = readAdSpend(dataDir).filter((r) => !(r.from === clean.from && r.to === clean.to && r.source === clean.source));
+  const kept = readAdSpend(dataDir).filter((r) => !(r.source === clean.source && overlaps(r, clean)));
   const records = [clean, ...kept].slice(0, MAX_RECORDS);
 
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(adSpendPath(dataDir), JSON.stringify({ version: 1, records }, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+  writeAtomic(adSpendPath(dataDir), JSON.stringify({ version: 1, records }, null, 2) + '\n');
   return clean;
+}
+
+/** Write through a temp file and rename over the target.
+ *
+ *  A plain in-place write can be interrupted — a crash, a full disk, a killed process — and leave a
+ *  truncated file. `readAdSpend` treats an unparseable file as no data, so a torn write does not
+ *  error: it silently reads back as "nobody has entered any spend", losing the one figure in this
+ *  system that exists nowhere else. Rename is atomic on the same volume, so a reader sees either the
+ *  old file or the new one. */
+function writeAtomic(path, contents) {
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, contents, { encoding: 'utf8', mode: 0o600 });
+  try {
+    renameSync(tmp, path);
+  } catch (err) {
+    try { rmSync(tmp, { force: true }); } catch { /* the rename already failed; nothing else to do */ }
+    throw err;
+  }
 }
 
 /** The figure that applies to a window, or null when nothing does.

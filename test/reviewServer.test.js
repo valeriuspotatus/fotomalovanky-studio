@@ -1059,6 +1059,25 @@ test('the generator screen shows the signed-in person, not a profile written int
   }
 });
 
+test('the printer is not sent where an order came from — hiding it in markup is not withholding it', async () => {
+  // /api/studio answers BOTH roles, so unlike the revenue routes this one is not gated. The
+  // homepage keeps the Zdroj column off a printer's screen with `data-operator hidden`, but the
+  // campaign names were in his response body regardless. The wire has to match the screen.
+  const f = await roleServer();
+  try {
+    const asPrinter = await (await f.get('/api/studio', f.printer)).json();
+    assert.ok(Array.isArray(asPrinter.orders) && asPrinter.orders.length, 'the printer still gets his board');
+    for (const o of asPrinter.orders) {
+      assert.ok(!('attribution' in o), `order ${o.orderId} must not carry attribution for the printer`);
+    }
+
+    const asOperator = await (await f.get('/api/studio', f.operator)).json();
+    assert.ok(asOperator.orders.every((o) => 'attribution' in o), 'and the operator still gets it');
+  } finally {
+    f.cleanup();
+  }
+});
+
 test('ad spend: the operator reads it back; the printer reaches neither verb', async () => {
   const f = await roleServer();
   try {

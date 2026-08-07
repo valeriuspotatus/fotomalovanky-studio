@@ -655,6 +655,34 @@ test('missing spend is not zero: the block says it does not know rather than inv
   assert.equal(roas(0, 6200), 0, 'and spending with nothing to show for it is a real zero');
 });
 
+test('a typed zero is not organic\'s free zero, and must not render an infinite return', () => {
+  // Keyed on amount alone, a typed 0 rendered "Návratnost ∞" on the PAID tile — pixel-identical to
+  // organic's structural zero, with the "ručně" badge suppressed. The operator telling us they
+  // spent nothing on ads is a claim about a paid channel, not a channel that costs nothing.
+  const state = (spend) => pageFunction('spendState', {})(spend);
+  assert.equal(state({ amount: 0, source: 'typed' }), 'zero', 'a typed zero is its own state');
+  assert.equal(state({ amount: 0, source: 'none', free: true }), 'free', 'only the organic sentinel is free');
+  assert.notEqual(state({ amount: 0, source: 'typed' }), state({ amount: 0, free: true }), 'and the two never collapse');
+});
+
+test('the meaning line states a comparison it can actually support', () => {
+  // It asserts things like "organic orders are 81% bigger" on the operator's homepage. Lifted and
+  // RUN, because a regex over the page would pass while the arithmetic said something false.
+  const line = (paid, organic) => pageFunction('meaningLine', { ratio1: (n) => n.toFixed(1) })(paid, organic);
+
+  const out = line({ orders: 21, aov: 704 }, { orders: 8, aov: 1277 });
+  assert.match(out, /2\.6× víc objednávek/, 'paid brought 2.6x the orders');
+  assert.match(out, /o 81 % větší/, 'and organic orders are 81% bigger');
+
+  // Every divisor guarded: a channel with orders but no revenue must not produce "o Infinity %".
+  assert.equal(line({ orders: 5, aov: 0 }, { orders: 5, aov: 800 }), '', 'zero paid AOV says nothing');
+  assert.equal(line({ orders: 5, aov: 700 }, { orders: 0, aov: 0 }), '', 'and neither does an empty channel');
+  assert.equal(line(null, { orders: 5, aov: 800 }), '');
+
+  // Near-parity is not a story worth telling.
+  assert.equal(line({ orders: 10, aov: 700 }, { orders: 10, aov: 700 }), '');
+});
+
 test('cost per order needs orders, and says nothing when there are none', () => {
   const per = (amount, orders) => pageFunction('perOrder', {})(amount, orders);
   assert.equal(per(6200, 21), 295);
@@ -673,7 +701,10 @@ test('the block is operator-only in the markup, not merely by the route it calls
 test('the recent-orders list names an unattributed order rather than leaving a blank cell', () => {
   // "bez zdroje" is the truth for about a fifth of orders. An empty cell would read as a rendering
   // fault, and the operator would go looking for a bug instead of accepting the answer.
-  const label = (a) => pageFunction('sourceLabel', {})(a);
+  // The label map is lifted from the page too, not retyped here — a copy would keep passing after
+  // the shipped map drifted, which is the failure this whole lifting approach exists to avoid.
+  const CH_LABEL = JSON.parse(/const CH_LABEL=(\{[^}]*\});/.exec(PAGE)[1].replace(/(\w+):/g, '"$1":'));
+  const label = (a) => pageFunction('sourceLabel', { CH_LABEL })(a);
   assert.equal(label(null), 'bez zdroje', 'no attribution at all');
   assert.equal(label({ channel: 'unknown', campaign: null }), 'bez zdroje', 'and an explicit unknown reads the same');
   assert.equal(label({ channel: 'paid', campaign: 'A+ sales - 3-2026' }), 'placené · A+ sales - 3-2026');

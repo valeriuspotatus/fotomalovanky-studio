@@ -84,6 +84,72 @@ test('correcting a typo replaces the figure rather than adding a second one', ()
   }
 });
 
+test('re-entering spend on a later day replaces it — the periods the PAGE actually sends', () => {
+  // The bug this pins shipped because every other test in this file reuses one hardcoded period,
+  // and the product can never emit that. The page writes a rolling 30 days ending *now*, so a
+  // figure typed today and the same figure typed tomorrow differ by a day at both ends: an exact
+  // period match never fires, both records survive, both overlap the displayed window, and
+  // spendForWindow sums them. Three entries of 6 200 stored 18 600 and turned a true 2.4x return
+  // into 0.8x, with the suite green throughout.
+  const f = fixture();
+  const day = 86_400_000;
+  const rolling = (at) => ({ from: new Date(at - 30 * day).toISOString(), to: new Date(at).toISOString() });
+  try {
+    const t0 = Date.parse('2026-08-05T10:00:00Z');
+    writeAdSpend(f.dir, { ...rolling(t0), amount: 6200 });
+    writeAdSpend(f.dir, { ...rolling(t0 + day), amount: 6200 });
+    writeAdSpend(f.dir, { ...rolling(t0 + 2 * day), amount: 6200 });
+
+    assert.equal(readAdSpend(f.dir).length, 1, 'the newest supersedes the periods it covers');
+    assert.equal(spendForWindow(f.dir, rolling(t0 + 2 * day)).amount, 6200, 'not 18 600');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('a wider figure entered later supersedes the weekly slices it covers', () => {
+  const f = fixture();
+  try {
+    writeAdSpend(f.dir, { from: '2026-07-13T00:00:00.000Z', to: '2026-07-19T00:00:00.000Z', amount: 1000 });
+    writeAdSpend(f.dir, { from: '2026-07-20T00:00:00.000Z', to: '2026-07-26T00:00:00.000Z', amount: 1500 });
+    // "I'll just type the month instead" — the month covers both weeks, so it replaces them.
+    writeAdSpend(f.dir, { from: '2026-07-01T00:00:00.000Z', to: '2026-07-31T00:00:00.000Z', amount: 9000 });
+    assert.equal(readAdSpend(f.dir).length, 1);
+    assert.equal(spendForWindow(f.dir, { from: '2026-07-01T00:00:00.000Z', to: '2026-08-01T00:00:00.000Z' }).amount, 9000);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('an amount that cannot survive a round-trip through JSON is refused', () => {
+  // Infinity serializes as `null`, reads back as 0, and renders as a genuine zero spend — an
+  // infinite return, which is the one thing this module exists to never show.
+  const f = fixture();
+  try {
+    for (const amount of [Infinity, -Infinity, NaN, 1e400, 1e13]) {
+      assert.throws(() => writeAdSpend(f.dir, { ...WEEK, amount }), AdSpendError, `${amount} should be refused`);
+    }
+    assert.deepEqual(readAdSpend(f.dir), []);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('an interrupted write cannot leave a half-file where the figure used to be', () => {
+  // readAdSpend treats an unparseable file as "no spend entered", so a torn write does not error —
+  // it silently loses the one number in this system that exists nowhere else.
+  const f = fixture();
+  try {
+    writeAdSpend(f.dir, { ...WEEK, amount: 6200 });
+    const before = readFileSync(adSpendPath(f.dir), 'utf8');
+    assert.throws(() => writeAdSpend(f.dir, { ...WEEK, amount: 'nonsense' }), AdSpendError);
+    assert.equal(readFileSync(adSpendPath(f.dir), 'utf8'), before, 'the stored figure is untouched by a rejected write');
+    assert.equal(spendForWindow(f.dir, WINDOW).amount, 6200);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test('a nonsense figure is refused rather than stored', () => {
   const f = fixture();
   try {

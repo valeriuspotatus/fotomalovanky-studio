@@ -22,7 +22,12 @@ import { expectedPhotosFrom, lineItemPhotoCount, attributionFrom, channelOf } fr
 const COUNTED = new Set(['PAID', 'PARTIALLY_REFUNDED']);
 
 const DAY_MS = 86_400_000;
-const ROLLING_DAYS = 30;
+
+/** The rolling window every "30 days" figure on the homepage is measured over. Exported because the
+ *  ad-spend route must read spend over exactly this span: dividing a 30-day revenue by a 7-day spend
+ *  is wrong by a factor of four and looks entirely reasonable on screen. One definition, imported —
+ *  not a second `30` typed beside a comment promising to keep it in step with this one. */
+export const ROLLING_DAYS = 30;
 const TREND_WEEKS = 12;
 
 /** An order's calendar date in a given zone, as plain numbers. `en-CA` formats as YYYY-MM-DD, which
