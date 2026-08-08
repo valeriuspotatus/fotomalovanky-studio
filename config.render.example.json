@@ -1,5 +1,5 @@
 {
-  "__comment": "CLOUD config for Render. Paste your real values (copy the token URLs + API key + Shopify token straight from your LOCAL config.json), then add this whole file as a Render Secret File named config.json (mounted at /etc/secrets/config.json). See docs/RENDER.md. Differences from local: mail is OFF (Proton Bridge is PC-only), every data dir lives under the mounted /data disk, and the image model is the working gemini-3.1-flash-image. Passwords are NOT in this file — each role's scrypt hash goes in the Render environment as STUDIO_OPERATOR_PASS_HASH / STUDIO_PRINTER_PASS_HASH; generate one with `node src/auth/credentials.js <password>`.",
+  "__comment": "CLOUD config for Render. Paste your real values (copy the token URLs + API key + Shopify token straight from your LOCAL config.json), then add this whole file as a Render Secret File named config.json (mounted at /etc/secrets/config.json). See docs/RENDER.md. Differences from local: mail is OFF until you point it at a mailbox reachable from the internet — Proton Bridge is a desktop app Render cannot reach, so see docs/MAIL.md, every data dir lives under the mounted /data disk, and the image model is the working gemini-3.1-flash-image. Passwords are NOT in this file — each role's scrypt hash goes in the Render environment as STUDIO_OPERATOR_PASS_HASH / STUDIO_PRINTER_PASS_HASH; generate one with `node src/auth/credentials.js <password>`.",
   "generator": {
     "baseUrl": "COPY_FROM_LOCAL_config.json (the token-scoped generator URL)",
     "mode": "api",
@@ -9,14 +9,30 @@
   },
   "builder": {
     "baseUrl": "COPY_FROM_LOCAL_config.json (the print builder URL)",
-    "pdf": { "mode": "gallery", "coverCount": 2, "coverVariant": "pencils" }
+    "pdf": {
+      "mode": "gallery",
+      "coverCount": 2,
+      "coverVariant": "pencils"
+    }
   },
   "paths": {
     "inbox": "/data/inbox",
     "outbox": "/data/outbox"
   },
-  "studio": { "firstLiveOrder": null },
-  "mail": { "enabled": false },
+  "studio": {
+    "firstLiveOrder": null
+  },
+  "mail": {
+    "enabled": false,
+    "host": "imap.example.com",
+    "port": 993,
+    "secure": true,
+    "smtpPort": 465,
+    "user": "studio@fotomalovanky.cz",
+    "pass": "PUT THE MAILBOX PASSWORD HERE",
+    "fromAddress": "info@fotomalovanky.cz",
+    "recentLimit": 6
+  },
   "ai": {
     "enabled": true,
     "apiKey": "COPY_FROM_LOCAL_config.json (Google Gemini API key)",
@@ -33,7 +49,9 @@
     "accessToken": "COPY_FROM_LOCAL_config.json OR leave out and set the FMA_SHOPIFY_TOKEN env var instead",
     "apiVersion": "2026-07",
     "requirePaid": false,
-    "photoHostAllowlist": ["cdn.tigren.com"],
+    "photoHostAllowlist": [
+      "cdn.tigren.com"
+    ],
     "estSpendPerOrder": 0.3,
     "autoFetchMinutes": 10,
     "dataDir": "/data/autopilot"

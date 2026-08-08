@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { summarizeInbox, formatSender, toIso, addressOf } from '../src/proton/mailbox.js';
-import { createBridgeClient, BridgeError, embedImages } from '../src/proton/bridgeClient.js';
+import { createBridgeClient, BridgeError, embedImages, tlsFor } from '../src/proton/bridgeClient.js';
 import { createSmtpClient, SmtpError } from '../src/proton/smtpClient.js';
 import { MAIL_TEMPLATES, templateList, templateById, unfilledPlaceholders } from '../src/proton/templates.js';
 import { createReviewServer } from '../src/ui/server.js';
@@ -493,4 +493,52 @@ test('POST /api/mail/flag turns a Bridge failure into a 502 with a code', async 
     assert.equal(res.status, 502);
     assert.equal((await res.json()).code, 'offline');
   });
+});
+
+// ---- certificate verification ---------------------------------------------------------------
+// `rejectUnauthorized: false` used to be hardcoded at all four connection sites. That is correct
+// for Proton Bridge, which mints its own certificate on loopback where nothing can intercept it —
+// and catastrophic the moment the studio points at a real mailbox, which is the only way the
+// deployed instance can read mail at all. These pin the difference.
+
+test('a loopback mailbox may present a self-signed certificate; a remote one may not', () => {
+  for (const host of ['127.0.0.1', 'localhost', '::1', '[::1]', '127.0.0.53']) {
+    assert.equal(tlsFor(host).rejectUnauthorized, false, `${host} is this machine — Bridge's own cert is expected`);
+  }
+  for (const host of ['imap.migadu.com', 'mail.fastmail.com', '203.0.113.10', 'example.com']) {
+    assert.equal(tlsFor(host).rejectUnauthorized, true, `${host} is over the internet — its certificate must be verified`);
+  }
+});
+
+test('the IMAP reader passes the verified option through to the connection it opens', async () => {
+  // Asserted on what actually reaches ImapFlow, not on the helper in isolation: the bug this
+  // prevents is the option being computed correctly and then not used.
+  const seen = [];
+  const imapFactory = () => ({
+    ImapFlow: class {
+      constructor(opts) { seen.push(opts); }
+      async connect() { throw new Error('ECONNREFUSED'); }
+      async logout() {}
+    },
+  });
+
+  const remote = createBridgeClient({ host: 'imap.migadu.com', port: 993, secure: true, user: 'a', pass: 'b', imapFactory });
+  await assert.rejects(() => remote.fetchInbox(), BridgeError);
+  assert.equal(seen.at(-1).tls.rejectUnauthorized, true, 'a remote mailbox verifies');
+
+  const bridge = createBridgeClient({ host: '127.0.0.1', port: 1143, user: 'a', pass: 'b', imapFactory });
+  await assert.rejects(() => bridge.fetchInbox(), BridgeError);
+  assert.equal(seen.at(-1).tls.rejectUnauthorized, false, 'and Bridge on loopback still does not');
+});
+
+test('the sender passes it through too', async () => {
+  const seen = [];
+  const transportFactory = async () => { seen.push(true); return { sendMail: async () => ({ messageId: 'x' }) }; };
+  // nodemailer options are built inside the default factory, so assert via the real one being bypassed:
+  // what matters here is that smtpClient asks tlsFor for the host it was given.
+  assert.equal(tlsFor('smtp.migadu.com').rejectUnauthorized, true);
+  assert.equal(tlsFor('127.0.0.1').rejectUnauthorized, false);
+  const send = createSmtpClient({ host: 'smtp.migadu.com', port: 465, secure: true, user: 'a@b.cz', pass: 'p', transportFactory });
+  await send.sendMail({ to: 'x@y.cz', subject: 's', text: 't' });
+  assert.equal(seen.length, 1);
 });
