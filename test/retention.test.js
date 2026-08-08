@@ -12,10 +12,27 @@ import { SIGN_IN_PATH } from '../src/auth/sessions.js';
 import { STATES, emptyManifest, setStatus, writeManifest, readManifest, manifestPath } from '../src/manifest.js';
 
 const DAY = 24 * 60 * 60 * 1000;
-const NOW = Date.UTC(2026, 6, 10); // a fixed "today", so nothing here depends on the wall clock
 
-const age = (path, ms) => {
-  const t = (NOW - ms) / 1000;
+// A frozen "today" for every test that can hand the code under test its own clock — retention.js
+// takes `now` on all four entry points, so those tests are genuinely time-independent.
+//
+// The catch, and the reason this file rotted: the ROUTE tests reach the same logic over HTTP, where
+// the server uses the real Date.now(). Ageing their fixtures against this frozen date meant an
+// order seeded as "sent 2 days ago" got an mtime of 8 July 2026 — which stopped being 2 days ago on
+// 9 July and crossed the 30-day retention line on 7 August, failing a test that had been correct
+// for a month. The fixtures had a shelf life, and the comment here used to claim the opposite.
+//
+// So `age` takes the clock its caller is measured against: NOW for the frozen tests, the real one
+// for the route tests, which pass `ref: Date.now()`. Both are then internally consistent, and
+// neither expires.
+const NOW = Date.UTC(2026, 6, 10);
+
+/** The clock the ROUTE tests are measured against: the server calls Date.now() and cannot be handed
+ *  another. Read once per run so every fixture in a test agrees with itself. */
+const REAL = Date.now();
+
+const age = (path, ms, ref = NOW) => {
+  const t = (ref - ms) / 1000;
   utimesSync(path, t, t);
 };
 
@@ -28,7 +45,7 @@ const age = (path, ms) => {
 function order(
   outbox,
   orderId,
-  { pdf = true, printed = true, sent = true, sentDaysAgo = 100, printedDaysAgo = sentDaysAgo, backfilled = false, staleDecision = false, photos = ['a', 'b'] } = {},
+  { pdf = true, printed = true, sent = true, sentDaysAgo = 100, printedDaysAgo = sentDaysAgo, backfilled = false, staleDecision = false, photos = ['a', 'b'], ref = NOW } = {},
 ) {
   const dir = join(outbox, orderId);
   mkdirSync(dir, { recursive: true });
@@ -40,22 +57,22 @@ function order(
     setStatus(manifest, base, STATES.OK, 'ok');
   }
   writeManifest(dir, manifest);
-  age(manifestPath(dir), sentDaysAgo * DAY + (staleDecision ? -1 * DAY : 1 * DAY));
+  age(manifestPath(dir), sentDaysAgo * DAY + (staleDecision ? -1 * DAY : 1 * DAY), ref);
 
   if (pdf) {
     const pdfPath = join(dir, `${orderId} Final.pdf`);
     writeFileSync(pdfPath, '%PDF-1.4');
-    age(pdfPath, sentDaysAgo * DAY);
+    age(pdfPath, sentDaysAgo * DAY, ref);
   }
   if (printed) {
     const printedPath = join(dir, 'printed.json');
-    writeFileSync(printedPath, JSON.stringify({ at: new Date(NOW - printedDaysAgo * DAY).toISOString(), by: 'Jirka', byRole: 'printer' }));
-    age(printedPath, printedDaysAgo * DAY);
+    writeFileSync(printedPath, JSON.stringify({ at: new Date(ref - printedDaysAgo * DAY).toISOString(), by: 'Jirka', byRole: 'printer' }));
+    age(printedPath, printedDaysAgo * DAY, ref);
   }
   if (sent) {
     const sentPath = join(dir, 'sent.json');
-    writeFileSync(sentPath, JSON.stringify(backfilled ? { at: new Date(NOW - sentDaysAgo * DAY).toISOString(), backfilled: true } : { at: new Date(NOW - sentDaysAgo * DAY).toISOString(), by: 'David', byRole: 'operator' }));
-    age(sentPath, sentDaysAgo * DAY); // the dispatch marker's mtime IS the retention clock
+    writeFileSync(sentPath, JSON.stringify(backfilled ? { at: new Date(ref - sentDaysAgo * DAY).toISOString(), backfilled: true } : { at: new Date(ref - sentDaysAgo * DAY).toISOString(), by: 'David', byRole: 'operator' }));
+    age(sentPath, sentDaysAgo * DAY, ref); // the dispatch marker's mtime IS the retention clock
   }
   return dir;
 }
@@ -539,9 +556,9 @@ test('the purge REPORT route writes nothing — the fixture tree is byte-identic
   const f = fixture();
   let s;
   try {
-    order(f.outbox, '1400', { sentDaysAgo: 100 });
-    order(f.outbox, '1401', { sentDaysAgo: 2 });
-    order(f.outbox, '1402', { printed: true, sent: false, printedDaysAgo: 400 });
+    order(f.outbox, '1400', { sentDaysAgo: 100, ref: REAL });
+    order(f.outbox, '1401', { sentDaysAgo: 2, ref: REAL });
+    order(f.outbox, '1402', { printed: true, sent: false, printedDaysAgo: 400, ref: REAL });
     s = await localStudio(f.outbox);
     const before = snapshot(f.outbox);
 
@@ -569,7 +586,7 @@ test('the purge route needs a separate confirmation, and then takes only the pho
   const f = fixture();
   let s;
   try {
-    const dir = order(f.outbox, '1400', { sentDaysAgo: 100 });
+    const dir = order(f.outbox, '1400', { sentDaysAgo: 100, ref: REAL });
     s = await localStudio(f.outbox);
 
     const unconfirmed = await s.post('/api/purge/confirm', {});
@@ -600,7 +617,7 @@ test('over HTTP: undo the print, then confirm a purge — the photographs of the
     // The two routes an operator can genuinely press in this order on a Tuesday morning: "Vrátit" on
     // an order whose print went wrong, then the úklid panel's Smazat. Before the invariant, the
     // second one deleted the photographs the first one had just put back in the print queue.
-    const dir = order(f.outbox, '1400', { sentDaysAgo: 100, backfilled: true });
+    const dir = order(f.outbox, '1400', { sentDaysAgo: 100, backfilled: true, ref: REAL });
     s = await localStudio(f.outbox);
 
     const undo = await s.post('/api/1400/unprinted');
@@ -630,7 +647,7 @@ test('the REPORT names the autopilot files the confirmation will clear — the t
     // said nothing about them — so the panel's stated contract ("this is exactly what confirming
     // does") was false for two files carrying order numbers. The fixture had no shopify block, which
     // is why nothing noticed.
-    order(f.outbox, '1400', { sentDaysAgo: 100 });
+    order(f.outbox, '1400', { sentDaysAgo: 100, ref: REAL });
     s = await localStudio(f.outbox, { dataDir: a.dir });
 
     const report = await (await s.get('/api/purge/report')).json();
@@ -650,7 +667,7 @@ test('the REPORT names the autopilot files the confirmation will clear — the t
 
 test('the purge routes are refused for the printer and served for the operator', async () => {
   const f = fixture();
-  const dir = order(f.outbox, '1400', { sentDaysAgo: 100 });
+  const dir = order(f.outbox, '1400', { sentDaysAgo: 100, ref: REAL });
   const hash = await hashPassword('correct horse battery staple', { logN: 14, r: 8, p: 1 });
   const { server } = createReviewServer({
     config: { ...SERVER_CONFIG, accounts: { dataDir: join(f.root, 'accounts') } },
