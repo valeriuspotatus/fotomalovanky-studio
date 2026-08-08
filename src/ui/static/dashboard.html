@@ -909,11 +909,13 @@
   function renderRecent(d){
     const b=document.getElementById("recentBody");
     if(!b)return;
-    // Offered only when some order actually lacks a source — a button for work already done is
-    // clutter, and this one is a migration, not a feature.
+    // Offered only while some order has no RECORD of a source — not merely while some order reads
+    // "bez zdroje". About a fifth of orders are genuinely unattributable: the shop was asked and had
+    // nothing, and no amount of backfilling will change that. Keying on the label kept the button on
+    // screen forever, offering work that could never complete.
     const btn=document.getElementById("backfillBtn");
     if(btn){
-      btn.hidden=!(d.orders||[]).some(o=>!o.attribution||o.attribution.channel==="unknown");
+      btn.hidden=!(d.orders||[]).some(o=>o.attribution==null);
       btn.onclick=()=>runBackfill(btn);
     }
     // The board arrives oldest-first; this view wants what just happened.

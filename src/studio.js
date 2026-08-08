@@ -261,10 +261,11 @@ function boardEntry(order, status) {
     status,
     dedication: order.dedication ?? '',
     // Channel and campaign only — the board is a screen, and the raw source can be a full URL.
-    attribution: {
-      channel: order.attribution?.channel ?? 'unknown',
-      campaign: order.attribution?.campaign ?? null,
-    },
+    // Null when nothing has recorded a source for this order: the row still reads "bez zdroje"
+    // either way, but only a null can still be filled in, and the backfill offer keys on that.
+    attribution: order.attribution
+      ? { channel: order.attribution.channel ?? 'unknown', campaign: order.attribution.campaign ?? null }
+      : null,
     photos: {
       total: s.total ?? 0,
       eligible: s.eligible ?? 0,

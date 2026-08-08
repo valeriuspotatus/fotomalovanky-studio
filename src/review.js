@@ -148,9 +148,10 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
       // several books; each is its own folder, and these are what let the board show the parcel they
       // belong to. A folder with no shop record reads as a lone single-copy book.
       purchase: shopInfo?.purchase ?? { orderId, position: 1, of: 1 },
-      // Where this order came from, for the homepage's recent-orders list. A folder with no shop
-      // record, or one downloaded before attribution was recorded, reads as unknown.
-      attribution: shopInfo?.attribution ?? { source: null, medium: null, campaign: null, channel: 'unknown' },
+      // Where this order came from, for the homepage's recent-orders list. Null when nothing has
+      // recorded it yet — which is the only state the backfill can still change, so it must survive
+      // to the board rather than being flattened into "unknown" here.
+      attribution: shopInfo?.attribution ?? null,
       copies: shopInfo?.copies ?? 1,
       photos,
       summary: summarizeOrder(manifest, bases),

@@ -712,6 +712,29 @@ test('the recent-orders list names an unattributed order rather than leaving a b
   assert.equal(label({ channel: 'direct', campaign: null }), 'direct');
 });
 
+test('the backfill offer keys on orders with no record, not on rows reading "bez zdroje"', () => {
+  // About a fifth of orders are genuinely unattributable — the shop was asked and had nothing — so
+  // they read "bez zdroje" forever. Keying the button on the LABEL meant it never hid: it offered
+  // work that could not complete. It keys on a missing record instead, which the backfill can fix.
+  const offered = (orders) => {
+    const btn = { hidden: null };
+    // The one line of the page under test, lifted verbatim rather than restated.
+    const rule = /btn\.hidden=!\(d\.orders\|\|\[\]\)\.some\(o=>([^)]+)\);/.exec(PAGE);
+    assert.ok(rule, 'the gate is still a one-line rule this test can lift');
+    btn.hidden = !orders.some(new Function('o', `return ${rule[1]}`));
+    return !btn.hidden;
+  };
+
+  assert.equal(offered([{ attribution: null }]), true, 'an order nobody has asked about');
+  assert.equal(offered([{ attribution: { channel: 'unknown', campaign: null } }]), false, 'one the shop had nothing for');
+  assert.equal(offered([{ attribution: { channel: 'paid', campaign: 'A+ sales' } }]), false, 'and one with a real source');
+  assert.equal(
+    offered([{ attribution: { channel: 'unknown', campaign: null } }, { attribution: null }]),
+    true,
+    'offered while any one order still has no record',
+  );
+});
+
 test('the recent list is operator-only in the markup, which matters more here than for the money block', () => {
   // /api/studio answers BOTH roles, so unlike the revenue block this one is not protected by its
   // route at all — without the attribute a printer session paints real customer order rows.
