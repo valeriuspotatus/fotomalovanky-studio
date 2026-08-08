@@ -174,7 +174,7 @@ test('the sidecar records where the order came from, and an order built by hand 
     const byHand = await materializeOrder({ ...ORDER, orderId: '1702', photos: ['https://cdn.example/a.jpg'] }, { inboxRoot: root, safeFetch: jpegFetch });
     const plain = JSON.parse(readFileSync(join(byHand.orderDir, 'objednavka.json'), 'utf8'));
     assert.equal(plain.attribution, null);
-    assert.equal(readOrderInfo(byHand.orderDir).attribution.channel, 'unknown', 'and it reads back as unknown, not as a crash');
+    assert.equal(readOrderInfo(byHand.orderDir).attribution, null, 'and it reads back as no record — not as a crash, and not as a shop that answered');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

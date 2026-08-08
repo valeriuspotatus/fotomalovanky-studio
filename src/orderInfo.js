@@ -54,12 +54,17 @@ export function readOrderInfo(orderDir) {
   };
 }
 
-/** Where this order came from, as materialize.js recorded it. Every order downloaded before that
- *  field existed has none, and that is not an error — it reads as unknown, exactly like an order
- *  the shop genuinely could not attribute. Both are honest; inventing a channel would not be. */
+/** Where this order came from, as materialize.js recorded it — or `null` when nothing recorded it.
+ *
+ *  Null and "unknown" are DIFFERENT answers, and collapsing them is a real loss. Null means nobody
+ *  has asked the shop about this order: it predates the field, or it was pulled by hand. An
+ *  attribution object whose channel is "unknown" means the shop WAS asked and had nothing to say.
+ *
+ *  Both display as "bez zdroje", which is why the distinction is easy to lose — but only the first
+ *  can still be answered by running the backfill, and the button offering that has no other way to
+ *  know whether there is any work left. Reading both as "unknown" left it on screen forever. */
 function parseAttribution(raw) {
-  const none = { source: null, medium: null, campaign: null, channel: 'unknown' };
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return none;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const str = (v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 120) : null);
   const channel = typeof raw.channel === 'string' && CHANNELS.has(raw.channel) ? raw.channel : 'unknown';
   return { source: str(raw.source), medium: str(raw.medium), campaign: str(raw.campaign), channel };

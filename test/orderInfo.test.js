@@ -22,10 +22,31 @@ test('the shop\'s own spelling reaches the title page with its accents', () => {
       copies: 1,
       customer: null,
       products: [],
-      // Nor any attribution: an order downloaded before the shop's channel was recorded reads as
-      // unknown, exactly like one the shop genuinely could not attribute.
-      attribution: { source: null, medium: null, campaign: null, channel: 'unknown' },
+      // Nor any attribution: null, not an unknown-channel object. An order downloaded before the
+      // field existed has no RECORD of a source, which is a different fact from a shop that was
+      // asked and had nothing to say — and the only one of the two that can still be filled in.
+      attribution: null,
     });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('"nobody asked" and "we asked and the shop had nothing" are different answers', () => {
+  // Both display as "bez zdroje", which is why the distinction is easy to lose — and losing it is
+  // what left the backfill button on screen forever, offering work that could never complete.
+  // Only the first can still be filled in.
+  const dir = fixture();
+  try {
+    write(dir, { order: '1601' });
+    assert.equal(readOrderInfo(dir).attribution, null, 'no record: the backfill has something to do here');
+
+    write(dir, { order: '1601', attribution: { source: null, medium: null, campaign: null, channel: 'unknown' } });
+    assert.deepEqual(
+      readOrderInfo(dir).attribution,
+      { source: null, medium: null, campaign: null, channel: 'unknown' },
+      'a record saying "unknown": the shop was asked and had nothing, and running it again will not help',
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -70,7 +91,7 @@ test('a customer who wrote nothing said nothing', () => {
   try {
     write(dir, { order: '1479', dedication: '' });
     assert.equal(shopDedication(dir), '');
-    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '', expectedPhotos: null, purchase: { orderId: '1479', position: 1, of: 1 }, copies: 1, customer: null, products: [], attribution: { source: null, medium: null, campaign: null, channel: 'unknown' } });
+    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '', expectedPhotos: null, purchase: { orderId: '1479', position: 1, of: 1 }, copies: 1, customer: null, products: [], attribution: null });
 
     write(dir, { order: '1479', dedication: '   ' });
     assert.equal(shopDedication(dir), '', 'whitespace is not a dedication');
