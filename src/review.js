@@ -10,11 +10,16 @@ import { readOrderInfo } from './orderInfo.js';
 import { recallDedication, learnDedication, MEMORY_DIR } from './dedications.js';
 import { applyEdits, EditError } from './editor.js';
 import { tidyColoringPage } from './autoCrop.js';
+import { trimFlatBorders } from './photoFraming.js';
 import {
   STATES,
   getStatus,
   getSource,
   getFraming,
+  getManualCrop,
+  setManualCrop,
+  normalizeManualCrop,
+  ManifestError,
   setStatus,
   getDedication,
   setDedication,
@@ -57,6 +62,11 @@ export function photoFiles(outboxRoot, orderId, base, sourcePath = null) {
   return {
     orderDir,
     original,
+    // THE FILE THE NEXT GENERATION WILL READ, which is not the same question as `original` above.
+    // `original` prefers the generator's echo because that is what the operator should be judging;
+    // this prefers the customer's own upload because that is what a redo re-reads (see `redo`), and
+    // the crop editor has to measure its rectangle in exactly that frame or the box lands elsewhere.
+    source: sourcePath && existsSync(sourcePath) ? sourcePath : existsSync(out.original) ? out.original : null,
     coloring: existsSync(out.coloringPng) ? out.coloringPng : null,
     svg: existsSync(out.coloringSvg) ? out.coloringSvg : null,
   };
@@ -105,7 +115,7 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
 
     const photos = bases.map((base) => {
       const status = getStatus(manifest, base);
-      const files = photoFiles(outboxRoot, orderId, base, sources.get(base) ?? getSource(manifest, base));
+      const files = photoFiles(outboxRoot, orderId, base, getSource(manifest, base) ?? sources.get(base));
       return {
         base,
         status,
@@ -114,6 +124,7 @@ export function reviewState({ inboxRoot, outboxRoot, only = null, memoryRoot = M
         holdsForReview: holdsForReview(status),
         edited: existsSync(editBackupPath(orderDir, base)), // the generated page is still recoverable
         framing: getFraming(manifest, base), // straightened / cut out of a screenshot, or null
+        manualCrop: getManualCrop(manifest, base), // the operator's own rectangle, or null
         files,
       };
     });
@@ -417,12 +428,85 @@ export async function redo({ config, orderDir, base, driver, qc, onEvent, overri
     writeManifest(orderDir, manifest);
   }
 
-  const source = getSource(manifest, base);
-  const fallback = outputPaths(`${base}.jpg`, orderDir).original;
-  const photoPath = source && existsSync(source) ? source : existsSync(fallback) ? fallback : null;
+  const photoPath = generationSource(orderDir, base, manifest);
   if (!photoPath) {
+    const fallback = outputPaths(`${base}.jpg`, orderDir).original;
     throw new ReviewError(`Cannot redo "${base}": neither the original photo nor ${fallback} is on disk.`);
   }
 
   return generatePhoto({ config, photoPath, orderDir, manifest, orderId: manifest.orderId, driver, qc, onEvent, overrides });
+}
+
+// ---- the operator's own crop ------------------------------------------------
+//
+// NOTHING HERE TOUCHES A PHOTOGRAPH. Saving a crop writes four fractions into state.json; the cut
+// happens on the way to the generator, from the customer's own file, every time. So the original is
+// not "backed up before cropping" — it is never written to at all, and clearing the rectangle is a
+// complete revert with no file to restore.
+
+/** The photo the next generation of `base` will read: the customer's own upload while it is still
+ *  on disk, else the generator's echoed-back copy in the order folder, else nothing.
+ *
+ *  ONE function because two callers must agree. `redo` reads this file, and the crop editor measures
+ *  its rectangle on it — a crop drawn on a different frame from the one that gets cut lands
+ *  somewhere else in the picture, and nobody would see why. */
+export function generationSource(orderDir, base, manifest = readManifest(orderDir)) {
+  const source = getSource(manifest, base);
+  if (source && existsSync(source)) return source;
+  const echo = outputPaths(`${base}.jpg`, orderDir).original;
+  return existsSync(echo) ? echo : null;
+}
+
+/** Store the operator's crop for one photo, or clear it with `null`. Returns what is now stored.
+ *
+ *  Refuses a box for a photo this order does not have, so a stray request cannot write a rectangle
+ *  into a manifest under a name nothing will ever read.
+ *
+ *  `bases` is how a caller that ALREADY knows the order's photographs says so — the board knows them
+ *  from the inbox, and the manifest does not learn a photo's name until it has been generated. Without
+ *  it, the one moment a crop is worth most (a screenshot spotted BEFORE a GPU minute is spent on it)
+ *  would be the one moment cropping was refused. Falls back to the manifest when not given. */
+export function setPhotoCrop({ orderDir, base, crop, bases = null }) {
+  const manifest = readManifest(orderDir);
+  const known = bases ? bases.includes(base) : Boolean(manifest.photos?.[base]);
+  if (!known) throw new ReviewError(`No photo "${base}" in ${orderDir}.`);
+  let normalized = null;
+  if (crop) {
+    try {
+      normalized = normalizeManualCrop(crop);
+    } catch (err) {
+      if (err instanceof ManifestError) throw new ReviewError(`Ořez se nepodařilo uložit: ${err.message}`);
+      throw err;
+    }
+  }
+  setManualCrop(manifest, base, normalized);
+  writeManifest(orderDir, manifest);
+  return getManualCrop(manifest, base);
+}
+
+/** A crop PROPOSAL for a photo that looks like a screen capture, in the same fractions the editor
+ *  works in — or null when nothing about the picture suggests one.
+ *
+ *  Reuses trimFlatBorders, which is already the pipeline's local screenshot-edge finder and already
+ *  tested: a status bar, a caption row or a letterbox band is flat across its whole width, and a
+ *  photograph is not. No model call, no network, no new dependency — and it is only ever a
+ *  suggestion the operator can drag away from. Never throws: no suggestion is a fine answer. */
+export async function suggestPhotoCrop(sourcePath) {
+  try {
+    if (!sourcePath || !existsSync(sourcePath)) return null;
+    // On the EXIF-corrected frame, because that is the frame the editor shows and the frame the
+    // fractions are stored in.
+    const upright = await sharp(readFileSync(sourcePath)).rotate().toBuffer({ resolveWithObject: true });
+    const box = await trimFlatBorders(upright.data);
+    if (!box) return null;
+    const { width: W, height: H } = upright.info;
+    return {
+      x: Math.max(0, box.left / W),
+      y: Math.max(0, box.top / H),
+      w: Math.min(1, box.width / W),
+      h: Math.min(1, box.height / H),
+    };
+  } catch {
+    return null;
+  }
 }

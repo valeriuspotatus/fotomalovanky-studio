@@ -15,6 +15,8 @@ import {
   setAttempt,
   setFraming,
   getAttempt,
+  getManualCrop,
+  correctionFromManualCrop,
   needsGeneration,
   readManifest,
   writeManifest,
@@ -65,8 +67,17 @@ export async function generatePhoto({ config, photoPath, orderDir, manifest, ord
   const reroll = prev != null && getStatus(manifest, base) === STATES.FLAGGED;
 
   const settings = reroll ? nextAttemptSettings(config.generator, prev) : { ...config.generator };
-  // Per-run overrides from the operator — today only `noFraming`, the undo for an automatic
-  // straighten or screenshot crop. Applied after the re-roll ladder so it cannot disturb it.
+  // The operator's own crop, if they drew one. Read from the manifest rather than passed in, so it
+  // holds for EVERY later generation of this photo — a redo from the grid, a re-roll, a whole batch
+  // re-run — not just the regeneration that followed the click. It replaces the automatic framing
+  // for this photo; the driver applies it to the same source and never re-trims its edges.
+  if (settings) {
+    const manual = correctionFromManualCrop(getManualCrop(manifest, base));
+    if (manual) settings.correction = manual;
+  }
+  // Per-run overrides from the operator — `noFraming`, the undo for an automatic straighten or
+  // screenshot crop. Applied after the re-roll ladder so it cannot disturb it, and after the crop so
+  // "regenerate exactly as it arrived" still wins (the driver checks noFraming first).
   if (overrides && settings) Object.assign(settings, overrides);
   if (settings === null) {
     const reason =

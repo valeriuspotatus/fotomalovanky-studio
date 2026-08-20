@@ -76,8 +76,14 @@ export async function prepareImageForUpload(input, { maxDimension = MAX_DIMENSIO
       // The model finds the card, not the photograph — it leaves a border, a caption row and the
       // viewer's buttons behind. Finish the edges by measurement (see trimFlatBorders); only ever on
       // something already identified as a screen capture.
-      const tight = await trimFlatBorders(working);
-      if (tight) working = await sharp(working).extract(tight).toBuffer();
+      //
+      // NEVER on the operator's own rectangle. A manual crop is a decision, not a first pass: they
+      // dragged the box they wanted, and a measurement that then ate another few percent of it would
+      // be the tool quietly disagreeing with the person using it.
+      if (!correction.manual) {
+        const tight = await trimFlatBorders(working);
+        if (tight) working = await sharp(working).extract(tight).toBuffer();
+      }
     }
   }
 
@@ -204,6 +210,10 @@ export class ApiGeneratorDriver extends GeneratorDriver {
     const ai = this.config?.ai;
     // `noFraming` is the operator's undo: regenerate this one photo exactly as it arrived.
     if (settings.noFraming === true) return NO_CORRECTION;
+    // The operator's own crop wins over the model's opinion, and costs no analysis call. It arrives
+    // here as the same {rotate, crop} shape analyzeFraming would have returned (see manifest.js
+    // correctionFromManualCrop), so everything downstream is unchanged.
+    if (settings.correction) return settings.correction;
     if (this.config?.generator?.autoFraming === false) return NO_CORRECTION;
     if (!ai?.enabled || !ai?.apiKey) return NO_CORRECTION;
     const upright = await sharp(input).rotate().jpeg({ quality: 88 }).toBuffer();

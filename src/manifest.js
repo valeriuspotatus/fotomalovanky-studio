@@ -168,11 +168,23 @@ export function getAttempt(manifest, base) {
  *  photograph. Absent for the ordinary photo that needed nothing. */
 export function setFraming(manifest, base, framing) {
   manifest.photos ??= {};
-  if (!framing || (!framing.rotate && !framing.crop)) return manifest;
-  manifest.photos[base] = {
-    ...manifest.photos[base],
-    framing: { rotate: framing.rotate ?? 0, cropped: Boolean(framing.crop) },
-  };
+  // A photo that needed nothing must also STOP claiming it needed something. Without this, a redo
+  // that deliberately dropped the correction ("Přegenerovat z originálu") left the old record
+  // standing, and the grid kept offering to undo a crop that was no longer applied.
+  if (!framing || (!framing.rotate && !framing.crop)) {
+    if (manifest.photos[base]?.framing) {
+      const entry = { ...manifest.photos[base] };
+      delete entry.framing;
+      manifest.photos[base] = entry;
+    }
+    return manifest;
+  }
+  // `manual` separates the operator's own rectangle from the vision model's guess: the grid says
+  // which one it was, and only the machine's is offered back as "undo it". Present only when true,
+  // so the record of an ordinary automatic correction is the two fields it has always been.
+  const record = { rotate: framing.rotate ?? 0, cropped: Boolean(framing.crop) };
+  if (framing.manual === true) record.manual = true;
+  manifest.photos[base] = { ...manifest.photos[base], framing: record };
   return manifest;
 }
 
@@ -240,4 +252,67 @@ export function setIncompleteBook(manifest, { pages, expected }) {
     incompleteBook: { pages, expected, at: new Date().toISOString() },
   };
   return manifest;
+}
+
+// ---- the operator's own crop (manual framing) -------------------------------
+//
+// A RECTANGLE, NOT A FILE. The customer's upload is never rewritten and no second copy of it is
+// made: the crop is four fractions of the source frame, stored here, and applied on the way to the
+// generator by the same `correction` seam the automatic framing already uses (photoFraming.js ->
+// prepareImageForUpload). That is what keeps "the customer original must remain recoverable" true
+// by construction rather than by discipline — there is nothing to overwrite and nothing to undo but
+// a line of JSON.
+//
+// The fractions are measured on the source AFTER its EXIF orientation is baked in, because that is
+// the frame prepareImageForUpload cuts in and the frame the crop editor is shown. `rotate` is the
+// clockwise turn applied AFTER the cut, exactly as photoFraming's is, so the editor hands back a
+// box in the un-rotated frame and the two agree.
+
+const ROTATIONS = new Set([0, 90, 180, 270]);
+const MIN_CROP_SIDE = 0.02; // 2% of an axis — smaller is a misclick, not an intention
+
+/** Coerce a crop the browser sent into one this pipeline will act on, or throw. Pure, so the whole
+ *  decision table is testable: every rejection here is a way a plausible box could ruin a book. */
+export function normalizeManualCrop(raw) {
+  if (!raw || typeof raw !== 'object') throw new ManifestError('No crop was given.');
+  const rotate = Number(raw.rotate ?? 0);
+  if (!ROTATIONS.has(rotate)) throw new ManifestError(`Unknown rotation ${raw.rotate} — expected 0, 90, 180 or 270.`);
+  const num = (v, what) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) throw new ManifestError(`Crop ${what} is not a number.`);
+    return n;
+  };
+  const x = num(raw.x, 'x');
+  const y = num(raw.y, 'y');
+  const w = num(raw.w, 'width');
+  const h = num(raw.h, 'height');
+  if (x < 0 || y < 0 || x + w > 1.001 || y + h > 1.001) throw new ManifestError('That crop falls outside the photo.');
+  if (w < MIN_CROP_SIDE || h < MIN_CROP_SIDE) throw new ManifestError('That crop is too small to print.');
+  // A full-frame box with no turn is not a crop, it is the photo. Storing it would make every
+  // later generation skip the automatic framing for no reason.
+  if (!rotate && w > 0.999 && h > 0.999) return null;
+  const r4 = (v) => Math.round(v * 10000) / 10000;
+  return { x: r4(x), y: r4(y), w: r4(Math.min(w, 1 - x)), h: r4(Math.min(h, 1 - y)), rotate };
+}
+
+export function getManualCrop(manifest, base) {
+  return manifest.photos?.[base]?.manualCrop ?? null;
+}
+
+/** Store (or clear, with null) the operator's crop for one photo. */
+export function setManualCrop(manifest, base, crop) {
+  manifest.photos ??= {};
+  const entry = { ...manifest.photos[base] };
+  if (crop) entry.manualCrop = { ...crop, at: new Date().toISOString() };
+  else delete entry.manualCrop;
+  manifest.photos[base] = entry;
+  return manifest;
+}
+
+/** The `correction` a stored crop becomes on the way to the generator — the same shape
+ *  photoFraming.js produces, plus `manual` so nothing downstream treats it as a machine's guess:
+ *  the operator's rectangle is exact and must not be second-guessed by the border trimmer. */
+export function correctionFromManualCrop(crop) {
+  if (!crop) return null;
+  return { rotate: crop.rotate ?? 0, screenshot: false, manual: true, crop: { x: crop.x, y: crop.y, w: crop.w, h: crop.h } };
 }
