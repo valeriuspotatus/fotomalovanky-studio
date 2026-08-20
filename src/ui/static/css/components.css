@@ -293,11 +293,104 @@ svg.chart{width:100%;height:auto;display:block;overflow:visible}
   .rail{flex-direction:row;flex-wrap:wrap}.cal,.rail .card{flex:1;min-width:300px}
   .kpis{grid-template-columns:repeat(3,1fr)}.tools{grid-template-columns:repeat(3,1fr)}
 }
+
+/* ============================ MOBILE SHELL ============================
+   Injected by js/shell.js on every screen that has the app shell, so both pages get one
+   navigation. Off entirely above 900px, where the sidebar is the navigation. */
+.mtop,.mbot,.nav-scrim,.nav-close{display:none}
+
 @media (max-width:900px){
-  .app{grid-template-columns:1fr}.sidebar{display:none}.main{padding:20px}
+  .app{grid-template-columns:1fr}
+
+  /* The sidebar IS the drawer — same links, same badges, same role gating, moved off-canvas.
+     `display:none` is what made every screen but one unreachable on a phone. */
+  .sidebar{position:fixed;inset:0 auto 0 0;height:100dvh;width:min(86vw,300px);z-index:60;
+    transform:translateX(-100%);transition:transform var(--dur-slow) var(--ease);
+    overflow-y:auto;overscroll-behavior:contain;box-shadow:var(--shadow-lg);padding-top:14px}
+  .app.nav-open .sidebar{transform:none}
+  .nav-scrim{display:block;position:fixed;inset:0;z-index:55;background:rgba(20,18,16,.5)}
+  .nav-scrim[hidden]{display:none}
+  .nav-close{display:grid;place-items:center;position:absolute;top:12px;right:12px;width:40px;height:40px;
+    border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface);color:var(--ink-2);z-index:1}
+  .nav-close svg{width:18px;height:18px;stroke:currentColor}
+  .sidebar .brand{padding-right:52px}
+  .sidebar .sb-art{display:none} /* decoration, and the drawer needs the height for destinations */
+  /* Tap targets, not mouse targets. */
+  .nav a,.sb-foot .mini{min-height:46px}
+
+  /* Compact top bar: where am I, and how do I get anywhere else. */
+  .mtop{display:flex;align-items:center;gap:10px;position:fixed;top:0;left:0;right:0;height:52px;z-index:50;
+    padding:0 8px 0 6px;background:var(--surface);border-bottom:1px solid var(--border)}
+  .nav-burger{display:grid;place-items:center;width:42px;height:42px;flex:none;border:0;background:none;
+    color:var(--ink-2);border-radius:var(--r-md)}
+  .nav-burger:active{background:var(--surface-2)}
+  .nav-burger svg{width:22px;height:22px;stroke:currentColor}
+  .mtop-title{font-family:var(--font-display);font-weight:600;font-size:17px;color:var(--ink);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+
+  /* The production tabs. Five, because a sixth stops being a tap target on a 390px phone. */
+  .mbot{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;z-index:50;
+    background:var(--surface);border-top:1px solid var(--border);padding-bottom:env(safe-area-inset-bottom)}
+  .mbot > *{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    min-height:58px;padding:6px 2px;border:0;background:none;color:var(--ink-3);
+    font:inherit;font-size:10.5px;font-weight:600;text-align:center}
+  .mbot > *[hidden]{display:none!important}
+  .mbot svg{width:21px;height:21px;stroke:currentColor}
+  .mbot > *.on{color:var(--brand)}
+  .mbot span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+  /* One fewer tab (the printer never sees Přehled) must not leave a gap at the end of the row. */
+  .mbot:has(> [data-operator][hidden]){grid-template-columns:repeat(4,1fr)}
+
+  body.nav-locked{overflow:hidden}
+
+  /* Room for both bars, and nothing under them. */
+  .main{padding:calc(52px + 16px) 16px calc(66px + env(safe-area-inset-bottom)) }
+  /* The title is in the fixed bar now; a second copy of it costs a phone 44px of the screen. */
+  .topbar h1{display:none}
+  .topbar{flex-direction:column;gap:10px}
+  .topbar-actions{padding-top:0;flex-wrap:wrap}
+  .search{min-width:0}
+
   .kpis{grid-template-columns:repeat(2,1fr)}.tools{grid-template-columns:repeat(2,1fr)}
-  .topbar{flex-direction:column}.search{min-width:0}.sheet .grid{grid-template-columns:1fr}
+  .sheet .grid{grid-template-columns:1fr}
+  /* A table is the one thing that cannot become narrow. Let it scroll INSIDE its card rather than
+     taking the whole page sideways with it. */
+  .table{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .table table{min-width:520px}
+  thead th,tbody td{padding-left:12px;padding-right:12px}
+  /* Dialogs fit the phone, and scroll inside themselves rather than off it. */
+  .modal{padding:0}
+  .sheet{border-radius:0;min-height:100dvh}
 }
+@media (max-width:560px){
+  .kpis,.tools{grid-template-columns:1fr 1fr}
+  .main{padding-left:12px;padding-right:12px}
+}
+/* Filtr + hledání nad tabulkou objednávek, and the print queue's selection bar. One set of styles:
+   they are the same object — a strip of controls that acts on the list under it. */
+.list-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.list-bar .spacer{margin-left:auto}
+.filters{display:flex;gap:6px;flex-wrap:wrap}
+.filters button{height:32px;padding:0 12px;border-radius:var(--r-full);border:1px solid var(--border-strong);
+  background:var(--surface);color:var(--ink-2);font:inherit;font-size:12.5px;font-weight:600;white-space:nowrap}
+.filters button:hover{background:var(--surface-2);color:var(--ink)}
+.filters button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.filters button .n{margin-left:6px;opacity:.7;font-variant-numeric:tabular-nums}
+.find{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border-strong);
+  border-radius:var(--r-md);height:34px;padding:0 12px;min-width:200px;flex:0 1 280px}
+.find input{border:0;background:none;outline:none;font:inherit;font-size:13px;color:var(--ink);flex:1;min-width:0}
+.find svg{width:15px;height:15px;stroke:var(--ink-3);flex:none}
+.tick{width:34px}
+td.tick,th.tick{padding-right:0}
+.qsel{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-2);white-space:nowrap}
+.qcount{font-size:12.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.no-match{color:var(--ink-2);font-size:13.5px;padding:22px 8px;text-align:center}
+@media (max-width:900px){
+  .find{flex:1 1 100%}
+  .list-bar .spacer{display:none}
+  .list-bar .btn{flex:1 1 auto;justify-content:center}
+}
+
 /* Objednávky toolbar — the on-demand Shopify fetch button */
 .orders-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
 .orders-toolbar .fetch-note{font-size:12.5px;color:var(--ink-3)}
