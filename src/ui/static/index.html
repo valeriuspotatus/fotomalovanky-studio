@@ -3,9 +3,13 @@
 <head>
 <meta charset="utf-8">
 <title>Fotomalovánky — generátor</title>
+<!-- Without this a phone lays the page out at 980px and then shrinks the result: every control
+     ends up a third of its size and nothing here is tappable. The dashboard has always had it. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/components.css">
+<script src="/js/shell.js" defer></script>
 <style>
  /* Order Review — restyled onto the shared design system (tokens.css + components.css).
     Light Mode is primary: per the brief, the artwork sits on a light paper background. Dark
@@ -39,7 +43,16 @@
  button.danger{border-color:var(--danger);color:var(--danger);background:var(--danger-soft)}
  button.danger:hover:not(:disabled){background:var(--danger);color:#fff}
 
- /* run log */
+ /* run log — folded away behind its own summary; see #runbox in the markup */
+ #runbox>summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:8px;
+     padding:7px 12px;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface);
+     color:var(--ink-2);font-size:12.5px;font-weight:600}
+ #runbox>summary::-webkit-details-marker{display:none}
+ #runbox>summary::before{content:"\25B8";font-size:10px;opacity:.7}
+ #runbox[open]>summary::before{content:"\25BE"}
+ #runbox>summary:hover{background:var(--surface-2);color:var(--ink)}
+ #runbox>summary .bad{color:var(--danger)}
+ #runbox[open]>summary{margin-bottom:8px}
  #runpanel{background:var(--surface-2);color:var(--ink);border:1px solid var(--border);border-radius:var(--r-lg);
      max-height:230px;overflow:auto;padding:12px 14px;font:12px/1.5 var(--font-mono);white-space:pre-wrap}
  #runpanel .hdr{color:var(--success);font-weight:600}
@@ -114,7 +127,7 @@
  .linkish{background:none;border:0;padding:0;font:inherit;color:var(--brand);text-decoration:underline;cursor:pointer}
  .linkish:hover{color:var(--ink)}
  .linkish:disabled{opacity:.5;cursor:default}
- .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px dashed var(--border)}
+ .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px dashed var(--border);align-items:center}
  .busy{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--border);
        font-size:12px;color:var(--ink-2);font-family:var(--font-mono)}
  .idle{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--border);
@@ -186,6 +199,60 @@
  #editor .ewrap canvas.grab{cursor:grab}
  #editor .ewrap canvas.grabbing{cursor:grabbing}
  #editor .hint{padding:8px 12px;font-size:12px;color:var(--ink-2);border-top:1px solid var(--border)}
+
+ /* ---- the photo crop editor (P0) --------------------------------------------
+    Its own dialog, not a third mode of the page editor beside it: that one draws on the SVG the
+    book prints, this one frames the CUSTOMER'S PHOTOGRAPH before it is drawn at all. Different
+    file, different frame of reference, different consequence — sharing a canvas would only have
+    shared the bugs. */
+ /* An explicit height, not just a cap: the stage below is a flex item that takes what the chrome
+    leaves, and a column with no height of its own leaves it nothing. */
+ #pc[open]{width:min(1100px,96vw);max-width:96vw;height:min(900px,92vh);display:flex;flex-direction:column;overflow:hidden}
+ #pc .pctop{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+ #pc .pctop b{font-size:13px}
+ #pc .pcwarn{font-size:11.5px;color:var(--warning);font-weight:600}
+ /* flex:1 with min-height:0 — the stage IS whatever the header, the bar and the hint leave, so
+    the picture can never be sized against a window the dialog is not actually allowed to fill. */
+ #pc .pcstage{position:relative;flex:1 1 auto;min-height:120px;background:var(--surface-2);overflow:hidden;line-height:0;touch-action:none}
+ #pc canvas{position:absolute;display:block}
+ #pc #pc-base{left:0;top:0;image-rendering:auto}
+ #pc #pc-ov{inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair}
+ #pc #pc-ov.grabbing{cursor:grabbing}
+ #pc .pcbar{display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid var(--border);flex-wrap:wrap}
+ #pc .pcgroup{display:flex;gap:6px;flex-wrap:wrap}
+ #pc button{font-size:12.5px;padding:7px 11px}
+ #pc button.on{background:var(--info);color:#fff;border-color:var(--info)}
+ #pc .pcz{font-size:11.5px;color:var(--ink-3);font-variant-numeric:tabular-nums;min-width:44px}
+ #pc .pchint{margin:0;padding:8px 12px;font-size:12px;color:var(--ink-2);border-top:1px solid var(--border)}
+ #pc .pcmsg{font-size:12.5px;color:var(--danger);min-height:16px;flex-basis:100%}
+
+ /* ---- mobile (P0) -----------------------------------------------------------
+    The generator has to work from a phone: an order that needs a hand does not wait for a desk. */
+ @media (max-width:900px){
+   /* A fixed 380px track is wider than a 390px phone once the card padding is taken off, which is
+      one of the two things that put the whole page sideways. */
+   .grid{grid-template-columns:repeat(auto-fill,minmax(min(380px,100%),1fr));gap:12px;padding:12px}
+   /* Photo above colouring page. Side by side on a phone is two pictures nobody can judge. */
+   .imgs{grid-template-columns:1fr}
+   .go{padding:10px}
+   .go input[type=text]{min-width:0;flex:1 1 100%}
+   .go .primary,.go button{flex:1 1 auto}
+   .go label[for=inbox]{flex-basis:100%}
+   /* Tap targets. 13px text in 7px of padding is a 30px button. */
+   button{min-height:40px}
+   .acts{gap:8px}
+   .acts button{flex:1 1 auto}
+   .ded{min-width:0;flex-basis:100%}
+   .order>header{top:52px} /* clears the fixed mobile bar, or it slides under it */
+   .wrap{padding-bottom:24px}
+   #runpanel{max-height:180px}
+   /* Dialogs are the phone, not a box floating on it. */
+   dialog{max-width:100vw;max-height:100dvh}
+   #lb[open],#editor,#pc[open]{width:100vw;max-width:100vw;height:100dvh;max-height:100dvh;border-radius:0;margin:0}
+   #lb .lb-hint{display:none}
+   #pc .pcbar{gap:6px;padding:8px}
+   #pc button,#editor button{min-height:38px}
+ }
 </style>
 </head>
 <body>
@@ -253,7 +320,13 @@
     </div>
 
     <div id="queue" hidden></div>
-    <div id="runpanel" hidden></div>
+    <!-- The run's own log. Folded away by default: it is a debugging record, and it was the tallest
+         thing on a QA screen whose job is the photos below it. Nothing is dropped — it opens on one
+         click, and it opens ITSELF the moment a run fails. -->
+    <details id="runbox" hidden>
+      <summary><span id="runsum">Technický log</span></summary>
+      <div id="runpanel"></div>
+    </details>
     <div class="wrap"><div id="root"></div><div id="earlier"></div></div>
   </main>
 </div>
@@ -262,7 +335,7 @@
 <dialog id="lb">
   <div class="lb-head">
     <b id="lb-title"></b><span class="lb-pos" id="lb-pos"></span>
-    <span class="lb-hint">← → mezi fotkami · <kbd>kolečko</kbd> lupa · <kbd>A</kbd> schválit · <kbd>B</kbd> špatně · <kbd>R</kbd> přegenerovat · <kbd>Esc</kbd> zavřít</span>
+    <span class="lb-hint">← → mezi fotkami · <kbd>kolečko</kbd> lupa · <kbd>A</kbd> schválit · <kbd>X</kbd> špatně · <kbd>R</kbd> přegenerovat · <kbd>C</kbd> oříznout · <kbd>E</kbd> opravit ručně · <kbd>Esc</kbd> zavřít</span>
     <button class="lb-x" id="lb-close" aria-label="Zavřít">✕</button>
   </div>
   <div class="lb-imgs" id="lb-imgs"></div>
@@ -287,6 +360,38 @@
   </div>
   <div class="ewrap"><img id="e-img" alt=""><canvas id="e-canvas"></canvas></div>
   <div class="hint" id="e-hint">Přemalujte to, co chcete odstranit — tužka je bílá jako papír. V režimu Oříznout tažením rámečku stránku ořežte. <b>Kolečkem přiblížíte; tažením pravým tlačítkem nebo s podrženou mezerníkem stránku posunete.</b> Toto upravuje vektorovou stránku, ze které se kniha tiskne.</div>
+</dialog>
+
+<!-- Ruční ořez původní fotky. The rectangle is stored, never burned into the customer's file. -->
+<dialog id="pc" aria-label="Oříznout původní fotku">
+  <div class="pctop">
+    <b id="pc-name"></b>
+    <span class="pcwarn" id="pc-shot" hidden>Vypadá to na snímek obrazovky</span>
+    <span class="grow"></span>
+    <button id="pc-cancel">Zrušit</button>
+    <button id="pc-save" class="primary">Uložit a přegenerovat</button>
+    <div class="pcmsg" id="pc-msg" role="status"></div>
+  </div>
+  <div class="pcstage"><canvas id="pc-base"></canvas><canvas id="pc-ov"></canvas></div>
+  <div class="pcbar">
+    <div class="pcgroup" role="group" aria-label="Poměr stran">
+      <button data-ratio="free" class="on">Volný ořez</button>
+      <button data-ratio="a4p">A4 na výšku</button>
+      <button data-ratio="a4l">A4 na šířku</button>
+      <button data-ratio="orig">Původní poměr</button>
+    </div>
+    <div class="pcgroup">
+      <button id="pc-rotl" aria-label="Otočit doleva">↺ Doleva</button>
+      <button id="pc-rotr" aria-label="Otočit doprava">↻ Doprava</button>
+      <button id="pc-suggest">Navrhnout ořez</button>
+      <button id="pc-reset">Celá fotka</button>
+      <button id="pc-fit">Přizpůsobit</button>
+      <span class="pcz" id="pc-zoom">100 %</span>
+    </div>
+    <span class="grow"></span>
+    <button id="pc-clear" class="danger" hidden>Zrušit uložený ořez</button>
+  </div>
+  <p class="pchint">Tažením vyberte, co se má vygenerovat; rohy a hrany rámeček zvětší. <b>Kolečkem nebo dvěma prsty přiblížíte, tažením pravým tlačítkem, dvěma prsty nebo s podrženou mezerníkem posunete.</b> Fotka od zákazníka se nikdy nepřepisuje — ukládá se jen rámeček, takže „Celá fotka“ je úplný návrat zpět.</p>
 </dialog>
 
 <script>
@@ -547,11 +652,19 @@ async function browse() {
 }
 
 /** The run log lives outside #root so a new line never repaints (and refetches) the grid. */
+// Opened once by a failure and then left alone: re-opening it on every poll would fight an operator
+// who has read the error and folded it away again.
+let logOpenedByFailure = false;
+
 function paintRun(run) {
   const panel = $('#runpanel');
+  const box = $('#runbox');
   const has = run.active || run.report || run.error;
-  panel.hidden = !has;
-  if (!has) return;
+  box.hidden = !has;
+  if (!has) {
+    logOpenedByFailure = false; // the next run starts folded again
+    return;
+  }
 
   const parts = [];
   if (run.lines.length) parts.push(esc(run.lines.join('\n')));
@@ -567,6 +680,19 @@ function paintRun(run) {
       if (o.status === 'failed') parts.push(`<span class="err">  ${esc(o.orderId)}  SELHALO  ${esc(o.reason)}</span>`);
     }
   }
+  // The summary says whether there is anything in there worth opening, so folding it can never hide
+  // a failure — and a failure opens it without being asked.
+  const failed = Boolean(run.error) || (run.report?.orders ?? []).some((o) => o.status === 'failed');
+  $('#runsum').innerHTML = failed
+    ? '<span class="bad">Technický log — něco selhalo</span>'
+    : run.active
+      ? 'Technický log — běží'
+      : 'Technický log';
+  if (failed && !logOpenedByFailure) {
+    box.open = true;
+    logOpenedByFailure = true;
+  }
+
   const html = parts.join('\n');
   if (panel.dataset.html === html) return; // don't fight the operator's scrollbar
   panel.dataset.html = html;
@@ -698,10 +824,29 @@ function tile(orderId, orderDir, p, locked) {
   // back: "Přegenerovat z originálu" re-runs this one photo exactly as it arrived.
   if (p.framing && (p.framing.rotate || p.framing.cropped)) {
     const did = [];
-    if (p.framing.rotate) did.push(`narovnáno o ${p.framing.rotate}°`);
-    if (p.framing.cropped) did.push('oříznuto ze snímku obrazovky');
-    why += `<p class="why">automaticky upraveno: ${esc(did.join(', '))} — <button type="button" class="linkish act-unframe" data-order="${esc(orderId)}" data-base="${esc(p.base)}">přegenerovat z originálu</button></p>`;
+    if (p.framing.rotate) did.push(`otočeno o ${p.framing.rotate}°`);
+    if (p.framing.cropped) did.push('oříznuto');
+    // The operator's own rectangle and the model's guess read differently on purpose: one is a
+    // decision they made and can adjust, the other is something that happened to their photo and
+    // that they may want undone. Only the second is offered back as "regenerate from the original".
+    why += p.framing.manual
+      ? `<p class="why">ručně ${esc(did.join(', '))} — <button type="button" class="linkish" data-crop data-order="${esc(orderId)}" data-base="${esc(p.base)}">upravit ořez</button></p>`
+      : `<p class="why">automaticky upraveno: ${esc(did.join(', '))} ze snímku obrazovky — <button type="button" class="linkish act-unframe" data-order="${esc(orderId)}" data-base="${esc(p.base)}">přegenerovat z originálu</button></p>`;
   }
+  // A crop that is saved but not yet in the picture beside it: after a run was refused, or on a
+  // photo that has never been generated. Saying so beats a card that looks like nothing happened.
+  if (p.manualCrop && !(p.framing && p.framing.manual)) {
+    why += '<p class="why">ořez uložen — použije se při dalším vygenerování</p>';
+  }
+
+  // Cropping the customer's photo is a primary action on every pair, because the commonest reason a
+  // page comes out wrong is that the wrong part of the picture was drawn. It sits with the others
+  // rather than behind a menu: at most four buttons fit a card at any width this page is used at,
+  // and a workflow action one tap further away is one nobody uses at 11pm.
+  const crop = p.hasSource
+    ? `<button data-crop>Oříznout</button>`
+    : `<button data-crop disabled title="původní fotka už není na disku">Oříznout</button>`;
+  const row = (...buttons) => `<div class="acts">${buttons.filter(Boolean).join('')}</div>`;
 
   let acts = '';
   if (busy) {
@@ -724,22 +869,25 @@ function tile(orderId, orderDir, p, locked) {
         <button data-a="redo">Vzdát to, přegenerovat</button>
       </div>`;
   } else if (status === 'failed') {
-    acts = `<div class="acts"><button class="danger" data-a="redo">Zkusit znovu</button></div>`;
+    acts = row(`<button class="danger" data-a="redo">Zkusit znovu</button>`, crop);
   } else if (status === 'approved') {
-    acts = `<div class="acts"><button class="danger" data-a="reject">Označit špatně</button></div>`;
+    // A finished photo keeps the two ways back and nothing that spends the GPU by accident.
+    acts = row(`<button class="danger" data-a="reject">Označit špatně</button>`, crop);
   } else if (status === 'ok') {
-    acts = `<div class="acts">
-        <button class="danger" data-a="reject">Označit špatně</button>
-        <button data-a="redo">Přegenerovat</button>
-        <button data-edit>Opravit ručně</button>
-      </div>`;
+    acts = row(
+      `<button class="danger" data-a="reject">Označit špatně</button>`,
+      crop,
+      `<button data-a="redo">Přegenerovat</button>`,
+      `<button data-edit>Opravit ručně</button>`,
+    );
   } else {
     // flagged / pending_review — the two states that hold the order back.
-    acts = `<div class="acts">
-        <button class="primary" data-a="approve">Schválit</button>
-        <button data-a="redo">Přegenerovat</button>
-        <button data-edit>Opravit ručně</button>
-      </div>`;
+    acts = row(
+      `<button class="primary" data-a="approve">Schválit</button>`,
+      crop,
+      `<button data-a="redo">Přegenerovat</button>`,
+      `<button data-edit>Opravit ručně</button>`,
+    );
   }
 
   // The editor draws on the SVG, because the SVG is what the book prints. A photo that has none
@@ -750,9 +898,9 @@ function tile(orderId, orderDir, p, locked) {
   // overwritten. The server refuses them, so don't offer them.
   if (locked) acts = acts.replaceAll('<button ', '<button disabled ');
 
-  return `<div class="tile ${status}" data-key="${esc(key)}" data-order="${esc(orderId)}" data-base="${esc(p.base)}"${p.edited ? ' data-edited="1"' : ''}>
+  return `<div class="tile ${status}" data-key="${esc(key)}" data-order="${esc(orderId)}" data-base="${esc(p.base)}"${p.edited ? ' data-edited="1"' : ''}${p.manualCrop ? ` data-mcrop="${esc(JSON.stringify(p.manualCrop))}"` : ''}>
     <div class="imgs">${shot('original', 'původní fotka')}${shot('coloring', 'omalovánka')}</div>
-    <p class="name">${esc(p.base)}</p>
+    <p class="name">${p.at ? `<b>${p.at.i} / ${p.at.n}</b> · ` : ''}${esc(p.base)}</p>
     <span class="pill ${status}">${LABEL[status]}</span>
     ${why}
     ${acts}
@@ -1047,6 +1195,517 @@ async function saveEdit() {
   await refresh(true);
 }
 
+/* ---- ruční ořez původní fotky (P0) ------------------------------------------
+ *
+ * WHAT THIS SAVES IS A RECTANGLE. The customer's upload is never rewritten and never copied: the
+ * four fractions below are stored in state.json and cut from their own file on the way to the
+ * generator, every time. That is why "Celá fotka" is a complete undo — there is no file to put back.
+ *
+ * The box is measured on the picture AS SHOWN, and the picture as shown may be turned. The server's
+ * pipeline cuts first and turns second (apiDriver's prepareImageForUpload), so a box drawn on a
+ * turned photo is mapped back into the un-turned frame here, in pcToSource, before it is sent. Get
+ * that wrong and the crop lands somewhere else in the photograph and nobody can see why.
+ */
+
+const A4_RATIO = 210 / 297; // portrait; landscape is its reciprocal
+const PC_MIN = 16; // natural px — a box smaller than this is a misclick
+const PC_GRAB = 16; // screen px of slack around a handle, sized for a fingertip
+const PC_MAX_ZOOM = 12;
+const PC_HANDLES = [['nw', 0, 0], ['n', .5, 0], ['ne', 1, 0], ['e', 1, .5], ['se', 1, 1], ['s', .5, 1], ['sw', 0, 1], ['w', 0, .5]];
+
+const pc = {
+  order: null, base: null, img: null,
+  rotate: 0, nw: 0, nh: 0,          // the display frame: the source, turned by `rotate`
+  view: { w: 1, h: 1 },             // the stage the picture is drawn in, measured
+  fit: null, zoom: 1, panX: 0, panY: 0,
+  box: null,                        // in display-frame natural pixels
+  ratio: null, ratioKey: 'free',
+  drag: null, panning: null, space: false,
+  pointers: new Map(), pinch: null,
+  stored: null, suggestion: null, saving: false,
+};
+
+const pcBase = () => $('#pc-base');
+const pcOv = () => $('#pc-ov');
+const pcStage = () => $('#pc .pcstage');
+const pcMsg = (text, bad) => {
+  const el = $('#pc-msg');
+  el.textContent = text || '';
+  el.style.color = bad ? 'var(--danger)' : 'var(--ink-3)';
+};
+
+/** Draw the source into the base canvas, turned. Everything downstream then works in one frame. */
+function pcDrawBase() {
+  const swap = pc.rotate === 90 || pc.rotate === 270;
+  pc.nw = swap ? pc.img.naturalHeight : pc.img.naturalWidth;
+  pc.nh = swap ? pc.img.naturalWidth : pc.img.naturalHeight;
+  const c = pcBase();
+  c.width = pc.nw;
+  c.height = pc.nh;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, pc.nw, pc.nh);
+  g.save();
+  g.translate(pc.nw / 2, pc.nh / 2);
+  g.rotate((pc.rotate * Math.PI) / 180);
+  g.drawImage(pc.img, -pc.img.naturalWidth / 2, -pc.img.naturalHeight / 2);
+  g.restore();
+}
+
+/** Size the picture to the room the dialog actually has.
+ *
+ *  MEASURED, NEVER GUESSED. This used to compute the height from the window and subtract the chrome
+ *  it could see — but the dialog is capped (96vh on a desk, the whole screen on a phone), so the sum
+ *  was always a little larger than the box the picture had to live in, and the bottom of the
+ *  photograph was quietly clipped. The stage is a flex item now: the browser lays out the header,
+ *  the toolbar and the hint, and whatever is left IS the stage. */
+function pcFitStage() {
+  if (!pc.nw) return;
+  const stage = pcStage();
+  pc.view = { w: Math.max(1, stage.clientWidth), h: Math.max(1, stage.clientHeight) };
+  const scale = Math.min(pc.view.w / pc.nw, pc.view.h / pc.nh);
+  pc.fit = { w: Math.max(1, Math.round(pc.nw * scale)), h: Math.max(1, Math.round(pc.nh * scale)) };
+  pcCentre();
+}
+
+/** Put the whole picture back in the middle of the stage. */
+function pcCentre() {
+  pc.zoom = 1;
+  pc.panX = Math.round((pc.view.w - pc.fit.w) / 2);
+  pc.panY = Math.round((pc.view.h - pc.fit.h) / 2);
+  pcApplyView();
+}
+
+function pcApplyView() {
+  const w = pc.fit.w * pc.zoom;
+  const h = pc.fit.h * pc.zoom;
+  const margin = 40;
+  pc.panX = Math.min(pc.view.w - margin, Math.max(margin - w, pc.panX));
+  pc.panY = Math.min(pc.view.h - margin, Math.max(margin - h, pc.panY));
+  const c = pcBase();
+  c.style.width = `${w}px`;
+  c.style.height = `${h}px`;
+  c.style.left = `${pc.panX}px`;
+  c.style.top = `${pc.panY}px`;
+  $('#pc-zoom').textContent = `${Math.round(pc.zoom * 100)} %`;
+  $('#pc-fit').disabled = pc.zoom === 1;
+  pcRedraw();
+}
+
+/** Screen point -> display-frame natural pixels, and back. Both read the canvas' own rectangle, so
+ *  zoom and pan need no separate bookkeeping. */
+function pcToNat(clientX, clientY) {
+  const r = pcBase().getBoundingClientRect();
+  const s = r.width / pc.nw;
+  return [(clientX - r.left) / s, (clientY - r.top) / s];
+}
+
+function pcToStage(x, y) {
+  const vp = pcStage().getBoundingClientRect();
+  const r = pcBase().getBoundingClientRect();
+  const s = r.width / pc.nw;
+  return [r.left - vp.left + x * s, r.top - vp.top + y * s];
+}
+
+function pcRedraw() {
+  const c = pcOv();
+  const vp = pcStage().getBoundingClientRect();
+  if (c.width !== Math.round(vp.width) || c.height !== Math.round(vp.height)) {
+    c.width = Math.round(vp.width);
+    c.height = Math.round(vp.height);
+  }
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, c.width, c.height);
+  if (!pc.box) return;
+
+  const [x, y] = pcToStage(pc.box.x, pc.box.y);
+  const [x2, y2] = pcToStage(pc.box.x + pc.box.w, pc.box.y + pc.box.h);
+  const w = x2 - x;
+  const h = y2 - y;
+
+  g.save();
+  g.fillStyle = 'rgba(0,0,0,.55)'; // everything outside the box is what will not be generated
+  g.beginPath();
+  g.rect(0, 0, c.width, c.height);
+  g.rect(x, y, w, h);
+  g.fill('evenodd');
+  g.restore();
+
+  g.strokeStyle = '#5aa9f7';
+  g.lineWidth = 2;
+  g.strokeRect(x, y, w, h);
+  // Thirds, because the thing being framed is nearly always a face.
+  g.strokeStyle = 'rgba(255,255,255,.35)';
+  g.lineWidth = 1;
+  for (let i = 1; i < 3; i++) {
+    g.beginPath();
+    g.moveTo(x + (w * i) / 3, y);
+    g.lineTo(x + (w * i) / 3, y + h);
+    g.moveTo(x, y + (h * i) / 3);
+    g.lineTo(x + w, y + (h * i) / 3);
+    g.stroke();
+  }
+  g.fillStyle = '#5aa9f7';
+  g.strokeStyle = '#fff';
+  g.lineWidth = 1.5;
+  for (const [, fx, fy] of PC_HANDLES) {
+    const hx = x + w * fx;
+    const hy = y + h * fy;
+    g.beginPath();
+    g.rect(hx - 6, hy - 6, 12, 12);
+    g.fill();
+    g.stroke();
+  }
+}
+
+const pcClamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+/** Pin a box inside the picture and give it a printable size. */
+function pcNormalize(box) {
+  const w = Math.max(PC_MIN, Math.min(box.w, pc.nw));
+  const h = Math.max(PC_MIN, Math.min(box.h, pc.nh));
+  return { x: pcClamp(box.x, 0, pc.nw - w), y: pcClamp(box.y, 0, pc.nh - h), w, h };
+}
+
+/** The largest rectangle of the active aspect ratio that fits the dragged one, anchored at the
+ *  corner the operator is NOT holding. A null ratio leaves the box alone (volný ořez). */
+function pcApplyRatio(box, handle) {
+  if (!pc.ratio) return box;
+  let { x, y, w, h } = box;
+  if (w / h > pc.ratio) w = h * pc.ratio;
+  else h = w / pc.ratio;
+  if (handle && handle.includes('w')) x = box.x + box.w - w;
+  if (handle && handle.includes('n')) y = box.y + box.h - h;
+  return { x, y, w, h };
+}
+
+function pcHandleAt(clientX, clientY) {
+  if (!pc.box) return null;
+  const vp = pcStage().getBoundingClientRect();
+  const px = clientX - vp.left;
+  const py = clientY - vp.top;
+  const [x, y] = pcToStage(pc.box.x, pc.box.y);
+  const [x2, y2] = pcToStage(pc.box.x + pc.box.w, pc.box.y + pc.box.h);
+  for (const [name, fx, fy] of PC_HANDLES) {
+    const hx = x + (x2 - x) * fx;
+    const hy = y + (y2 - y) * fy;
+    if (Math.abs(px - hx) <= PC_GRAB && Math.abs(py - hy) <= PC_GRAB) return name;
+  }
+  return null;
+}
+
+const pcInsideBox = (nx, ny) =>
+  pc.box && nx >= pc.box.x && nx <= pc.box.x + pc.box.w && ny >= pc.box.y && ny <= pc.box.y + pc.box.h;
+
+// ---- pointer input ----------------------------------------------------------
+// One left-button drag does all three things, decided by where it starts: on a handle it resizes,
+// inside the box it moves it, anywhere else it draws a new one. Pan and zoom stay on the gestures
+// the page editor beside this one already uses, so there is one habit to learn, not two.
+
+const pcWantsPan = (e) => e.button === 1 || e.button === 2 || pc.space;
+
+pcOv().addEventListener('pointerdown', (e) => {
+  if (!pc.nw) return;
+  pcOv().setPointerCapture(e.pointerId);
+  pc.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  // Two fingers is always a pinch/pan, whatever the first one had started doing.
+  if (pc.pointers.size === 2) {
+    pc.drag = null;
+    const [a, b] = [...pc.pointers.values()];
+    pc.pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    return;
+  }
+
+  if (pcWantsPan(e)) {
+    pc.panning = { x: e.clientX, y: e.clientY };
+    pcOv().classList.add('grabbing');
+    return;
+  }
+
+  const handle = pcHandleAt(e.clientX, e.clientY);
+  const [nx, ny] = pcToNat(e.clientX, e.clientY);
+  if (handle) pc.drag = { mode: 'resize', handle, from: { ...pc.box } };
+  else if (pcInsideBox(nx, ny)) pc.drag = { mode: 'move', at: [nx, ny], from: { ...pc.box } };
+  else pc.drag = { mode: 'new', anchor: [pcClamp(nx, 0, pc.nw), pcClamp(ny, 0, pc.nh)], was: pc.box };
+});
+
+pcOv().addEventListener('pointermove', (e) => {
+  if (pc.pointers.has(e.pointerId)) pc.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (pc.pinch && pc.pointers.size === 2) {
+    const [a, b] = [...pc.pointers.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    if (pc.pinch.dist > 0) pcZoomAt(mx, my, dist / pc.pinch.dist);
+    pc.panX += mx - pc.pinch.x;
+    pc.panY += my - pc.pinch.y;
+    pc.pinch = { dist, x: mx, y: my };
+    pcApplyView();
+    return;
+  }
+
+  if (pc.panning) {
+    pc.panX += e.clientX - pc.panning.x;
+    pc.panY += e.clientY - pc.panning.y;
+    pc.panning = { x: e.clientX, y: e.clientY };
+    pcApplyView();
+    return;
+  }
+  if (!pc.drag) return;
+
+  const [nx, ny] = pcToNat(e.clientX, e.clientY);
+  if (pc.drag.mode === 'new') {
+    const [ax, ay] = pc.drag.anchor;
+    const x = pcClamp(nx, 0, pc.nw);
+    const y = pcClamp(ny, 0, pc.nh);
+    const box = { x: Math.min(ax, x), y: Math.min(ay, y), w: Math.abs(x - ax), h: Math.abs(y - ay) };
+    pc.box = pcNormalize(pcApplyRatio(box, `${y < ay ? 'n' : 's'}${x < ax ? 'w' : 'e'}`));
+  } else if (pc.drag.mode === 'move') {
+    const b = pc.drag.from;
+    pc.box = pcNormalize({ x: b.x + (nx - pc.drag.at[0]), y: b.y + (ny - pc.drag.at[1]), w: b.w, h: b.h });
+  } else {
+    const b = pc.drag.from;
+    const hn = pc.drag.handle;
+    let l = b.x;
+    let t = b.y;
+    let r = b.x + b.w;
+    let bo = b.y + b.h;
+    if (hn.includes('w')) l = pcClamp(nx, 0, pc.nw);
+    if (hn.includes('e')) r = pcClamp(nx, 0, pc.nw);
+    if (hn.includes('n')) t = pcClamp(ny, 0, pc.nh);
+    if (hn.includes('s')) bo = pcClamp(ny, 0, pc.nh);
+    const box = { x: Math.min(l, r), y: Math.min(t, bo), w: Math.abs(r - l), h: Math.abs(bo - t) };
+    pc.box = pcNormalize(pcApplyRatio(box, hn));
+  }
+  pcRedraw();
+});
+
+function pcEndPointer(e) {
+  pc.pointers.delete(e.pointerId);
+  if (pc.pointers.size < 2) pc.pinch = null;
+  if (pc.panning) {
+    pc.panning = null;
+    pcOv().classList.remove('grabbing');
+  }
+  // A box nobody really dragged is a misclick, not a decision: put the previous framing back rather
+  // than replacing it with a sliver the operator would then have to notice and undo.
+  if (pc.drag && pc.drag.mode === 'new' && pc.box && (pc.box.w <= PC_MIN || pc.box.h <= PC_MIN)) {
+    pc.box = pc.drag.was ?? null;
+  }
+  pc.drag = null;
+  pcRedraw();
+}
+pcOv().addEventListener('pointerup', pcEndPointer);
+pcOv().addEventListener('pointercancel', pcEndPointer);
+pcOv().addEventListener('contextmenu', (e) => e.preventDefault());
+
+function pcZoomAt(clientX, clientY, factor) {
+  const next = Math.min(PC_MAX_ZOOM, Math.max(1, pc.zoom * factor));
+  if (next === pc.zoom) return;
+  const vp = pcStage().getBoundingClientRect();
+  const [ux, uy] = pcToNat(clientX, clientY);
+  pc.zoom = next;
+  const s = (pc.fit.w * pc.zoom) / pc.nw;
+  pc.panX = clientX - vp.left - ux * s;
+  pc.panY = clientY - vp.top - uy * s;
+  pcApplyView();
+}
+
+pcOv().addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const raw = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * pc.fit.h : e.deltaY;
+  pcZoomAt(e.clientX, e.clientY, Math.exp(-Math.max(-600, Math.min(600, raw)) * 0.0015));
+}, { passive: false });
+
+// ---- mapping between the frame shown and the frame stored -------------------
+
+/** The box as fractions of the SOURCE, un-turned — the frame the server cuts in.
+ *
+ *  NO BOX IS A REAL ANSWER: it means the whole photo, and it is how the editor opens on a photo
+ *  nobody has cropped. Drawn as no rectangle at all rather than as one around the whole frame,
+ *  because a full-frame rectangle catches every drag as a move of itself and there is then no way
+ *  left to draw a smaller one. A turn on its own is still a decision, so it survives. */
+function pcToSource() {
+  if (!pc.box) return { x: 0, y: 0, w: 1, h: 1, rotate: pc.rotate };
+  const dx = pc.box.x / pc.nw;
+  const dy = pc.box.y / pc.nh;
+  const dw = pc.box.w / pc.nw;
+  const dh = pc.box.h / pc.nh;
+  const r = pc.rotate;
+  const box =
+    r === 90 ? { x: dy, y: 1 - dx - dw, w: dh, h: dw }
+      : r === 180 ? { x: 1 - dx - dw, y: 1 - dy - dh, w: dw, h: dh }
+        : r === 270 ? { x: 1 - dy - dh, y: dx, w: dh, h: dw }
+          : { x: dx, y: dy, w: dw, h: dh };
+  return { ...box, rotate: r };
+}
+
+/** The inverse: a stored (or suggested) box, in the frame currently on screen. */
+function pcFromSource(c) {
+  const { x, y, w, h } = c;
+  const r = pc.rotate;
+  const d =
+    r === 90 ? { x: 1 - y - h, y: x, w: h, h: w }
+      : r === 180 ? { x: 1 - x - w, y: 1 - y - h, w, h }
+        : r === 270 ? { x: y, y: 1 - x - w, w: h, h: w }
+          : { x, y, w, h };
+  return pcNormalize({ x: d.x * pc.nw, y: d.y * pc.nh, w: d.w * pc.nw, h: d.h * pc.nh });
+}
+
+function pcSetRatio(key) {
+  pc.ratioKey = key;
+  pc.ratio = key === 'a4p' ? A4_RATIO : key === 'a4l' ? 1 / A4_RATIO : key === 'orig' ? pc.nw / pc.nh : null;
+  for (const b of document.querySelectorAll('#pc [data-ratio]')) b.classList.toggle('on', b.dataset.ratio === key);
+  if (pc.ratio && pc.box) pc.box = pcNormalize(pcApplyRatio(pc.box, 'se'));
+  pcRedraw();
+}
+
+function pcRotate(delta) {
+  // Keep the framing across the turn: re-express the box in the source, turn, read it back.
+  const source = pc.box ? pcToSource() : null;
+  pc.rotate = (pc.rotate + delta + 360) % 360;
+  pcDrawBase();
+  if (pc.ratioKey === 'orig') pc.ratio = pc.nw / pc.nh;
+  pc.box = source ? pcFromSource(source) : null;
+  pcFitStage();
+}
+
+// ---- open / save ------------------------------------------------------------
+
+async function openCrop(orderId, base, stored) {
+  pc.order = orderId;
+  pc.base = base;
+  pc.stored = stored || null;
+  pc.rotate = pc.stored ? pc.stored.rotate || 0 : 0;
+  pc.zoom = 1;
+  pc.panX = 0;
+  pc.panY = 0;
+  pc.pointers.clear();
+  pc.pinch = null;
+  pc.drag = null;
+  pc.suggestion = null;
+  pcMsg('');
+  $('#pc-shot').hidden = true;
+  $('#pc-suggest').disabled = true;
+
+  const img = new Image();
+  const loaded = await new Promise((done) => {
+    img.onload = () => done(true);
+    img.onerror = () => done(false);
+    img.src = `/img/${enc(orderId)}/${enc(base)}/source`;
+  });
+  if (!loaded) {
+    toast('Původní fotka tu už není, takže ji nejde oříznout.', true);
+    return;
+  }
+
+  pc.img = img;
+  $('#pc-name').textContent = base;
+  $('#pc-clear').hidden = !pc.stored;
+  pcDrawBase();
+  pcSetRatio('free');
+  pc.box = pc.stored ? pcFromSource(pc.stored) : null;
+  $('#pc').showModal();
+  pcFitStage(); // the dialog has no width until it is open, so nothing could be measured before now
+
+  // Ask whether this looks like a screen capture, now that somebody is actually looking at it. A
+  // warning and a proposal, never an automatic cut: it is the customer's photograph.
+  try {
+    const res = await fetch(`/api/${enc(orderId)}/${enc(base)}/crop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suggest: true }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok && body.suggestion && $('#pc').open && pc.base === base) {
+      pc.suggestion = body.suggestion;
+      $('#pc-suggest').disabled = false;
+      if (!pc.stored) {
+        $('#pc-shot').hidden = false;
+        pcMsg('Pravděpodobně snímek obrazovky — zkuste „Navrhnout ořez“.');
+      }
+    }
+  } catch {
+    // No proposal is a perfectly good answer; the operator drags their own box.
+  }
+}
+
+async function pcSend(crop, label) {
+  if (pc.saving) return;
+  pc.saving = true;
+  const save = $('#pc-save');
+  const clear = $('#pc-clear');
+  const was = save.textContent;
+  save.disabled = true;
+  clear.disabled = true;
+  save.textContent = 'Ukládám…';
+  pcMsg('');
+  try {
+    const res = await fetch(`/api/${enc(pc.order)}/${enc(pc.base)}/crop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ crop }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `ořez se nepodařilo uložit (HTTP ${res.status})`);
+    $('#pc').close();
+    toast(body.started ? `${label} Přegenerovávám — pár minut.` : `${label} Použije se při dalším spuštění.`);
+  } catch (err) {
+    // Never "something went wrong": say what did not happen, and what is therefore still true.
+    pcMsg(`${err.message}. Původní fotka nebyla změněna.`, true);
+  }
+  save.textContent = was;
+  save.disabled = false;
+  clear.disabled = false;
+  pc.saving = false;
+  await refresh(true);
+}
+
+$('#pc-cancel').addEventListener('click', () => $('#pc').close());
+$('#pc-save').addEventListener('click', () => pcSend(pcToSource(), 'Ořez uložen.'));
+$('#pc-clear').addEventListener('click', () => pcSend(null, 'Ořez zrušen — použije se celá původní fotka.'));
+$('#pc-reset').addEventListener('click', () => {
+  pc.box = null; // the whole photo, and a clean slate to drag a new box on
+  pcMsg('');
+  pcRedraw();
+});
+$('#pc-fit').addEventListener('click', pcCentre);
+$('#pc-rotl').addEventListener('click', () => pcRotate(-90));
+$('#pc-rotr').addEventListener('click', () => pcRotate(90));
+$('#pc-suggest').addEventListener('click', () => {
+  if (!pc.suggestion) return;
+  pcSetRatio('free');
+  pc.box = pcFromSource(pc.suggestion);
+  pcMsg('Návrh vložen — upravte ho tažením, pokud sedí jinak.');
+  pcRedraw();
+});
+for (const b of document.querySelectorAll('#pc [data-ratio]')) {
+  b.addEventListener('click', () => pcSetRatio(b.dataset.ratio));
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!$('#pc').open) return;
+  if (e.code === 'Space' && !pc.space) {
+    pc.space = true;
+    e.preventDefault(); // space would otherwise press whichever button has focus
+  }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') pc.space = false;
+});
+
+$('#pc').addEventListener('close', () => {
+  pc.img = null;
+  pc.box = null;
+  pc.suggestion = null;
+  pc.pointers.clear();
+});
+
+window.addEventListener('resize', () => {
+  if ($('#pc').open) pcFitStage();
+});
+
 /** The pre-generation hold: why the order was held, the drafted customer email, and the one way
  *  past it. Only shown while the hold stands and the operator has not overridden it. */
 function intakePanel(o, locked) {
@@ -1079,6 +1738,14 @@ function intakePanel(o, locked) {
       ${wait}
       <div class="iacts">${emailBtn}<button data-intake-proceed${countAttrs}${locked ? ' disabled' : ''}>Přesto vygenerovat</button></div>
     </div>`;
+}
+
+/** "2 / 4" on each card — its place in the BOOK, numbered before the grid re-sorts by attention.
+ *  Without it a re-sorted grid is four cards in no order anybody can name, and "the second photo is
+ *  wrong" stops being a thing the operator can say out loud. */
+function withPosition(photos) {
+  const order = [...photos].sort((a, b) => a.base.localeCompare(b.base, 'en', { numeric: true }));
+  return order.map((p, i) => ({ ...p, at: { i: i + 1, n: order.length } }));
 }
 
 function orderSection(o, locked) {
@@ -1125,7 +1792,7 @@ function orderSection(o, locked) {
   return `<section class="order">
     <header><h2>Objednávka ${esc(o.orderId)}</h2>${note}${badge}${incompleteChip}${ded}<button class="mode-toggle" data-focus="${esc(o.orderId)}">${focusOrders.has(o.orderId) ? 'Mřížka' : 'Detail'}</button>${clearBtn}</header>
     ${intakePanel(o, locked)}
-    <div class="grid${focusOrders.has(o.orderId) ? ' focus' : ''}">${[...o.photos].sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
+    <div class="grid${focusOrders.has(o.orderId) ? ' focus' : ''}">${withPosition(o.photos).sort(byAttention).map((p) => tile(o.orderId, o.orderDir, p, locked)).join('')}</div>
   </section>`;
 }
 
@@ -1401,14 +2068,38 @@ async function lbAct(k, action) {
   });
 })();
 
-// ←/→ move; A/B/R are approve/mark-bad/redo; Esc is the dialog's native close.
+// ←/→ move; A/B/X approve/mark-bad, R regenerate, C crop, E fix by hand. Esc is the dialog's
+// native close. Only while the lightbox is open — this page is a grid of text boxes otherwise, and
+// a shortcut that fires mid-word into a customer's title page is a shortcut that costs work.
+const typing = (el) =>
+  Boolean(el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)));
+
 document.addEventListener('keydown', (e) => {
   const dlg = $('#lb');
-  if (!dlg.open) return;
+  if (!dlg.open || typing(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === 'ArrowLeft') { e.preventDefault(); lbNav(-1); return; }
   if (e.key === 'ArrowRight') { e.preventDefault(); lbNav(1); return; }
-  const action = { a: 'approve', b: 'reject', r: 'redo' }[e.key.toLowerCase()];
-  if (action) { e.preventDefault(); const k = lbKeys[lbIdx]; if (k) lbAct(k, action); }
+  const k = lbKeys[lbIdx];
+  if (!k) return;
+  const key = e.key.toLowerCase();
+  if (key === 'c' || key === 'e') {
+    // Both open an editor over the photo, so the lightbox gets out of the way first.
+    const tile = lbTileFor(k);
+    const btn = tile?.querySelector(key === 'c' ? '[data-crop]' : 'button[data-edit]');
+    if (!btn || btn.disabled) return;
+    e.preventDefault();
+    dlg.close();
+    if (key === 'c') {
+      let stored = null;
+      try { stored = JSON.parse(tile.dataset.mcrop ?? 'null'); } catch { stored = null; }
+      openCrop(k.order, k.base, stored);
+    } else {
+      openEditor(k.order, k.base, tile.dataset.edited === '1');
+    }
+    return;
+  }
+  const action = { a: 'approve', b: 'reject', x: 'reject', r: 'redo' }[key];
+  if (action) { e.preventDefault(); lbAct(k, action); }
 });
 
 document.addEventListener('click', (e) => {
@@ -1421,6 +2112,7 @@ document.addEventListener('click', (e) => {
   if (lbBtn) {
     const k = lbKeys[lbIdx];
     if (!k) return;
+    if (lbBtn.dataset.crop !== undefined) return; // handled below, against the tile it came from
     if (lbBtn.dataset.a !== undefined) lbAct(k, lbBtn.dataset.a);
     else if (lbBtn.dataset.open !== undefined) open(lbBtn.dataset.open, k.order);
     else if (lbBtn.dataset.edit !== undefined && !lbBtn.disabled) { $('#lb').close(); openEditor(k.order, k.base, lbTileFor(k)?.dataset.edited === '1'); }
@@ -1437,6 +2129,24 @@ document.addEventListener('click', (e) => {
   if (fix) {
     const t = fix.closest('.tile');
     openEditor(t.dataset.order, t.dataset.base, t.dataset.edited === '1');
+    return;
+  }
+
+  // Oříznout — from a card, from the note inside a card, or from the lightbox's copy of the row.
+  const cropBtn = e.target.closest('button[data-crop],[data-crop]');
+  if (cropBtn && !cropBtn.disabled) {
+    const t = cropBtn.closest('.tile');
+    const order = cropBtn.dataset.order ?? t?.dataset.order;
+    const base = cropBtn.dataset.base ?? t?.dataset.base;
+    if (!order || !base) return;
+    let stored = null;
+    try {
+      stored = JSON.parse((t ?? lbTileFor({ order, base }))?.dataset.mcrop ?? 'null');
+    } catch {
+      stored = null; // an unreadable attribute is no stored crop, not a broken editor
+    }
+    if ($('#lb').open) $('#lb').close();
+    openCrop(order, base, stored);
     return;
   }
 

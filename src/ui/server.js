@@ -54,6 +54,8 @@ import {
   markCustomerEmailed,
   applyPhotoEdit,
   revertPhotoEdit,
+  setPhotoCrop,
+  suggestPhotoCrop,
   ReviewError,
 } from '../review.js';
 import { migrateDedications, MEMORY_DIR } from '../dedications.js';
@@ -225,6 +227,10 @@ function forClient(orders, inFlight) {
       // Straightened, or cut out of a screenshot, before it was drawn — so the grid can say so and
       // offer the undo. Null for the ordinary photo that needed nothing, which is nearly all of them.
       framing: p.framing,
+      // The operator's own crop, so the card can say the photo is cropped and offer the way back
+      // before any regeneration has finished. Null for the overwhelming majority of photos.
+      manualCrop: p.manualCrop,
+      hasSource: Boolean(p.files.source),
       // The render's mtime versions its <img> URL, so a completed redo repaints the tile
       // instead of the browser showing the render the operator just rejected.
       coloringVersion: p.files.coloring ? statSync(p.files.coloring).mtimeMs : 0,
@@ -239,10 +245,15 @@ function forClient(orders, inFlight) {
   }));
 }
 
-const thumbs = new Map(); // `${path}:${mtimeMs}` -> jpeg Buffer
+const thumbs = new Map(); // `${path}:${mtimeMs}:${width}` -> jpeg Buffer
 
-async function thumbnail(path) {
-  const key = `${path}:${statSync(path).mtimeMs}`;
+// The crop editor zooms, so it is served a bigger copy than a grid tile. Still a copy: the
+// full-resolution original is never sent to the browser, and the crop is stored as fractions, so
+// the box the operator drags applies to the full-resolution file all the same.
+const CROP_WIDTH = 1600;
+
+async function thumbnail(path, width = THUMB_WIDTH) {
+  const key = `${path}:${statSync(path).mtimeMs}:${width}`;
   const hit = thumbs.get(key);
   if (hit) return hit;
   // Decode from bytes, not from the path: handed a path, libvips keeps the file mapped while it
@@ -255,7 +266,7 @@ async function thumbnail(path) {
     // page, which DOES rotate, came out upright. A file with no flag (every _bw.png) is unaffected.
     .rotate()
     .flatten({ background: '#ffffff' })
-    .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
+    .resize({ width, withoutEnlargement: true })
     .jpeg({ quality: 82 })
     .toBuffer();
   if (thumbs.size > 300) thumbs.clear();
@@ -264,6 +275,31 @@ async function thumbnail(path) {
 }
 
 const MAX_LOG_LINES = 400;
+
+// A print run is a stack of paper somebody carries to a press. Past this it is not a run, it is the
+// archive — and building that archive would hold the box up for minutes.
+const MAX_BATCH_ORDERS = 100;
+
+/** `1510_Pro-Jiricka.pdf` — the order number first, because that is what the printer matches against
+ *  the board, and the title after it only so a stack of paper can be told apart by eye.
+ *
+ *  SANITISED HARD. This string becomes a path inside an archive somebody unpacks on their own
+ *  desktop: anything that could read as a directory, a drive letter or a shell argument is stripped
+ *  rather than escaped, accents are folded rather than dropping the word they sit on, and what is
+ *  left is short enough to survive Windows' path limit. An order with no title is just its number. */
+export function batchPdfName(order) {
+  const title = String(order.dedication ?? '')
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '');
+  // Leading dots go too: a zip entry called "..something" is harmless but reads as a traversal
+  // attempt to every archive tool that shows it, and to the person opening it.
+  const id = String(order.orderId).replace(/[^\w.-]/g, '_').replace(/^\.+/, '');
+  return title ? `${id}_${title}.pdf` : `${id}.pdf`;
+}
 
 // Above this many orders in one folder, the operator has opened their archive rather than a
 // batch. Ticking them all would generate every order they have ever shipped.
@@ -567,17 +603,23 @@ export const ROUTE_POLICY = Object.freeze([
     sample: '/api/avatar/operator-0123456789abcdef.webp',
   },
   // An order's photographs and its two downloads: the book itself and the archive Jirka prints from.
+  // `source` is the customer's own upload rather than the generator's echo — the frame the crop
+  // editor measures in. Same audience as the other two: it is the same photograph, and whoever may
+  // look at an order's pictures may look at the one it was made from.
   {
     id: 'GET /img/<order>/<base>/<kind>',
     audience: AUDIENCES.BOTH,
     methods: ['GET'],
-    tokens: ['img', 'coloring'],
+    tokens: ['img', 'coloring', 'source'],
     match: (method, pathname, parts) => parts[0] === 'img',
     sample: '/img/1510/clean/coloring',
   },
   { id: 'GET /svg/<order>/<base>', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['svg'], match: (method, pathname, parts) => parts[0] === 'svg', sample: '/svg/1510/clean' },
   { id: 'GET /api/<order>/pdf', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['pdf'], match: orderAction('pdf'), sample: '/api/1510/pdf' },
   { id: 'GET /api/<order>/zip', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['zip'], match: orderAction('zip'), sample: '/api/1510/zip' },
+  // A whole print run in one download. Same audience as the single PDF beside it — this exists FOR
+  // the printer, and it only ever contains books that are already on disk.
+  { id: 'GET /api/print-batch', audience: AUDIENCES.BOTH, methods: ['GET'], tokens: ['/api/print-batch'], match: atPath('/api/print-batch'), sample: '/api/print-batch' },
   // Generation. Jirka runs it: with WhatsApp gone he fetches the book himself, and a book that never
   // generated is a book he cannot fetch.
   { id: 'POST /api/_run', audience: AUDIENCES.BOTH, methods: ['POST'], tokens: ['/api/_run'], match: atPath('/api/_run'), sample: '/api/_run' },
@@ -595,7 +637,7 @@ export const ROUTE_POLICY = Object.freeze([
     id: 'POST /api/<order>/<base>/<action>',
     audience: AUDIENCES.BOTH,
     methods: ['POST'],
-    tokens: ['approve', 'reject', 'handoff', 'replaced', 'redo', 'unframe', 'edit', 'revert'],
+    tokens: ['approve', 'reject', 'handoff', 'replaced', 'redo', 'unframe', 'edit', 'revert', 'crop'],
     match: (method, pathname, parts) => parts[0] === 'api' && parts.length === 4,
     sample: '/api/1510/clean/approve',
   },
@@ -1748,6 +1790,48 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, { selected });
       }
 
+      // GET /api/print-batch?orders=1510,1523 — one download for a whole print run.
+      //
+      // WHAT IT IS NOT: a status change. Downloading a batch is fetching paper, not printing it —
+      // the press jams, the toner runs out, half the run goes home unprinted. Marking these books
+      // printed here would put a lie on the board that only the person at the press could see, so
+      // "Označit vytištěno" stays the separate, explicit act it already was.
+      if (req.method === 'GET' && url.pathname === '/api/print-batch') {
+        const asked = String(url.searchParams.get('orders') ?? '')
+          .split(',')
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .slice(0, MAX_BATCH_ORDERS);
+        if (!asked.length) return json(res, 400, { error: 'Nevybrali jste žádnou objednávku.' });
+        const board = state();
+        const picked = [];
+        for (const id of asked) {
+          const order = board.find((o) => o.orderId === id);
+          if (!order) continue; // an id the board does not know reaches no file, by construction
+          const pdfPath = pdfPathFor(order.orderDir, order.orderId);
+          if (existsSync(pdfPath)) picked.push({ order, pdfPath });
+        }
+        if (!picked.length) return json(res, 404, { error: 'Žádná z vybraných objednávek zatím nemá hotové PDF.' });
+
+        const day = new Date().toISOString().slice(0, 10);
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="print_batch_${day}.zip"`,
+          'Cache-Control': 'no-store',
+        });
+        // Streamed and level 6, for the same reasons as the per-order archive above: a print run is
+        // tens of megabytes of PDF, which does not compress and must not be held in memory.
+        const archive = new ZipArchive({ zlib: { level: 6 } });
+        archive.on('error', (err) => {
+          log(`Tiskovy balik selhal: ${err.message}`);
+          res.destroy(); // a truncated download is visibly broken; a short one looks complete
+        });
+        archive.pipe(res);
+        for (const { order, pdfPath } of picked) archive.file(pdfPath, { name: batchPdfName(order) });
+        log(`Tiskovy balik: ${picked.length} kniha(y) - ${picked.map((x) => x.order.orderId).join(', ')}`);
+        return archive.finalize();
+      }
+
       // POST /api/_run  { inbox?, force?, buildPdfs? } — Go (buildPdfs:false, generate only) / PDF (build).
       if (req.method === 'POST' && url.pathname === '/api/_run') {
         startRun(await readJson(req));
@@ -1793,14 +1877,19 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         return json(res, 200, picked);
       }
 
-      // GET /img/<order>/<base>/<original|coloring>
+      // GET /img/<order>/<base>/<original|coloring|source>
+      //
+      // `source` is the customer's own upload — what the next generation will read, and therefore
+      // the only frame a crop rectangle can be measured in. Served larger than the other two because
+      // the crop editor zooms into it.
       if (req.method === 'GET' && parts[0] === 'img' && parts.length === 4) {
         const { photo } = find(parts[1], parts[2]);
-        const path = parts[3] === 'coloring' ? photo.files.coloring : photo.files.original;
+        const wantsSource = parts[3] === 'source';
+        const path = parts[3] === 'coloring' ? photo.files.coloring : wantsSource ? photo.files.source : photo.files.original;
         if (!path) return json(res, 404, { error: 'not generated yet' });
         let buf;
         try {
-          buf = await thumbnail(path);
+          buf = await thumbnail(path, wantsSource ? CROP_WIDTH : THUMB_WIDTH);
         } catch {
           // A truncated download or a file that isn't really an image. One bad tile must not
           // take down the grid, and the operator needs to see *which* photo is unreadable.
@@ -2067,8 +2156,40 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         // inbox — once the photos are purged, the generator's echo is all there is, and that echo is
         // the corrected image. redo() already prefers the source over the echo.
         if (action === 'unframe') {
+          // Also throws away the operator's own rectangle, because this button says "exactly as the
+          // customer sent it" and a stored crop would quietly keep being applied. It is the revert.
+          setPhotoCrop({ orderDir: order.orderDir, base, crop: null, bases: order.photos.map((x) => x.base) });
           await startRedo(orderId, base, { noFraming: true });
           return json(res, 202, { started: true });
+        }
+        // The operator's own crop of the CUSTOMER'S PHOTO — a rectangle, not a file. Three things on
+        // one route because they are one decision: propose a box, store a box, clear a box.
+        //
+        // Nothing here writes an image. The stored fractions are applied to the customer's own
+        // upload on every later generation (see batch.js generatePhoto), which is what makes the
+        // original recoverable: it is never overwritten, so "revert" is deleting four numbers.
+        if (action === 'crop') {
+          const { photo } = find(orderId, base);
+          const body = await readJson(req);
+          // A proposal, computed and thrown away. Writes nothing, so it is safe to offer on a photo
+          // the operator then decides not to crop at all.
+          if (body.suggest === true) {
+            return json(res, 200, { suggestion: await suggestPhotoCrop(photo.files.source) });
+          }
+          // `bases` from the board, not from the manifest: a photo that has never been generated has
+          // no manifest entry yet, and that is exactly when cropping a screenshot saves a GPU run.
+          const manualCrop = setPhotoCrop({
+            orderDir: order.orderDir,
+            base,
+            crop: body.crop ?? null,
+            bases: order.photos.map((x) => x.base),
+          });
+          // A photo that has never generated has nothing to regenerate; the crop simply waits for
+          // the first run. Anything else goes straight back to the generator, because a crop the
+          // operator drew and then had to remember to re-run is a crop that silently does nothing.
+          if (photo.status == null) return json(res, 200, { started: false, manualCrop });
+          await startRedo(orderId, base);
+          return json(res, 202, { started: true, manualCrop });
         }
         // The operator's own white pencil and crop. The SVG is what the book prints, so that is
         // what gets edited; the raster the grid shows is re-made from it.

@@ -1,9 +1,10 @@
 <meta charset="utf-8">
 <title>Fotomalovánky · Studio</title>
 <link rel="icon" type="image/png" href="/favicon.png">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/components.css">
+<script src="/js/shell.js" defer></script>
 <style>
   /* the overnight-autopilot morning banner (home + Objednávky). Tone follows the worst state present. */
   .overnight[hidden]{display:none}
@@ -431,6 +432,16 @@
     <!-- ===== ORDERS ===== -->
     <section class="view" id="v-orders">
       <div class="overnight" hidden></div>
+      <!-- Filters name the REAL board statuses (studio.js), grouped the way a working day groups
+           them. No invented labels: a filter that promises a state the backend cannot produce is
+           worse than no filter. -->
+      <div class="list-bar">
+        <div class="filters" id="ordersFilters" role="group" aria-label="Filtr objednávek"></div>
+        <label class="find">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="ordersFind" placeholder="Číslo objednávky nebo titulek" aria-label="Hledat objednávku">
+        </label>
+      </div>
       <div class="orders-toolbar">
         <span class="fetch-note" id="fetchNote">Nové objednávky se stahují automaticky ze Shopify.</span>
       </div>
@@ -445,8 +456,17 @@
          Two controls per row and nothing else: the book to print, and the mark that it was printed.
          Everything else an order can need belongs on the board; this view is a work list. -->
     <section class="view" id="v-queue">
+      <!-- Selection acts on the whole run: fetch the paper in one download, then say what was
+           actually printed. The two are deliberately separate buttons — see /api/print-batch. -->
+      <div class="list-bar" id="queueBar" hidden>
+        <label class="qsel"><input type="checkbox" id="queueAll"> Vybrat vše</label>
+        <span class="qcount" id="queueCount"></span>
+        <span class="spacer"></span>
+        <button class="btn btn-secondary sm" id="queueZip" disabled>Stáhnout balík</button>
+        <button class="btn btn-primary sm" id="queuePrinted" disabled>Označit vytištěno</button>
+      </div>
       <div class="table"><table>
-        <thead><tr><th>Objednávka</th><th>Stránky</th><th>Titulek</th><th></th></tr></thead>
+        <thead><tr><th class="tick"></th><th>Objednávka</th><th>Stránky</th><th>Titulek</th><th></th></tr></thead>
         <tbody id="queueBody"></tbody>
       </table></div>
     </section>
@@ -936,18 +956,63 @@
   // state and was hidden here; it now means "printed, still to post", which is work.
   const isDone=o=>o.status==="sent";
   let showDone=false;
+
+  /* ---- filters over the REAL statuses ----------------------------------------
+     Each group lists the board states studio.js can actually produce, so a count is never a promise
+     the backend cannot keep. "Vše" is the board as it always was: active orders, finished ones
+     behind the existing toggle. */
+  const ORDER_FILTERS=[
+    {key:"all",   label:"Vše",                 states:null},
+    {key:"check", label:"Potřebuje kontrolu",  states:["pending-review","held"]},
+    {key:"gen",   label:"Generování",          states:["queued","generating"]},
+    {key:"ready", label:"Připraveno k tisku",  states:["approved","ready-to-print"]},
+    {key:"printed",label:"Vytištěno",          states:["printed"]},
+    {key:"sent",  label:"Odesláno",            states:["sent"]},
+    {key:"problem",label:"Problém",            states:["failed"]},
+  ];
+  let orderFilter="all";
+  let orderFind="";
+
+  /** Order number or title only. The customer's name is on the shop record and stays there: this
+   *  screen has never shown it, and a search box is not a reason to start. */
+  function matchesFind(o,q){
+    if(!q)return true;
+    return String(o.orderId).toLowerCase().includes(q)||String(o.dedication||"").toLowerCase().includes(q);
+  }
+
+  function renderOrderFilters(orders){
+    const box=document.getElementById("ordersFilters");
+    if(!box)return;
+    box.innerHTML=ORDER_FILTERS.map(f=>{
+      // Counted over everything, not over what is currently shown — a filter's number has to say
+      // how much work is behind it, or clicking one would empty out all the others.
+      const n=f.states?orders.filter(o=>f.states.includes(o.status)).length:orders.length;
+      const dim=f.states&&n===0?' style="opacity:.55"':"";
+      return `<button type="button" data-filter="${f.key}"${f.key===orderFilter?' class="on"':""}${dim}>${esc(f.label)}<span class="n">${n}</span></button>`;
+    }).join("");
+  }
+
   function renderOrders(d){
     const b=document.getElementById("ordersBody");
     // Newest order on top (order numbers grow over time) — the one you just made is right there when
     // you open Objednávky. The "Stáří" column + stale chips still surface anything that's rotting, so
     // nothing gets lost by not leading with the oldest. (Potřebuje vás stays oldest-first — chase order.)
     const byNewest=(a,b)=>b.orderId.localeCompare(a.orderId,"en",{numeric:true});
-    const active=d.orders.filter(o=>!isDone(o)).sort(byNewest);
-    const done=d.orders.filter(isDone).sort(byNewest);
-    const rows=showDone?[...active,...done]:active;
-    b.innerHTML=rows.length?rows.map(o=>orderRow(o,{actions:true})).join(""):'<tr><td colspan="6" class="empty">Žádné aktivní objednávky.</td></tr>';
+    renderOrderFilters(d.orders);
+    const q=orderFind.trim().toLowerCase();
+    const chosen=ORDER_FILTERS.find(f=>f.key===orderFilter)||ORDER_FILTERS[0];
+    const all=d.orders.filter(o=>(!chosen.states||chosen.states.includes(o.status))&&matchesFind(o,q));
+    const active=all.filter(o=>!isDone(o)).sort(byNewest);
+    const done=all.filter(isDone).sort(byNewest);
+    // A named filter has already said what it wants; the finished-orders toggle only governs "Vše".
+    const rows=(showDone||chosen.states)?[...active,...done]:active;
+    const nothing=q||chosen.states
+      ?`<tr><td colspan="6" class="no-match">Nic neodpovídá${q?` hledání „${esc(orderFind.trim())}“`:" tomuto filtru"}.</td></tr>`
+      :'<tr><td colspan="6" class="empty">Žádné aktivní objednávky.</td></tr>';
+    b.innerHTML=rows.length?rows.map(o=>orderRow(o,{actions:true})).join(""):nothing;
     const tog=document.getElementById("doneToggle");
-    tog.innerHTML=done.length?`<button class="btn btn-secondary sm" id="toggleDone">${showDone?"Skrýt dokončené":"Zobrazit dokončené ("+done.length+")"}</button>`:"";
+    // Only under "Vše": every other filter decides for itself whether finished orders belong in it.
+    tog.innerHTML=(!chosen.states&&done.length)?`<button class="btn btn-secondary sm" id="toggleDone">${showDone?"Skrýt dokončené":"Zobrazit dokončené ("+done.length+")"}</button>`:"";
   }
 
   /* ---- Tisková fronta (U12, R10): what is waiting on the press ----
@@ -956,27 +1021,97 @@
      finished is the next one on the press.
      Exactly two controls per row. Anything else an order might need is on the board; adding a
      third control here is how a work list turns back into the screen it was extracted from. */
+  /* Ticked orders survive the 2.5s repaint — losing a selection halfway through picking a run is
+     how a batch turns back into one-at-a-time. Orders that leave the queue leave the set with them. */
+  const queueSel=new Set();
+  let queueBusy=false;
+
   function renderQueue(d){
     const b=document.getElementById("queueBody");
     if(!b)return;
     const rows=d.printQueue||[];
     document.getElementById("nav-queue").textContent=rows.length;
+    const here=new Set(rows.map(o=>o.orderId));
+    for(const id of [...queueSel])if(!here.has(id))queueSel.delete(id);
     b.innerHTML=rows.length?rows.map(o=>{
       const denom=o.expectedPages||o.photos.total;
       const ph=o.photos.total?`${o.photos.eligible}/${denom}`:"–";
+      const id=esc(o.orderId);
       return `<tr>
-        <td><span class="oid">${esc(o.orderId)}</span></td>
+        <td class="tick"><input type="checkbox" data-pick="${id}" aria-label="Vybrat ${id}"${queueSel.has(o.orderId)?" checked":""}></td>
+        <td><span class="oid">${id}</span></td>
         <td class="mono">${ph}</td>
         <td><span class="ded-cell">${o.dedication?"„"+esc(o.dedication)+"“":"—"}</span></td>
         <td class="act-cell">
           <a class="btn btn-secondary sm" href="/api/${esc(o.orderId)}/pdf" target="_blank" rel="noopener">Stáhnout PDF</a>
-          <button class="btn btn-primary sm act-printed" data-printed="${esc(o.orderId)}">Označit vytištěno</button>
+          <button class="btn btn-primary sm act-printed" data-printed="${id}">Označit vytištěno</button>
         </td></tr>`;
-    }).join(""):'<tr><td colspan="4" class="empty">Žádná kniha nečeká na tisk.</td></tr>';
+    }).join(""):'<tr><td colspan="5" class="empty">Žádná kniha nečeká na tisk.</td></tr>';
+    syncQueueBar(rows);
   }
+
+  function syncQueueBar(rows){
+    const bar=document.getElementById("queueBar");
+    if(!bar)return;
+    bar.hidden=!rows.length;
+    const n=queueSel.size;
+    document.getElementById("queueCount").textContent=n?`${n} z ${rows.length} vybráno`:`${rows.length} ${rows.length===1?"kniha čeká":"knih čeká"}`;
+    const all=document.getElementById("queueAll");
+    all.checked=rows.length>0&&n===rows.length;
+    all.indeterminate=n>0&&n<rows.length;
+    const zip=document.getElementById("queueZip");
+    const pr=document.getElementById("queuePrinted");
+    zip.disabled=pr.disabled=queueBusy||n===0;
+    zip.textContent=n?`Stáhnout balík (${n})`:"Stáhnout balík";
+    pr.textContent=n?`Označit vytištěno (${n})`:"Označit vytištěno";
+  }
+
   document.getElementById("queueBody").addEventListener("click",e=>{
     const p=e.target.closest(".act-printed");
-    if(p){p.disabled=true;orderAction(p.dataset.printed,"printed");}
+    if(p){p.disabled=true;orderAction(p.dataset.printed,"printed");return;}
+    const pick=e.target.closest("input[data-pick]");
+    if(pick){
+      if(pick.checked)queueSel.add(pick.dataset.pick);else queueSel.delete(pick.dataset.pick);
+      syncQueueBar(studioData?.printQueue||[]);
+    }
+  });
+
+  document.getElementById("queueAll").addEventListener("change",e=>{
+    const rows=studioData?.printQueue||[];
+    queueSel.clear();
+    if(e.target.checked)for(const o of rows)queueSel.add(o.orderId);
+    for(const box of document.querySelectorAll("#queueBody input[data-pick]"))box.checked=queueSel.has(box.dataset.pick);
+    syncQueueBar(rows);
+  });
+
+  // The download is a download. It fetches paper; it does not decide that anything was printed.
+  document.getElementById("queueZip").addEventListener("click",()=>{
+    if(!queueSel.size)return;
+    const ids=[...queueSel].map(encodeURIComponent).join(",");
+    location.href=`/api/print-batch?orders=${ids}`;
+    toast(`Stahuji ${queueSel.size} ${queueSel.size===1?"knihu":"knih"} — stav se tím nemění.`);
+  });
+
+  // …and marking them printed is the separate, explicit act, with a confirmation because it moves
+  // several orders down the pipeline at once and only "Vrátit" on the board takes one back.
+  document.getElementById("queuePrinted").addEventListener("click",async e=>{
+    const ids=[...queueSel];
+    if(!ids.length||queueBusy)return;
+    if(!confirm(`Označit ${ids.length} ${ids.length===1?"knihu":"knih"} jako vytištěné?`))return;
+    queueBusy=true;
+    syncQueueBar(studioData?.printQueue||[]);
+    let done=0;const failed=[];
+    for(const id of ids){
+      try{
+        const r=await fetch(`/api/${encodeURIComponent(id)}/printed`,{method:"POST"});
+        if(r.ok)done++;else failed.push(id);
+      }catch{failed.push(id);}
+    }
+    queueBusy=false;
+    queueSel.clear();
+    // Never optimistic: say what actually landed, and name what did not so it can be retried.
+    toast(failed.length?`Označeno ${done}, nepodařilo se: ${failed.join(", ")}`:`Označeno ${done} jako vytištěné.`);
+    await fetchStudio();
   });
 
   // Waiting-since (N4): how long the ball has been in the customer's court, danger after 5 days.
@@ -1290,6 +1425,17 @@
   }
 
   /* ---- board actions: record that an order went out (or was printed), or undo ---- */
+  document.getElementById("ordersFilters").addEventListener("click",e=>{
+    const b=e.target.closest("button[data-filter]");
+    if(!b)return;
+    orderFilter=b.dataset.filter;
+    if(studioData)renderOrders(studioData);
+  });
+  document.getElementById("ordersFind").addEventListener("input",e=>{
+    orderFind=e.target.value;
+    if(studioData)renderOrders(studioData);
+  });
+
   async function orderAction(id,action){
     try{const r=await fetch(`/api/${encodeURIComponent(id)}/${action}`,{method:"POST"});if(r.ok)await fetchStudio();}
     catch(e){/* offline — leave the board as-is */}
