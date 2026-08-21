@@ -13,6 +13,7 @@ import sharp from 'sharp';
 import { ORDER_INFO } from '../orderInfo.js';
 import { expectedPhotosFrom, channelOf, sourceFingerprint } from './orders.js';
 import { safeFetch as defaultSafeFetch } from './safeFetch.js';
+import { acquireOrderLock, assertSafeOrderId } from '../orderLock.js';
 
 /** organize.js only ingests .jpg/.jpeg (isPhoto), but the upload host serves some photos as PNG/WebP.
  *  Re-encode anything that isn't already JPEG so every downloaded photo reaches the pipeline instead
@@ -31,12 +32,10 @@ function photoName(orderId, index, label, ext) {
   return `${orderId}_img${nnnn}_-_${safeLabel}.${ext}`;
 }
 
-const SAFE_ORDER_ID = /^\d+(?:-\d+)*$/;
-
 function containedOrderDir(inboxRoot, orderId) {
-  if (!SAFE_ORDER_ID.test(String(orderId ?? ''))) throw new Error(`A safe order id is required: ${JSON.stringify(orderId)}`);
+  const safeId = assertSafeOrderId(orderId);
   const root = resolve(inboxRoot);
-  const dir = resolve(root, String(orderId));
+  const dir = resolve(root, safeId);
   const rel = relative(root, dir);
   if (!rel || rel.startsWith('..') || rel.includes(':')) throw new Error('A safe order id must stay inside the inbox');
   return { root, dir };
@@ -84,11 +83,13 @@ export async function materializeOrder(order, {
 } = {}) {
   const { root, dir: orderDir } = containedOrderDir(inboxRoot, order.orderId);
   mkdirSync(root, { recursive: true });
+  const releaseLock = acquireOrderLock({ inboxRoot: root, orderId: order.orderId, operation: 'Shopify materialization' });
   const nonce = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const stagingDir = join(root, `.${order.orderId}.staging-${nonce}`);
   const backupDir = join(root, `.${order.orderId}.previous-${nonce}`);
-  mkdirSync(stagingDir);
-  const fingerprint = sourceFingerprint(order);
+  try {
+    mkdirSync(stagingDir);
+    const fingerprint = sourceFingerprint(order);
 
   const files = [];
   const errors = [];
@@ -141,15 +142,15 @@ export async function materializeOrder(order, {
   };
   if (!incomplete) writeFileSync(join(stagingDir, ORDER_INFO), JSON.stringify(sidecar, null, 2));
 
-  try {
-    if (incomplete || !validMaterialization(stagingDir, order.orderId, fingerprint, files)) {
-      if (!incomplete) errors.push('staged contents failed validation');
-      return { orderId: order.orderId, orderDir, files: [], incomplete: true, errors, fingerprint };
-    }
-    promote(stagingDir, orderDir, backupDir);
-  } finally {
-    rmSync(stagingDir, { recursive: true, force: true });
+  if (incomplete || !validMaterialization(stagingDir, order.orderId, fingerprint, files)) {
+    if (!incomplete) errors.push('staged contents failed validation');
+    return { orderId: order.orderId, orderDir, files: [], incomplete: true, errors, fingerprint };
   }
+  promote(stagingDir, orderDir, backupDir);
 
-  return { orderId: order.orderId, orderDir, files, incomplete: false, errors, fingerprint };
+    return { orderId: order.orderId, orderDir, files, incomplete: false, errors, fingerprint };
+  } finally {
+    try { rmSync(stagingDir, { recursive: true, force: true }); }
+    finally { releaseLock(); }
+  }
 }

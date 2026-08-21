@@ -188,9 +188,9 @@ export function inspectOutbox({ outboxRoot, days, now = Date.now(), stalledMulti
  *  `cap` bounds ONE run (PURGE_BATCH_CAP; pass null for no cap). It is applied on the dry run too,
  *  so what the operator reads is exactly what a confirmation would do — a report listing forty
  *  orders and a run deleting twenty-five would be a worse lie than no report at all. */
-export function purgeOriginals({ outboxRoot, days, now = Date.now(), dryRun = true, cap = PURGE_BATCH_CAP, stalledMultiple = STALLED_WINDOW_MULTIPLE }) {
+export function purgeOriginals({ outboxRoot, days, now = Date.now(), dryRun = true, cap = PURGE_BATCH_CAP, stalledMultiple = STALLED_WINDOW_MULTIPLE, inspected = null }) {
   if (cap != null && (!Number.isInteger(cap) || cap <= 0)) throw new TypeError('cap must be a positive integer or null');
-  const inspected = inspectOutbox({ outboxRoot, days, now, stalledMultiple });
+  inspected ??= inspectOutbox({ outboxRoot, days, now, stalledMultiple });
   const eligible = inspected.filter((o) => !o.skip);
   const limit = cap == null ? eligible.length : cap;
   const purgeable = eligible.slice(0, limit);

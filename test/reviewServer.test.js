@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
 import sharp from 'sharp';
 import { createReviewServer, openCommand, powershellPath, openExternally, pickFolder, pickFolderScript, ANY_METHOD, ROUTE_POLICY, routeAudience, routePolicyFor } from '../src/ui/server.js';
 import { hashPassword, ROLE_ENV_VARS } from '../src/auth/credentials.js';
@@ -15,6 +16,7 @@ const CONFIG = {
   generator: { baseUrl: `https://fotomalovanky-app.onrender.com/${TOKEN}/`, mode: 'api', variant: '2509_1.5', diffusionSteps: 8 },
   builder: { baseUrl: 'https://example.test/builder' },
   paths: { inbox: './inbox', outbox: './outbox' },
+  retentionDays: 30,
 };
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0 L10 10"/></svg>';
 
@@ -60,6 +62,66 @@ after(() => {
 
 const get = (p) => fetch(`${origin}${p}`);
 const post = (p) => fetch(`${origin}${p}`, { method: 'POST' });
+
+async function holdOrderLock(orderId) {
+  const moduleUrl = new URL('../src/orderLock.js', import.meta.url).href;
+  const script = `import { acquireOrderLock } from ${JSON.stringify(moduleUrl)}; const release=acquireOrderLock({inboxRoot:process.argv[1],orderId:process.argv[2],operation:'contention test'}); process.stdout.write('ready\\n'); process.stdin.once('data',()=>{release();process.exit(0)});`;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script, inbox, orderId], { stdio: ['pipe', 'pipe', 'pipe'] });
+  await new Promise((resolveReady, reject) => {
+    child.stdout.once('data', resolveReady);
+    child.once('error', reject);
+    child.once('exit', (code) => { if (code) reject(new Error(`lock child exited ${code}`)); });
+  });
+  return async () => {
+    child.stdin.write('release');
+    await new Promise((done) => child.once('exit', done));
+  };
+}
+
+test('a child-process order lock refuses every review mutation without changing state', async () => {
+  const manifestPath = join(orderDir, 'state.json');
+  const before = readFileSync(manifestPath);
+  const release = await holdOrderLock('1510');
+  try {
+    for (const [action, body] of [
+      ['approve'], ['reject'], ['handoff'], ['replaced'], ['redo', {}],
+      ['edit', { strokes: [], crop: null }], ['revert'], ['unframe'], ['crop', { crop: null }],
+    ]) {
+      const response = await fetch(`${origin}/api/1510/clean/${action}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      assert.equal(response.status, 409, action);
+      assert.equal((await response.json()).code, 'ORDER_LOCKED', action);
+      assert.deepEqual(readFileSync(manifestPath), before, `${action} changed no state`);
+    }
+    for (const [path, body] of [['dedication', { text: 'blocked' }], ['intake-override', {}]]) {
+      const response = await fetch(`${origin}/api/1510/${path}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      assert.equal(response.status, 409, path);
+      assert.equal((await response.json()).code, 'ORDER_LOCKED', path);
+      assert.deepEqual(readFileSync(manifestPath), before, `${path} changed no state`);
+    }
+    for (const [path, body] of [
+      ['sent', {}], ['delete', {}], ['unsent', {}], ['emailed', {}], ['printed', {}], ['unprinted', {}],
+    ]) {
+      const response = await fetch(`${origin}/api/1510/${path}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      assert.equal(response.status, 409, path);
+      assert.equal((await response.json()).code, 'ORDER_LOCKED', path);
+      assert.equal(existsSync(join(orderDir, 'hidden.json')), false, `${path} wrote no delete marker`);
+    }
+    const purge = await fetch(`${origin}/api/purge/confirm`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }),
+    });
+    assert.equal(purge.status, 409, 'purge');
+    assert.equal((await purge.json()).code, 'ORDER_LOCKED');
+  } finally { await release(); }
+  assert.equal((await post('/api/1510/clean/approve')).status, 200, 'released lock permits the mutation');
+  writeFileSync(manifestPath, before);
+});
 
 test('home serves the studio dashboard; the review grid moves to /review', async () => {
   const home = await get('/');

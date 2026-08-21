@@ -126,8 +126,8 @@ export function planSentMarkerBackfill({ outboxRoot }) {
  *
  *  Returns the same shape either way — `written` is empty on a dry run — so the operator compares
  *  what was reported against what happened without reading two different objects. */
-export function backfillSentMarkers({ outboxRoot, apply = false, now = () => new Date() }) {
-  const plan = planSentMarkerBackfill({ outboxRoot });
+export function backfillSentMarkers({ outboxRoot, apply = false, now = () => new Date(), plan = null }) {
+  plan ??= planSentMarkerBackfill({ outboxRoot });
   const written = [];
   if (apply) {
     for (const item of plan.planned) {

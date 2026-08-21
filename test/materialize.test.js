@@ -8,6 +8,7 @@ import { materializeOrder } from '../src/shopify/materialize.js';
 import { isPhoto } from '../src/organize.js';
 import { readOrderInfo } from '../src/orderInfo.js';
 import { sourceFingerprint } from '../src/shopify/orders.js';
+import { acquireOrderLock, OrderLockedError } from '../src/orderLock.js';
 
 // The upload host serves some photos as PNG/WebP, but organize.js only ingests .jpg/.jpeg — so an
 // order like #1525 downloaded as PNG would land in the folder yet be silently skipped by the
@@ -15,6 +16,15 @@ import { sourceFingerprint } from '../src/shopify/orders.js';
 
 const ORDER = { orderId: '9001', dedication: 'Pro Aničku', email: 'x@y.cz', layout: null, products: [], photos: [] };
 const swatch = (bg) => sharp({ create: { width: 4, height: 4, channels: 3, background: bg } });
+
+test('materialization fails before writing when the logical order is locked', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-mat-lock-'));
+  const release = acquireOrderLock({ inboxRoot: root, orderId: ORDER.orderId, operation: 'pipeline' });
+  try {
+    await assert.rejects(() => materializeOrder(ORDER, { inboxRoot: root }), OrderLockedError);
+    assert.equal(existsSync(join(root, ORDER.orderId)), false);
+  } finally { release(); rmSync(root, { recursive: true, force: true }); }
+});
 
 test('materializeOrder re-encodes a non-JPEG photo to JPEG so the pipeline ingests it', async () => {
   const root = mkdtempSync(join(tmpdir(), 'fma-mat-'));

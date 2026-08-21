@@ -123,6 +123,21 @@ const markStateChanged = (orderDir) => {
   utimesSync(manifestPath(orderDir), t, t);
 };
 
+test('pipeline re-reads an order after locking instead of processing its discovery snapshot', async () => {
+  const f = fixture({ 1510: ['first'] });
+  const generator = new StubGenerator();
+  try {
+    await run(f, {
+      generator,
+      buildPdfs: false,
+      onEvent: (event) => {
+        if (event.type === 'run-start') writeFileSync(join(f.inbox, '1510', 'second.jpeg'), 'new photo');
+      },
+    });
+    assert.deepEqual(generator.calls.sort(), ['first', 'second']);
+  } finally { f.cleanup(); }
+});
+
 /** A generator that trips the Stop button the moment it finishes a given photo, so a test can
  *  make cancellation land at an exact boundary without real timing. */
 class StoppingGenerator extends StubGenerator {

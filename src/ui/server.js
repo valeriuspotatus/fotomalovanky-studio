@@ -11,8 +11,8 @@ import { createGeneratorDriver } from '../generator/factory.js';
 import { BuilderDriver } from '../builder/builderDriver.js';
 import { runPipeline, formatEvent, pdfPathFor } from '../orchestrator.js';
 import { studioBoard, markSent, unmarkSent, markPrinted, unmarkPrinted } from '../studio.js';
-import { backfillSentMarkers, SentMarkerMigrationError } from '../migrations/sentMarker.js';
-import { purgeAutopilotData, purgeOriginals, purgeWarning } from '../retention.js';
+import { backfillSentMarkers, planSentMarkerBackfill, SentMarkerMigrationError } from '../migrations/sentMarker.js';
+import { inspectOutbox, purgeAutopilotData, purgeOriginals, purgeWarning } from '../retention.js';
 import { readReport } from '../autopilotReport.js';
 import { runAutopilot } from '../autopilot.js';
 import { hiddenMarkerPath } from '../review.js';
@@ -89,6 +89,7 @@ import {
   wantsSignInPage,
 } from '../auth/sessions.js';
 import { SignInBusyError, isSameOrigin, sharedSignInThrottle } from '../auth/throttle.js';
+import { acquireOrderLock, OrderLockedError } from '../orderLock.js';
 
 // The U4 review grid: a local page over state.json. Bound to 127.0.0.1 only — it can approve
 // photos and spend GPU, and it serves customer faces.
@@ -861,6 +862,22 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
     if (autopilot.running) throw new ReviewError('Fetching orders is in progress — wait for it to finish before changing anything.');
   };
 
+  const lockOrder = (orderId) => acquireOrderLock({ inboxRoot: inbox, orderId, operation: 'Studio review mutation' });
+  async function withOrderLock(orderId, mutation) {
+    const release = lockOrder(orderId);
+    try { return await mutation(); }
+    finally { release(); }
+  }
+  async function withOrderLocks(orderIds, mutation) {
+    const releases = [];
+    try {
+      for (const orderId of [...new Set(orderIds)].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))) releases.push(lockOrder(orderId));
+      return await mutation();
+    } finally {
+      for (const release of releases.reverse()) release();
+    }
+  }
+
   function startRun({ inbox: requested, force, buildPdfs = true, only = null, silent = false }) {
     if (run.active) throw new ReviewError('A run is already going.');
     if (autopilot.running) throw new ReviewError('Fetching orders is in progress — wait for it to finish.');
@@ -993,17 +1010,25 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       });
   }
 
-  async function startRedo(orderId, base, overrides = null, rejection = null) {
+  async function startRedo(orderId, base, overrides = null, rejection = null, prepare = null) {
     requireIdle();
+    const releaseLock = lockOrder(orderId);
     const key = `${orderId}/${base}`;
-    if (inFlight.has(key)) throw new ReviewError(`"${base}" is already being regenerated.`);
-    const { order } = find(orderId, base);
-    generator ??= createGeneratorDriver(config);
-    inFlight.set(key, { message: 'starting…' });
+    try {
+      if (inFlight.has(key)) throw new ReviewError(`"${base}" is already being regenerated.`);
+      const found = find(orderId, base);
+      const { order } = found;
+      generator ??= createGeneratorDriver(config);
+      const prepared = prepare?.(found);
+      if (prepared?.skipRedo) {
+        releaseLock();
+        return prepared.value;
+      }
+      inFlight.set(key, { message: 'starting…' });
 
     // Deliberately not awaited: the operator keeps reviewing while the GPU works. The tile
     // polls /api/state for progress, and state.json is the durable record either way.
-    redo({
+      redo({
       config,
       orderDir: order.orderDir,
       base,
@@ -1014,12 +1039,17 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       onEvent: (e) => {
         if (e.type === 'progress') inFlight.set(key, { message: `${e.step}: ${e.message}` });
       },
-    })
+      })
       .catch((err) => {
         // redo() only throws for "cannot redo at all"; generation failures land in state.json.
         console.error(`redo ${key}: ${err.message}`);
       })
-      .finally(() => inFlight.delete(key));
+        .finally(() => { inFlight.delete(key); releaseLock(); });
+      return prepared;
+    } catch (err) {
+      releaseLock();
+      throw err;
+    }
   }
 
   /** The role that answers to a typed username, or null. Usernames live in the account file and can
@@ -1933,10 +1963,12 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       // POST /api/<order>/dedication — the book's title-page text.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'dedication') {
         requireIdle();
-        const order = state().find((o) => o.orderId === parts[1]);
-        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         const { text } = await readJson(req);
-        return json(res, 200, { dedication: setOrderDedication(order.orderDir, text, { memoryRoot }) });
+        return json(res, 200, { dedication: await withOrderLock(parts[1], () => {
+          const order = state().find((o) => o.orderId === parts[1]);
+          if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+          return setOrderDedication(order.orderDir, text, { memoryRoot });
+        }) });
       }
 
       // POST /api/<order>/intake-override — "generate it anyway" clears an intake hold, so the
@@ -1945,10 +1977,12 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       // if it does not match, so the operator cannot ship an under-count book on a stray click.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'intake-override') {
         requireIdle();
-        const order = state().find((o) => o.orderId === parts[1]);
-        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         const { confirmCount = null } = await readJson(req).catch(() => ({}));
-        return json(res, 200, overrideIntake(order.orderDir, { confirmCount }));
+        return json(res, 200, await withOrderLock(parts[1], () => {
+          const order = state().find((o) => o.orderId === parts[1]);
+          if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+          return overrideIntake(order.orderDir, { confirmCount });
+        }));
       }
 
       // POST /api/<order>/sent — the operator confirms the PRINTED book has gone into the post to
@@ -1957,12 +1991,14 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       // the active board. Manual only: nothing here posts anything, it records that the operator
       // already did. Operator-only in ROUTE_POLICY — Jirka prints, David posts.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'sent') {
-        const order = state().find((o) => o.orderId === parts[1]);
-        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         // Signed by the person who clicked (R9, U8). `identityFor` is the same resolved identity the
         // page is shown, so the name on the marker is the name in the sidebar of whoever wrote it —
         // and in ungated local mode it is the implicit operator (KTD11), where nobody signed in.
-        return json(res, 200, { status: markSent(order.orderDir, identityFor(req)) });
+        return json(res, 200, await withOrderLock(parts[1], () => {
+          const order = state().find((o) => o.orderId === parts[1]);
+          if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+          return { status: markSent(order.orderDir, identityFor(req)) };
+        }));
       }
 
       // GET /api/<order>/pdf — the finished <order> Final.pdf, inline, so the operator can open it in a
@@ -2024,56 +2060,66 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       // handled so the auto-fetch poll never re-materializes and regenerates it from Shopify. Refused
       // while that order is mid-generation, so a live run's folder isn't yanked out from under it.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'delete') {
-        const order = state().find((o) => o.orderId === parts[1]);
-        if (!order) return json(res, 404, { error: 'Unknown order.' });
-        if (run.active && run.orderId === order.orderId) return json(res, 409, { error: 'Objednávka se právě generuje — počkejte, než doběhne.', code: 'busy' });
-        mkdirSync(order.orderDir, { recursive: true });
-        writeFileSync(hiddenMarkerPath(order.orderDir), JSON.stringify({ hiddenAt: new Date().toISOString() }, null, 2));
-        if (config.shopify?.dataDir) {
-          try {
-            const st = loadState(config.shopify.dataDir);
-            markHandled(st, order.orderId, { status: 'deleted', at: new Date().toISOString() });
-            saveState(config.shopify.dataDir, st);
-          } catch { /* best-effort — the hidden marker alone still keeps it off the board */ }
-        }
-        return json(res, 200, { deleted: order.orderId });
+        return json(res, 200, await withOrderLock(parts[1], () => {
+          const order = state().find((o) => o.orderId === parts[1]);
+          if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+          if (run.active && run.orderId === order.orderId) throw new ReviewError('Objednávka se právě generuje — počkejte, než doběhne.');
+          mkdirSync(order.orderDir, { recursive: true });
+          writeFileSync(hiddenMarkerPath(order.orderDir), JSON.stringify({ hiddenAt: new Date().toISOString() }, null, 2));
+          if (config.shopify?.dataDir) {
+            try {
+              const st = loadState(config.shopify.dataDir);
+              markHandled(st, order.orderId, { status: 'deleted', at: new Date().toISOString() });
+              saveState(config.shopify.dataDir, st);
+            } catch { /* best-effort — the hidden marker alone still keeps it off the board */ }
+          }
+          return { deleted: order.orderId };
+        }));
       }
 
       // POST /api/<order>/unsent — undo a dispatch mark set by mistake; the order returns to
       // 'printed' and back onto the active board.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'unsent') {
-        const order = state().find((o) => o.orderId === parts[1]);
-        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
-        unmarkSent(order.orderDir);
+        await withOrderLock(parts[1], () => {
+          const order = state().find((o) => o.orderId === parts[1]);
+          if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+          unmarkSent(order.orderDir);
+        });
         return json(res, 200, { ok: true });
       }
 
       // POST /api/<order>/emailed { on? } — the operator marks (or clears) that they emailed the
       // customer about a held order (N4), so the queue can age it and stop the hold from rotting.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'emailed') {
-        const order = state().find((o) => o.orderId === parts[1]);
-        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         const { on = true } = await readJson(req).catch(() => ({}));
-        return json(res, 200, { emailedAt: markCustomerEmailed(order.orderDir, on) });
+        return json(res, 200, await withOrderLock(parts[1], () => {
+          const order = state().find((o) => o.orderId === parts[1]);
+          if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+          return { emailedAt: markCustomerEmailed(order.orderDir, on) };
+        }));
       }
 
       // POST /api/<order>/printed — Jirka confirms he printed the book (N3, R15). It now precedes
       // dispatch: a printed book is not finished, it is waiting for the operator to post it.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'printed') {
-        const order = state().find((o) => o.orderId === parts[1]);
-        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
         // Signed by the printer who clicked it (R9, U8) — the marker this route writes and the
         // dispatch marker above must be able to name two different people, or the split between the
         // two acts records nothing.
-        return json(res, 200, { status: markPrinted(order.orderDir, identityFor(req)) });
+        return json(res, 200, await withOrderLock(parts[1], () => {
+          const order = state().find((o) => o.orderId === parts[1]);
+          if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+          return { status: markPrinted(order.orderDir, identityFor(req)) };
+        }));
       }
 
       // POST /api/<order>/unprinted — undo a printed mark set by mistake; the order returns to
       // 'ready-to-print'.
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 3 && parts[2] === 'unprinted') {
-        const order = state().find((o) => o.orderId === parts[1]);
-        if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
-        unmarkPrinted(order.orderDir);
+        await withOrderLock(parts[1], () => {
+          const order = state().find((o) => o.orderId === parts[1]);
+          if (!order) throw new ReviewError(`Unknown order "${parts[1]}".`);
+          unmarkPrinted(order.orderDir);
+        });
         return json(res, 200, { ok: true });
       }
 
@@ -2089,7 +2135,16 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       if (req.method === 'POST' && url.pathname === '/api/migrate/sent-markers') {
         const { confirm = false } = await readJson(req);
         try {
-          return json(res, 200, backfillSentMarkers({ outboxRoot: outbox, apply: confirm === true }));
+          if (confirm !== true) return json(res, 200, backfillSentMarkers({ outboxRoot: outbox }));
+          const plan = planSentMarkerBackfill({ outboxRoot: outbox });
+          const ids = [...plan.planned, ...plan.skipped].map((item) => item.orderId);
+          return json(res, 200, await withOrderLocks(ids, () => {
+            const locked = new Set(ids);
+            const fresh = planSentMarkerBackfill({ outboxRoot: outbox });
+            fresh.planned = fresh.planned.filter((item) => locked.has(item.orderId));
+            fresh.skipped = fresh.skipped.filter((item) => locked.has(item.orderId));
+            return backfillSentMarkers({ outboxRoot: outbox, apply: true, plan: fresh });
+          }));
         } catch (err) {
           if (err instanceof SentMarkerMigrationError) return json(res, 409, { error: err.message, seam: err.seam });
           throw err;
@@ -2135,7 +2190,13 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         if (confirm !== true) {
           return json(res, 409, { error: 'Smazání je potřeba potvrdit.', code: 'confirm-required' });
         }
-        const result = purgeOriginals({ outboxRoot: outbox, days, dryRun: false });
+        const inspected = inspectOutbox({ outboxRoot: outbox, days });
+        const ids = inspected.map((order) => order.orderId);
+        const result = await withOrderLocks(ids, () => {
+          const locked = new Set(ids);
+          const fresh = inspectOutbox({ outboxRoot: outbox, days }).filter((order) => locked.has(order.orderId));
+          return purgeOriginals({ outboxRoot: outbox, days, dryRun: false, inspected: fresh });
+        });
         log(`purge: deleted ${result.photos} photograph(s) across ${result.orders.length} order(s); ${result.deferred.length} left for the next run`);
         // The night report and handled-set age out on the same clock (they carry order numbers), so
         // the confirmed run clears them too — the CLI has always done both in one pass, and the
@@ -2148,12 +2209,11 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       if (req.method === 'POST' && parts[0] === 'api' && parts.length === 4) {
         const [, orderId, base, action] = parts;
         requireIdle();
-        const { order } = find(orderId, base);
-        if (action === 'approve') return json(res, 200, { status: approve(order.orderDir, base) });
-        if (action === 'reject') return json(res, 200, { status: reject(order.orderDir, base) });
-        if (action === 'handoff') return json(res, 200, { status: handoff(order.orderDir, base) });
+        if (action === 'approve') return json(res, 200, { status: await withOrderLock(orderId, () => approve(find(orderId, base).order.orderDir, base)) });
+        if (action === 'reject') return json(res, 200, { status: await withOrderLock(orderId, () => reject(find(orderId, base).order.orderDir, base)) });
+        if (action === 'handoff') return json(res, 200, { status: await withOrderLock(orderId, () => handoff(find(orderId, base).order.orderDir, base)) });
         if (action === 'replaced') {
-          const { status } = await acceptReplacement({ orderDir: order.orderDir, base, qc });
+          const { status } = await withOrderLock(orderId, () => acceptReplacement({ orderDir: find(orderId, base).order.orderDir, base, qc }));
           return json(res, 200, { status });
         }
         if (action === 'redo') {
@@ -2168,8 +2228,9 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         if (action === 'unframe') {
           // Also throws away the operator's own rectangle, because this button says "exactly as the
           // customer sent it" and a stored crop would quietly keep being applied. It is the revert.
-          setPhotoCrop({ orderDir: order.orderDir, base, crop: null, bases: order.photos.map((x) => x.base) });
-          await startRedo(orderId, base, { noFraming: true });
+          await startRedo(orderId, base, { noFraming: true }, null, ({ order }) =>
+            setPhotoCrop({ orderDir: order.orderDir, base, crop: null, bases: order.photos.map((x) => x.base) })
+          );
           return json(res, 202, { started: true });
         }
         // The operator's own crop of the CUSTOMER'S PHOTO — a rectangle, not a file. Three things on
@@ -2179,37 +2240,41 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         // upload on every later generation (see batch.js generatePhoto), which is what makes the
         // original recoverable: it is never overwritten, so "revert" is deleting four numbers.
         if (action === 'crop') {
-          const { photo } = find(orderId, base);
           const body = await readJson(req);
           // A proposal, computed and thrown away. Writes nothing, so it is safe to offer on a photo
           // the operator then decides not to crop at all.
           if (body.suggest === true) {
+            const { photo } = find(orderId, base);
             return json(res, 200, { suggestion: await suggestPhotoCrop(photo.files.source) });
           }
           // `bases` from the board, not from the manifest: a photo that has never been generated has
           // no manifest entry yet, and that is exactly when cropping a screenshot saves a GPU run.
-          const manualCrop = setPhotoCrop({
-            orderDir: order.orderDir,
-            base,
-            crop: body.crop ?? null,
-            bases: order.photos.map((x) => x.base),
-          });
+          const prepareCrop = ({ order, photo }) => {
+            const manualCrop = setPhotoCrop({
+              orderDir: order.orderDir,
+              base,
+              crop: body.crop ?? null,
+              bases: order.photos.map((x) => x.base),
+            });
+            return photo.status == null ? { skipRedo: true, value: { started: false, manualCrop } } : { manualCrop };
+          };
           // A photo that has never generated has nothing to regenerate; the crop simply waits for
           // the first run. Anything else goes straight back to the generator, because a crop the
           // operator drew and then had to remember to re-run is a crop that silently does nothing.
-          if (photo.status == null) return json(res, 200, { started: false, manualCrop });
-          await startRedo(orderId, base);
+          const prepared = await startRedo(orderId, base, null, null, prepareCrop);
+          if (prepared?.started === false) return json(res, 200, prepared);
+          const { manualCrop } = prepared;
           return json(res, 202, { started: true, manualCrop });
         }
         // The operator's own white pencil and crop. The SVG is what the book prints, so that is
         // what gets edited; the raster the grid shows is re-made from it.
         if (action === 'edit') {
           const { strokes, crop } = await readJson(req, 4 * 1024 * 1024);
-          const { status } = await applyPhotoEdit({ orderDir: order.orderDir, base, edits: { strokes, crop }, qc });
+          const { status } = await withOrderLock(orderId, () => applyPhotoEdit({ orderDir: find(orderId, base).order.orderDir, base, edits: { strokes, crop }, qc }));
           return json(res, 200, { status });
         }
         if (action === 'revert') {
-          const { status } = await revertPhotoEdit({ orderDir: order.orderDir, base, qc });
+          const { status } = await withOrderLock(orderId, () => revertPhotoEdit({ orderDir: find(orderId, base).order.orderDir, base, qc }));
           return json(res, 200, { status });
         }
         return json(res, 404, { error: `Unknown action "${action}".` });
@@ -2222,7 +2287,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       return json(res, 404, { error: 'Not found.' });
     } catch (err) {
       // Both carry operator-facing text; neither is a bug in the tool.
-      if (err instanceof ReviewError || err instanceof IngestError) return json(res, 409, { error: err.message });
+      if (err instanceof ReviewError || err instanceof IngestError || err instanceof OrderLockedError) return json(res, 409, { error: err.message, code: err.code ?? undefined });
       console.error(err);
       return json(res, 500, { error: err.message ?? 'Something went wrong.' });
     }

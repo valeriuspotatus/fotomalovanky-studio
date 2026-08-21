@@ -86,6 +86,17 @@ const fixture = () => {
 
 const jpgs = (dir) => readdirSync(dir).filter((f) => f.endsWith('.jpg'));
 
+test('purging a captured inspection does not delete an order added later', () => {
+  const f = fixture();
+  try {
+    order(f.outbox, '1400', { sentDaysAgo: 100 });
+    const inspected = inspectOutbox({ outboxRoot: f.outbox, days: 30, now: NOW });
+    const later = order(f.outbox, '1401', { sentDaysAgo: 100 });
+    purgeOriginals({ outboxRoot: f.outbox, days: 30, now: NOW, dryRun: false, inspected });
+    assert.equal(jpgs(later).length, 2);
+  } finally { f.cleanup(); }
+});
+
 test('a dispatched book older than the retention window gives up its photographs', () => {
   const f = fixture();
   try {

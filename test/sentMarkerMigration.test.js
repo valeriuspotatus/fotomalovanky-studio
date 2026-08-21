@@ -89,6 +89,17 @@ test('AE9 — a printed order gains a backfilled dispatch marker carrying the PR
   }
 });
 
+test('applying a captured migration plan does not mutate an order added later', () => {
+  const f = fixture();
+  try {
+    f.order('1400', { printed: '{}' });
+    const plan = planSentMarkerBackfill({ outboxRoot: f.outbox });
+    const later = f.order('1401', { printed: '{}' });
+    backfillSentMarkers({ outboxRoot: f.outbox, apply: true, plan });
+    assert.equal(existsSync(join(later, 'sent.json')), false);
+  } finally { f.cleanup(); }
+});
+
 test('a printed marker with no `at` still backfills, dated from the file\'s own mtime', () => {
   const f = fixture();
   try {
