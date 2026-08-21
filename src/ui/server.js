@@ -37,6 +37,7 @@ import { listPosts, readPost, savePost, deletePost, siblingsInCluster } from '..
 import { createAdminClient, ShopifyApiError } from '../shopify/adminClient.js';
 import { backfillAttribution } from '../backfillAttribution.js';
 import { getMetrics, MetricsError } from '../metricsCache.js';
+import { readGenerationMetrics } from '../generationMetrics.js';
 import { spendForWindow, writeAdSpend, AdSpendError, SPEND_SOURCES } from '../adSpend.js';
 import { ROLLING_DAYS } from '../metrics.js';
 import { createContentClient } from '../shopify/content.js';
@@ -509,6 +510,7 @@ export const ROUTE_POLICY = Object.freeze([
   // Unit economics for the homepage. Operator-only: it is the shop's revenue, and the printer's
   // screen is a work list.
   { id: 'GET /api/metrics', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/metrics'], match: atPath('/api/metrics'), sample: '/api/metrics' },
+  { id: 'GET /api/generation-metrics', audience: AUDIENCES.OPERATOR, methods: ['GET'], tokens: ['/api/generation-metrics'], match: atPath('/api/generation-metrics'), sample: '/api/generation-metrics' },
   // What the shop spent on advertising, and the operator typing a figure in. Same audience as the
   // metrics beside it and for the same reason: this is the shop's money, on a screen the printer
   // opens to print books.
@@ -1533,6 +1535,12 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           if (err instanceof MetricsError) return json(res, 503, { error: err.message, code: err.code });
           throw err;
         }
+      }
+
+      // Production telemetry is rebuilt directly from privacy-safe attempt histories in the
+      // outbox. It never needs Shopify and never returns order IDs, filenames, or generator inputs.
+      if (req.method === 'GET' && url.pathname === '/api/generation-metrics') {
+        return json(res, 200, { windows: readGenerationMetrics(outbox) });
       }
 
       // GET /api/studio/templates — the Creative Studio pickers: the 5 template families (each with the

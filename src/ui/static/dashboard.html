@@ -390,6 +390,11 @@
             <div id="mxBody"><div class="mx-note">Načítám…</div></div>
           </section>
 
+          <section id="generationMetricsSection" data-operator hidden>
+            <div class="sec-h"><h2>Výroba</h2><span class="ch-sub">30 dní · podle historie generování</span></div>
+            <div id="gmBody"><div class="mx-note">Načítám…</div></div>
+          </section>
+
           <!-- Placené vs organické. The question this page exists to answer: is the money spent on
                ads coming back, and how does it compare to the traffic that costs nothing.
                `data-operator hidden` is not decoration — the page ships hidden and the identity poll
@@ -1396,6 +1401,26 @@
     }finally{metricsInFlight=false;}
   }
 
+  const gmPct=(value)=>value==null?"—":new Intl.NumberFormat("cs-CZ",{style:"percent",maximumFractionDigits:0}).format(value);
+  const gmNum=(value)=>value==null?"—":new Intl.NumberFormat("cs-CZ",{maximumFractionDigits:1}).format(value);
+  function renderGenerationMetrics(windows){
+    const box=document.getElementById("gmBody"),m=windows&&windows["30d"];
+    if(!box)return;
+    if(!m||!m.hasData){box.innerHTML=`<div class="mx-note">Zatím nejsou zaznamenané pokusy o generování.</div>`;return;}
+    box.innerHTML=`<div class="mx-grid">
+      <div class="mx-card"><div class="mx-lab">První pokus</div><div class="mx-val">${gmPct(m.firstPassAcceptanceRate)}</div><span class="mx-d flat">${m.acceptedPhotos} schválených</span></div>
+      <div class="mx-card"><div class="mx-lab">Pokusy na schválenou</div><div class="mx-val">${gmNum(m.averageAttemptsPerAcceptedPhoto)}</div><span class="mx-d flat">průměr</span></div>
+      <div class="mx-card"><div class="mx-lab">Selhání generátoru</div><div class="mx-val">${gmPct(m.generationFailureRate)}</div><span class="mx-d flat">${m.attempts} pokusů</span></div>
+    </div>`;
+  }
+  async function fetchGenerationMetrics(){
+    try{
+      const r=await fetch("/api/generation-metrics");
+      if(signedOut(r)||!r.ok)return;
+      renderGenerationMetrics((await r.json()).windows);
+    }catch(e){/* offline — keep the last production snapshot */}
+  }
+
   /* A dead session is not a dropped connection, and the pollers below used to treat them as the same
      thing: `if(!res.ok) return` — keep the last board and try again. For a blip that is right. For a
      401 it left the whole studio on screen and empty, silently throwing away a "sign in please" every
@@ -2342,7 +2367,7 @@
     if(["home","orders","queue"].includes(v))fetchStudio();
     if(v==="mail")fetchMailTab();
     if(v==="settings")fetchSettings();
-    if(v==="home"&&isOperator())fetchMetrics();
+    if(v==="home"&&isOperator()){fetchMetrics();fetchGenerationMetrics();}
     if(v==="profile")paintProfile();
     if(v==="creatives"){if(window.loadAdCal)loadAdCal();if(window.__cvFit)window.__cvFit();}
     if(v==="blog")loadBlog();
