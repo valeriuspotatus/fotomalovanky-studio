@@ -418,7 +418,7 @@ test('smtpClient retries transient SMTP 4xx with bounded jittered backoff', asyn
   assert.deepEqual(waits, [150, 300]);
 });
 
-test('smtpClient fails fast on permanent SMTP 5xx and reports exhausted attempts', async () => {
+test('smtpClient fails fast on permanent SMTP 5xx and ambiguous network failures', async () => {
   for (const responseCode of [535, 550]) {
     let calls = 0;
     const smtp = createSmtpClient({ user: 'u', pass: 'p', maxRetries: 3, delay: async () => {}, transportFactory: async () => ({ sendMail: async () => { calls++; throw Object.assign(new Error('rejected'), { responseCode }); } }) });
@@ -428,8 +428,8 @@ test('smtpClient fails fast on permanent SMTP 5xx and reports exhausted attempts
 
   let calls = 0;
   const smtp = createSmtpClient({ user: 'u', pass: 'p', maxRetries: 1, backoffBaseMs: 0, delay: async () => {}, transportFactory: async () => ({ sendMail: async () => { calls++; throw Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }); } }) });
-  await assert.rejects(() => smtp.sendMail({ to: 'a@x.cz', text: 'x' }), (err) => err instanceof SmtpError && err.attempts === 2 && /after 2 attempts/.test(err.message));
-  assert.equal(calls, 2);
+  await assert.rejects(() => smtp.sendMail({ to: 'a@x.cz', text: 'x' }), (err) => err instanceof SmtpError && err.attempts === 1 && err.code === 'offline');
+  assert.equal(calls, 1, 'a lost acknowledgement may follow acceptance, so retrying could duplicate the email');
 });
 
 // ---- endpoints: /api/mail/message, /templates, /send -----------------------

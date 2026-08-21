@@ -29,7 +29,7 @@ Coverage now includes manifest compatibility; multiple/failing/successful attemp
 - Re-materializing fewer/changed photos does not leave stale uploads active.
 - Failed replacement materialization does not expose partial data or destroy the prior valid folder.
 - Meaningfully changed completed orders are not silently overwritten by autopilot.
-- Selected transient adapter failures retry boundedly; known permanent failures fail fast.
+- Selected transient adapter failures retry boundedly; known permanent failures fail fast. SMTP retries only explicit temporary rejections, never ambiguous network failures that could duplicate an accepted email.
 
 ## 5. Reliability improvements
 
@@ -57,7 +57,7 @@ Old manifests without `generationAttempts` remain readable; the `attempt` compat
 
 ## 10. Remaining risks
 
-- Crash-torn direct JSON writes and cross-process races.
+- Crash-torn direct JSON writes and cross-process races, including last-writer-wins promotion if two processes materialize the same order concurrently.
 - Corrupt autopilot state appearing as an empty first run.
 - Buffered photo downloads and DNS check/use separation.
 - Incomplete IPv6 routability and symlink/reparse-point defenses.
@@ -82,7 +82,7 @@ No current metric proves auto-approval, auto-release, semantic blocking, or reas
 
 ## 13. Exact full test result
 
-Latest full `npm test` result supplied for this hardening run: **931 tests, 928 pass, 0 fail, 3 skipped, duration 35708.4264ms**.
+Latest full `npm test` result supplied for this hardening run: **931 tests, 928 pass, 0 fail, 3 skipped, duration 36329.9178ms**.
 
 ## 14. Recommended next production validation steps
 

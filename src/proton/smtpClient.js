@@ -44,7 +44,10 @@ export function createSmtpClient({
       } catch (err) {
         const auth = err?.responseCode === 535 || /auth|invalid login/i.test(err?.message || '');
         const network = /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|ESOCKET/i.test(`${err?.code || ''} ${err?.message || ''}`);
-        const transient = network || (err?.responseCode >= 400 && err?.responseCode < 500);
+        // A network error after SMTP submission begins is ambiguous: the server may have accepted
+        // the message before the acknowledgement was lost. Retrying that can email the customer
+        // twice. Only an explicit temporary SMTP rejection proves the message was not accepted.
+        const transient = err?.responseCode >= 400 && err?.responseCode < 500;
         const code = auth ? 'auth' : network ? 'offline' : 'send';
         if (!auth && transient && attempt < maxRetries) {
           await delay(backoffBaseMs * 2 ** attempt * (1 + random()));
