@@ -7,11 +7,11 @@
 // sidecar's products carry a leading entry whose `variant` is the layout string; resolveFormat
 // (orderInfo.js) then matches it against config.delivery.formatMap with no change to orderInfo.js.
 
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import sharp from 'sharp';
 import { ORDER_INFO } from '../orderInfo.js';
-import { expectedPhotosFrom, channelOf } from './orders.js';
+import { expectedPhotosFrom, channelOf, sourceFingerprint } from './orders.js';
 import { safeFetch as defaultSafeFetch } from './safeFetch.js';
 
 /** organize.js only ingests .jpg/.jpeg (isPhoto), but the upload host serves some photos as PNG/WebP.
@@ -31,6 +31,41 @@ function photoName(orderId, index, label, ext) {
   return `${orderId}_img${nnnn}_-_${safeLabel}.${ext}`;
 }
 
+const SAFE_ORDER_ID = /^\d+(?:-\d+)*$/;
+
+function containedOrderDir(inboxRoot, orderId) {
+  if (!SAFE_ORDER_ID.test(String(orderId ?? ''))) throw new Error(`A safe order id is required: ${JSON.stringify(orderId)}`);
+  const root = resolve(inboxRoot);
+  const dir = resolve(root, String(orderId));
+  const rel = relative(root, dir);
+  if (!rel || rel.startsWith('..') || rel.includes(':')) throw new Error('A safe order id must stay inside the inbox');
+  return { root, dir };
+}
+
+function validMaterialization(dir, orderId, fingerprint, expectedFiles) {
+  try {
+    const names = readdirSync(dir).sort();
+    if (names.length !== expectedFiles.length + 1 || !names.includes(ORDER_INFO)) return false;
+    if (!expectedFiles.every((name) => names.includes(name))) return false;
+    const sidecar = JSON.parse(readFileSync(join(dir, ORDER_INFO), 'utf8'));
+    return sidecar.order === orderId && sidecar.revision?.fingerprint === fingerprint && sidecar.photos?.length === expectedFiles.length;
+  } catch { return false; }
+}
+
+/** Windows cannot atomically replace a non-empty directory. Move the known-good active revision
+ * aside first, promote staging, then remove the backup; restore it if promotion fails. */
+function promote(stagingDir, activeDir, backupDir) {
+  const hadActive = existsSync(activeDir);
+  try {
+    if (hadActive) renameSync(activeDir, backupDir);
+    renameSync(stagingDir, activeDir);
+    if (hadActive) rmSync(backupDir, { recursive: true, force: true });
+  } catch (err) {
+    if (!existsSync(activeDir) && existsSync(backupDir)) renameSync(backupDir, activeDir);
+    throw err;
+  }
+}
+
 /** Materialize one job into `<inboxRoot>/<orderId>/`, where orderId is the job's id — the bare
  *  order number for a single-book purchase, suffixed "-1"/"-2" when the purchase holds several.
  *  Each book therefore gets its own folder, its own photos and its own sidecar, with no further
@@ -47,8 +82,14 @@ export async function materializeOrder(order, {
   sharpImpl = sharp,
   now = () => new Date().toISOString(),
 } = {}) {
-  const orderDir = join(inboxRoot, order.orderId);
-  mkdirSync(orderDir, { recursive: true });
+  const { root, dir: orderDir } = containedOrderDir(inboxRoot, order.orderId);
+  mkdirSync(root, { recursive: true });
+  const nonce = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const stagingDir = join(root, `.${order.orderId}.staging-${nonce}`);
+  const backupDir = join(root, `.${order.orderId}.previous-${nonce}`);
+  mkdirSync(stagingDir);
+  const fingerprint = sourceFingerprint(order);
+  let promoted = false;
 
   const files = [];
   const errors = [];
@@ -58,14 +99,14 @@ export async function materializeOrder(order, {
       const fetched = await safeFetch(url, { allowlist, fetchImpl });
       const { buffer, ext } = await ensureJpeg(fetched.buffer, fetched.ext, sharpImpl);
       const name = photoName(order.orderId, i, order.dedication, ext);
-      writeFileSync(join(orderDir, name), buffer);
+      writeFileSync(join(stagingDir, name), buffer);
       files.push(name);
     } catch (err) {
       errors.push(`photo ${i + 1}: ${err.message}`);
     }
   }
 
-  const incomplete = errors.length > 0 || files.length === 0;
+  const incomplete = errors.length > 0 || files.length === 0 || files.length !== order.photos.length;
 
   // The sidecar orderInfo.js reads. `products` leads with the format entry (KTD9), then the real
   // line items for the count/summary. `customer` carries the order email (recipient) with an empty
@@ -97,8 +138,22 @@ export async function materializeOrder(order, {
     attribution: order.attribution ? { ...order.attribution, channel: channelOf(order.attribution) } : null,
     source: 'shopify-admin-api',
     downloadedAt: now(),
+    revision: { fingerprint, sourceUpdatedAt: order.updatedAt ?? null },
   };
-  writeFileSync(join(orderDir, ORDER_INFO), JSON.stringify(sidecar, null, 2));
+  if (!incomplete) writeFileSync(join(stagingDir, ORDER_INFO), JSON.stringify(sidecar, null, 2));
 
-  return { orderId: order.orderId, orderDir, files, incomplete, errors };
+  try {
+    if (incomplete || !validMaterialization(stagingDir, order.orderId, fingerprint, files)) {
+      if (!incomplete) errors.push('staged contents failed validation');
+      return { orderId: order.orderId, orderDir, files: [], incomplete: true, errors, fingerprint };
+    }
+    promote(stagingDir, orderDir, backupDir);
+    promoted = true;
+  } finally {
+    rmSync(stagingDir, { recursive: true, force: true });
+    // A backup left after an exceptional restore failure is recovery data, not disposable temp.
+    if (promoted) rmSync(backupDir, { recursive: true, force: true });
+  }
+
+  return { orderId: order.orderId, orderDir, files, incomplete: false, errors, fingerprint };
 }

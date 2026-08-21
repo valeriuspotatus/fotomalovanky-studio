@@ -48,11 +48,19 @@ export function isHandled(state, orderId) {
   return Boolean(state.handled?.[orderId]);
 }
 
+export function handledDisposition(state, orderId, fingerprint = null) {
+  const entry = state.handled?.[orderId];
+  if (!entry) return 'unhandled';
+  if (!entry.fingerprint) return 'legacy';
+  if (!fingerprint || entry.fingerprint === fingerprint) return 'same';
+  return 'changed';
+}
+
 /** Record an order that reached its terminal state (PDF built). Advances the cursor to the latest
  *  `updatedAt` fully handled — a lower bound and an observability signal, not the poll's only filter
  *  (the sliding window + this handled set together do the dedup). Mutates and returns `state`. */
-export function markHandled(state, orderId, { status = 'ready', updatedAt = null, at = null } = {}) {
-  state.handled[orderId] = { status, at };
+export function markHandled(state, orderId, { status = 'ready', updatedAt = null, fingerprint = null, at = null } = {}) {
+  state.handled[orderId] = { status, at, ...(fingerprint ? { fingerprint } : {}), ...(updatedAt ? { updatedAt } : {}) };
   if (updatedAt && (!state.cursor || updatedAt > state.cursor)) state.cursor = updatedAt;
   return state;
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadState, saveState, isHandled, markHandled, statePath } from '../src/autopilotState.js';
+import { loadState, saveState, isHandled, markHandled, statePath, handledDisposition } from '../src/autopilotState.js';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'fma-state-'));
 
@@ -54,4 +54,16 @@ test('only what is passed to markHandled is handled — held/failed are never re
   const s = loadState(tmp());
   markHandled(s, '1600', { status: 'ready', at: 'now' });
   assert.deepEqual(Object.keys(s.handled), ['1600']);
+});
+
+test('handled revisions distinguish same, meaningful, harmless metadata, and legacy state', () => {
+  const state = { handled: {}, cursor: null, lastRunAt: null };
+  markHandled(state, '1600', { status: 'ready', updatedAt: 'old', fingerprint: 'sha256:aaa', at: 'now' });
+  assert.equal(handledDisposition(state, '1600', 'sha256:aaa'), 'same');
+  assert.equal(handledDisposition(state, '1600', 'sha256:bbb'), 'changed');
+  assert.equal(handledDisposition(state, '1600', null), 'same');
+  state.handled['1599'] = { status: 'ready', at: 'before-revisions' };
+  assert.equal(handledDisposition(state, '1599', 'sha256:new'), 'legacy');
+  assert.equal(isHandled(state, '1599'), true);
+  assert.equal(state.handled['1600'].updatedAt, 'old');
 });

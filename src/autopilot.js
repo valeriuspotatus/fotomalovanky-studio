@@ -14,9 +14,9 @@ import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.js';
 import { runPipeline, ORDER_STATUS, formatEvent } from './orchestrator.js';
 import { createAdminClient } from './shopify/adminClient.js';
-import { extractJobs } from './shopify/orders.js';
+import { extractJobs, sourceFingerprint } from './shopify/orders.js';
 import { materializeOrder } from './shopify/materialize.js';
-import { loadState, saveState, isHandled, markHandled } from './autopilotState.js';
+import { loadState, saveState, handledDisposition, markHandled } from './autopilotState.js';
 import { writeReport, reportPath } from './autopilotReport.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -81,7 +81,14 @@ export async function runAutopilot({
   // "1234-1" and "1234-2", neither of which is in the handled map. Inside the polling window that
   // would look like new work and regenerate a book already printed and packed — unattended,
   // overnight. For a single-book order the two ids are the same and this is one check.
-  const toProcess = eligible.filter((o) => !isHandled(state, o.orderId) && !isHandled(state, o.purchase.orderId));
+  const revisions = new Map(eligible.map((o) => [o.orderId, sourceFingerprint(o)]));
+  const disposition = (o) => {
+    const own = handledDisposition(state, o.orderId, revisions.get(o.orderId));
+    if (own !== 'unhandled') return own;
+    return handledDisposition(state, o.purchase.orderId, revisions.get(o.orderId));
+  };
+  const revisionConflicts = eligible.filter((o) => disposition(o) === 'changed');
+  const toProcess = eligible.filter((o) => disposition(o) === 'unhandled');
   const skippedResolved = eligible.length - toProcess.length;
   onEvent({ type: 'poll-done', seen: orders.length, paidPhoto: eligible.length, nonPaidPhotoSeen, toProcess: toProcess.length, skippedResolved, requirePaid });
 
@@ -116,9 +123,13 @@ export async function runAutopilot({
   for (const entry of pipeline.orders) {
     const status = reportStatus(entry.status);
     reportOrders.push({ orderId: entry.orderId, status, reason: entry.reason ?? null });
-    if (status === 'ready') markHandled(state, entry.orderId, { status, updatedAt: byId.get(entry.orderId)?.updatedAt ?? null, at: ranAt });
+    if (status === 'ready') markHandled(state, entry.orderId, { status, updatedAt: byId.get(entry.orderId)?.updatedAt ?? null, fingerprint: revisions.get(entry.orderId) ?? null, at: ranAt });
   }
   for (const f of failedMaterialize) reportOrders.push({ orderId: f.orderId, status: 'failed', reason: f.reason });
+  for (const order of revisionConflicts) {
+    reportOrders.push({ orderId: order.orderId, status: 'failed', reason: 'Shopify source changed after completion — manual review required; production files were not overwritten' });
+    onEvent({ type: 'source-revision-changed', orderId: order.orderId });
+  }
 
   const counts = {
     ready: reportOrders.filter((o) => o.status === 'ready').length,

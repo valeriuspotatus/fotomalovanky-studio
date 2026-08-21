@@ -7,6 +7,7 @@ import { runAutopilot } from '../src/autopilot.js';
 import { ORDER_STATUS } from '../src/orchestrator.js';
 import { loadState, isHandled, saveState, markHandled } from '../src/autopilotState.js';
 import { reportPath } from '../src/autopilotReport.js';
+import { sourceFingerprint, extractJobs } from '../src/shopify/orders.js';
 
 // A fixed clock so the poll window and the report timestamps are deterministic.
 const NOW = () => '2026-07-12T06:00:00.000Z';
@@ -135,6 +136,37 @@ test('a resolved order already in the handled set is skipped — not re-material
   } finally {
     cleanup();
   }
+});
+
+test('same meaningful source skips despite updatedAt metadata changing', async () => {
+  const { dataDir, inbox, cleanup } = dirs();
+  try {
+    const original = node({ name: '#1660', updatedAt: '2026-07-11T01:00:00Z', photos: [PHOTO] });
+    const job = extractJobs(original)[0];
+    const seeded = loadState(dataDir);
+    markHandled(seeded, '1660', { status: 'ready', updatedAt: job.updatedAt, fingerprint: sourceFingerprint(job), at: 'earlier' });
+    saveState(dataDir, seeded);
+    const materialize = spyMaterialize();
+    const result = await runAutopilot({ config: makeConfig(dataDir, inbox), now: NOW, createClient: clientWith([{ ...original, updatedAt: '2026-07-12T02:00:00Z' }]), materialize, runPipelineFn: spyPipeline({}) });
+    assert.deepEqual(materialize.calls, []);
+    assert.equal(result.report.skippedResolved, 1);
+  } finally { cleanup(); }
+});
+
+test('meaningful source change after completion is surfaced without overwriting production', async () => {
+  const { dataDir, inbox, cleanup } = dirs();
+  try {
+    const original = node({ name: '#1661', photos: [PHOTO], dedication: 'A' });
+    const job = extractJobs(original)[0];
+    const seeded = loadState(dataDir);
+    markHandled(seeded, '1661', { status: 'ready', fingerprint: sourceFingerprint(job), at: 'earlier' });
+    saveState(dataDir, seeded);
+    const materialize = spyMaterialize();
+    const result = await runAutopilot({ config: makeConfig(dataDir, inbox), now: NOW, createClient: clientWith([node({ name: '#1661', photos: [PHOTO], dedication: 'B' })]), materialize, runPipelineFn: spyPipeline({}) });
+    assert.deepEqual(materialize.calls, []);
+    assert.equal(result.report.orders[0].status, 'failed');
+    assert.match(result.report.orders[0].reason, /manual review required/);
+  } finally { cleanup(); }
 });
 
 test('a held order stays re-pollable — it is re-materialized on the next run, never frozen out (KTD8)', async () => {

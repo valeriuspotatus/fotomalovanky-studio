@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { materializeOrder } from '../src/shopify/materialize.js';
 import { isPhoto } from '../src/organize.js';
 import { readOrderInfo } from '../src/orderInfo.js';
+import { sourceFingerprint } from '../src/shopify/orders.js';
 
 // The upload host serves some photos as PNG/WebP, but organize.js only ingests .jpg/.jpeg — so an
 // order like #1525 downloaded as PNG would land in the folder yet be silently skipped by the
@@ -196,4 +197,79 @@ test('a sidecar an operator hand-edited cannot inject a channel the dashboard do
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('refreshes are transactional, exact, and clean up staging files', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-mat-'));
+  try {
+    const first = { ...ORDER, photos: ['https://cdn.example/a.jpg', 'https://cdn.example/b.jpg'] };
+    await materializeOrder(first, { inboxRoot: root, safeFetch: jpegFetch });
+    const dir = join(root, ORDER.orderId);
+    writeFileSync(join(dir, 'stale.jpg'), 'stale');
+    const fewer = { ...first, photos: ['https://cdn.example/c.jpg'] };
+    const refreshed = await materializeOrder(fewer, { inboxRoot: root, safeFetch: jpegFetch });
+    assert.deepEqual(readdirSync(dir).sort(), ['objednavka.json', refreshed.files[0]].sort());
+    assert.equal(readdirSync(root).some((name) => name.includes('.staging-') || name.includes('.previous-')), false);
+    const before = readdirSync(dir).map((name) => [name, readFileSync(join(dir, name))]);
+    const failed = await materializeOrder({ ...first, photos: ['https://cdn.example/new.jpg', 'https://cdn.example/fail.jpg'] }, { inboxRoot: root, safeFetch: async (url) => { if (url.includes('fail')) throw new Error('network down'); return jpegFetch(); } });
+    assert.equal(failed.incomplete, true);
+    assert.deepEqual(readdirSync(dir).map((name) => [name, readFileSync(join(dir, name))]), before);
+    assert.equal(readdirSync(root).some((name) => name.includes('.staging-') || name.includes('.previous-')), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('conversion failure preserves the previous active folder', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-mat-'));
+  try {
+    await materializeOrder({ ...ORDER, photos: ['https://cdn.example/a.jpg'] }, { inboxRoot: root, safeFetch: jpegFetch });
+    const before = readFileSync(join(root, ORDER.orderId, 'objednavka.json'), 'utf8');
+    const failed = await materializeOrder({ ...ORDER, photos: ['https://cdn.example/a.png'] }, { inboxRoot: root, safeFetch: async () => ({ buffer: Buffer.from('bad'), ext: 'png' }) });
+    assert.equal(failed.incomplete, true);
+    assert.equal(readFileSync(join(root, ORDER.orderId, 'objednavka.json'), 'utf8'), before);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('unsafe order ids are rejected before any path is created', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-mat-'));
+  try {
+    for (const orderId of ['../escape', '..\\escape', '9001/other', 'C:\\escape', '', '.']) await assert.rejects(() => materializeOrder({ ...ORDER, orderId, photos: ['https://cdn.example/a.jpg'] }, { inboxRoot: root, safeFetch: jpegFetch }), /safe order id/i);
+    assert.deepEqual(readdirSync(root), []);
+    assert.equal(existsSync(join(root, '..', 'escape')), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('source fingerprint is deterministic, meaningful, and contains no source secrets', () => {
+  const order = { ...ORDER, orderId: '42', updatedAt: 'one', photos: [' HTTPS://CDN.EXAMPLE/a.jpg '], dedication: '  Pro Ani  ', products: [{ title: ' Book ', variant: ' Print / 1 ', qty: 1 }], sourceAttributes: [{ key: 'Color', value: ' Blue ' }] };
+  const a = sourceFingerprint(order);
+  assert.equal(a, sourceFingerprint({ ...order, updatedAt: 'two' }));
+  assert.match(a, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(a.includes('Pro Ani'), false);
+  assert.notEqual(a, sourceFingerprint({ ...order, photos: ['https://cdn.example/b.jpg'] }));
+  assert.notEqual(a, sourceFingerprint({ ...order, dedication: 'Pro Evu' }));
+  assert.notEqual(a, sourceFingerprint({ ...order, sourceAttributes: [{ key: 'Color', value: 'Red' }] }));
+});
+
+test('first, same, more, and changed revisions each publish exactly the current source set', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-mat-'));
+  try {
+    const revisions = [
+      ['https://cdn.example/a.jpg'],
+      ['https://cdn.example/a.jpg'],
+      ['https://cdn.example/a.jpg', 'https://cdn.example/b.jpg', 'https://cdn.example/c.jpg'],
+      ['https://cdn.example/d.jpg', 'https://cdn.example/e.jpg'],
+    ];
+    let previousFingerprint = null;
+    for (let i = 0; i < revisions.length; i++) {
+      const result = await materializeOrder({ ...ORDER, photos: revisions[i] }, { inboxRoot: root, safeFetch: jpegFetch });
+      const names = readdirSync(result.orderDir);
+      assert.equal(names.filter(isPhoto).length, revisions[i].length);
+      assert.equal(names.length, revisions[i].length + 1);
+      const sidecar = JSON.parse(readFileSync(join(result.orderDir, 'objednavka.json'), 'utf8'));
+      assert.equal(sidecar.photos.length, revisions[i].length);
+      assert.equal(sidecar.revision.fingerprint, sourceFingerprint({ ...ORDER, photos: revisions[i] }));
+      if (i === 1) assert.equal(sidecar.revision.fingerprint, previousFingerprint, 'same source keeps the same identity');
+      if (i > 1) assert.notEqual(sidecar.revision.fingerprint, previousFingerprint, 'meaningful source change gets a new identity');
+      previousFingerprint = sidecar.revision.fingerprint;
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -14,6 +14,8 @@
 //   format     — "Rozvržení"     (the ONLY galerie-vs-full-page signal; not the variant — KTD9)
 //   internal   — "_tpo_add_by"   (and any "_"-prefixed key) — skipped
 
+import { createHash } from 'node:crypto';
+
 const DEFAULTS = Object.freeze({
   photoKeyMatch: 'fotka',
   dedicationKeyMatch: 'věnování',
@@ -22,6 +24,24 @@ const DEFAULTS = Object.freeze({
 
 const isUrl = (v) => typeof v === 'string' && /^https?:\/\//i.test(v);
 const keyIncludes = (key, needle) => key.toLowerCase().includes(needle.toLowerCase());
+const normalizedText = (value) => typeof value === 'string' ? value.normalize('NFKC').trim().replace(/\s+/g, ' ') : '';
+const normalizedUrl = (value) => {
+  try { return new URL(normalizedText(value)).href; } catch { return normalizedText(value); }
+};
+
+/** Stable, non-reversible identity for fields that can change the resulting book. */
+export function sourceFingerprint(order) {
+  const meaningful = {
+    orderId: normalizedText(order?.orderId),
+    photos: (order?.photos ?? []).map(normalizedUrl),
+    products: (order?.products ?? []).map((p) => ({ title: normalizedText(p?.title), variant: normalizedText(p?.variant), qty: Number.isFinite(p?.qty) ? Number(p.qty) : null })),
+    layout: normalizedText(order?.layout),
+    attributes: (order?.sourceAttributes ?? []).map((a) => ({ key: normalizedText(a?.key), value: normalizedText(a?.value) })),
+    dedication: normalizedText(order?.dedication),
+    expectedPhotos: expectedPhotosFrom(order?.products),
+  };
+  return `sha256:${createHash('sha256').update(JSON.stringify(meaningful)).digest('hex')}`;
+}
 
 /** The trailing "-M" index in a photo key ("Fotka (4)-2" -> 2), or null when there is none.
  *  Photos are ordered by it so the book pages follow the customer's upload order, not the
@@ -110,6 +130,7 @@ export function extractJobs(node, opts = {}) {
       dedication: attrs.find((a) => keyIncludes(a.key, dedicationKeyMatch) && a.value)?.value?.trim() ?? '',
       layout: attrs.find((a) => keyIncludes(a.key, layoutKeyMatch) && a.value)?.value?.trim() ?? '',
       copies: product.qty ?? 1,
+      sourceAttributes: attrs.map((a) => ({ key: a.key, value: a.value })),
     });
   }
   if (!books.length) return [];
@@ -130,6 +151,7 @@ export function extractJobs(node, opts = {}) {
     layout: b.layout,
     photos: b.photos,
     products: [b.product],
+    sourceAttributes: b.sourceAttributes,
   }));
 }
 
