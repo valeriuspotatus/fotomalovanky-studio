@@ -401,6 +401,37 @@ test('smtpClient classifies an auth failure from the transport', async () => {
   await assert.rejects(() => smtp.sendMail({ to: 'a@x.cz', text: 'x' }), (e) => e instanceof SmtpError && e.code === 'auth');
 });
 
+test('smtpClient retries transient SMTP 4xx with bounded jittered backoff', async () => {
+  let calls = 0;
+  const waits = [];
+  const smtp = createSmtpClient({
+    user: 'u', pass: 'p', maxRetries: 2, backoffBaseMs: 100,
+    delay: async (ms) => waits.push(ms), random: () => 0.5,
+    transportFactory: async () => ({ sendMail: async () => {
+      calls++;
+      if (calls < 3) throw Object.assign(new Error('Try again later'), { responseCode: 451 });
+      return { messageId: '<ok>' };
+    } }),
+  });
+  assert.equal((await smtp.sendMail({ to: 'a@x.cz', text: 'x' })).messageId, '<ok>');
+  assert.equal(calls, 3);
+  assert.deepEqual(waits, [150, 300]);
+});
+
+test('smtpClient fails fast on permanent SMTP 5xx and reports exhausted attempts', async () => {
+  for (const responseCode of [535, 550]) {
+    let calls = 0;
+    const smtp = createSmtpClient({ user: 'u', pass: 'p', maxRetries: 3, delay: async () => {}, transportFactory: async () => ({ sendMail: async () => { calls++; throw Object.assign(new Error('rejected'), { responseCode }); } }) });
+    await assert.rejects(() => smtp.sendMail({ to: 'a@x.cz', text: 'x' }), SmtpError);
+    assert.equal(calls, 1);
+  }
+
+  let calls = 0;
+  const smtp = createSmtpClient({ user: 'u', pass: 'p', maxRetries: 1, backoffBaseMs: 0, delay: async () => {}, transportFactory: async () => ({ sendMail: async () => { calls++; throw Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }); } }) });
+  await assert.rejects(() => smtp.sendMail({ to: 'a@x.cz', text: 'x' }), (err) => err instanceof SmtpError && err.attempts === 2 && /after 2 attempts/.test(err.message));
+  assert.equal(calls, 2);
+});
+
 // ---- endpoints: /api/mail/message, /templates, /send -----------------------
 
 test('GET /api/mail/message returns the opened message; /templates lists the approved set', async () => {

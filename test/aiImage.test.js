@@ -144,6 +144,23 @@ test('an aborted request maps to a timeout error', async () => {
   );
 });
 
+test('transient Gemini network failures retry with injected jittered delays', async () => {
+  let calls = 0;
+  const waits = [];
+  const out = await generateMarketingImage({
+    config: { ...CONFIG, maxRetries: 2, backoffBaseMs: 100 }, prompt: 'p',
+    delay: async (ms) => waits.push(ms), random: () => 0.5,
+    fetchImpl: async () => {
+      calls++;
+      if (calls < 3) throw Object.assign(new Error('socket reset'), { code: 'ECONNRESET' });
+      return okImage('OK');
+    },
+  });
+  assert.equal(out.base64, 'OK');
+  assert.equal(calls, 3);
+  assert.deepEqual(waits, [150, 300]);
+});
+
 // --- describeImage: photo -> identity-free text prompt (the vision half of describe-then-generate) ---
 
 const okText = (text) => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }) });

@@ -47,7 +47,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  *  classification lives here so both operations share it. Retries transient overload/rate-limit with
  *  exponential backoff so a temporary 503 spike self-heals instead of surfacing to the operator.
  *  Returns the parsed JSON body. */
-async function callGemini({ apiKey, endpoint = ENDPOINT_DEFAULT, model, parts, generationConfig = null, timeoutMs = 60000, fetchImpl = fetch, maxRetries = 3, backoffBaseMs = 1500 }) {
+async function callGemini({ apiKey, endpoint = ENDPOINT_DEFAULT, model, parts, generationConfig = null, timeoutMs = 60000, fetchImpl = fetch, maxRetries = 3, backoffBaseMs = 1500, delay = sleep, random = Math.random }) {
   const url = `${String(endpoint).replace(/\/+$/, '')}/models/${encodeURIComponent(model)}:generateContent`;
   for (let attempt = 0; ; attempt++) {
     const controller = new AbortController();
@@ -61,14 +61,18 @@ async function callGemini({ apiKey, endpoint = ENDPOINT_DEFAULT, model, parts, g
         signal: controller.signal,
       });
     } catch (err) {
-      throw new AiImageError(`Could not reach the image API: ${err.message}`, err.name === 'AbortError' ? 'timeout' : 'network');
+      if (attempt < maxRetries) {
+        await delay(backoffBaseMs * 2 ** attempt * (1 + random()));
+        continue;
+      }
+      throw new AiImageError(`Could not reach the image API after ${attempt + 1} attempts: ${err.message}`, err.name === 'AbortError' ? 'timeout' : 'network');
     } finally {
       clearTimeout(timer);
     }
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       if (RETRYABLE_STATUS.has(res.status) && attempt < maxRetries) {
-        await sleep(backoffBaseMs * 2 ** attempt); // 1.5s, 3s, 6s
+        await delay(backoffBaseMs * 2 ** attempt * (1 + random()));
         continue;
       }
       const code = res.status === 401 || res.status === 403 ? 'auth' : 'api';
@@ -96,7 +100,7 @@ async function callGemini({ apiKey, endpoint = ENDPOINT_DEFAULT, model, parts, g
  * @param {function} [o.fetchImpl]    injected for tests; defaults to global fetch
  * @returns {Promise<{ base64: string, mimeType: string }>} the generated image
  */
-export async function generateMarketingImage({ config, prompt, referenceBase64 = null, referenceMime = 'image/jpeg', aspectRatio = null, fetchImpl = fetch } = {}) {
+export async function generateMarketingImage({ config, prompt, referenceBase64 = null, referenceMime = 'image/jpeg', aspectRatio = null, fetchImpl = fetch, delay = sleep, random = Math.random } = {}) {
   // Image gen is the slow call — use imageTimeoutMs (longer) when present, not the shared describe timeout.
   const { apiKey, model = 'gemini-3-pro-image-preview', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, imageTimeoutMs, maxRetries = 5, backoffBaseMs = 1500 } = config ?? {};
   const imageTimeout = Number.isInteger(imageTimeoutMs) && imageTimeoutMs > 0 ? imageTimeoutMs : timeoutMs;
@@ -109,7 +113,7 @@ export async function generateMarketingImage({ config, prompt, referenceBase64 =
   if (referenceBase64) parts.push({ inlineData: { mimeType: referenceMime, data: referenceBase64 } });
 
   const generationConfig = { responseModalities: ['IMAGE'], ...(aspectRatio ? { imageConfig: { aspectRatio: String(aspectRatio) } } : {}) };
-  const body = await callGemini({ apiKey, endpoint, model, parts, generationConfig, timeoutMs: imageTimeout, fetchImpl, maxRetries, backoffBaseMs });
+  const body = await callGemini({ apiKey, endpoint, model, parts, generationConfig, timeoutMs: imageTimeout, fetchImpl, maxRetries, backoffBaseMs, delay, random });
   const part = body?.candidates?.[0]?.content?.parts?.find((p) => p?.inlineData?.data);
   if (!part) {
     const note = body?.candidates?.[0]?.content?.parts?.find((p) => p?.text)?.text || body?.promptFeedback?.blockReason || '';
@@ -129,7 +133,7 @@ export async function generateMarketingImage({ config, prompt, referenceBase64 =
  * @param {function} [o.fetchImpl]    injected for tests
  * @returns {Promise<string>} the generated identity-free prompt
  */
-export async function describeImage({ config, referenceBase64, referenceMime = 'image/jpeg', instruction, fetchImpl = fetch } = {}) {
+export async function describeImage({ config, referenceBase64, referenceMime = 'image/jpeg', instruction, fetchImpl = fetch, delay = sleep, random = Math.random } = {}) {
   const { apiKey, describeModel = 'gemini-flash-lite-latest', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, describeInstruction, maxRetries = 5, backoffBaseMs = 1500 } = config ?? {};
   if (!apiKey) throw new AiImageError('No AI API key is configured (set ai.apiKey in config.json).', 'not-configured');
   if (!referenceBase64) throw new AiImageError('A reference photo is required to describe.', 'bad-input');
@@ -138,7 +142,7 @@ export async function describeImage({ config, referenceBase64, referenceMime = '
     { text: instruction || describeInstruction || DESCRIBE_INSTRUCTION },
     { inlineData: { mimeType: referenceMime, data: referenceBase64 } },
   ];
-  const body = await callGemini({ apiKey, endpoint, model: describeModel, parts, generationConfig: null, timeoutMs, fetchImpl, maxRetries, backoffBaseMs });
+  const body = await callGemini({ apiKey, endpoint, model: describeModel, parts, generationConfig: null, timeoutMs, fetchImpl, maxRetries, backoffBaseMs, delay, random });
   const text = (body?.candidates?.[0]?.content?.parts ?? [])
     .map((p) => p?.text)
     .filter(Boolean)
@@ -163,14 +167,14 @@ export async function describeImage({ config, referenceBase64, referenceMime = '
  * @param {function} [o.fetchImpl] injected for tests
  * @returns {Promise<string>}
  */
-export async function generateText({ config, prompt, instruction, model, fetchImpl = fetch } = {}) {
+export async function generateText({ config, prompt, instruction, model, fetchImpl = fetch, delay = sleep, random = Math.random } = {}) {
   const { apiKey, copyModel, describeModel = 'gemini-flash-lite-latest', endpoint = ENDPOINT_DEFAULT, timeoutMs = 60000, maxRetries = 5, backoffBaseMs = 1500 } = config ?? {};
   if (!apiKey) throw new AiImageError('No AI API key is configured (set ai.apiKey in config.json).', 'not-configured');
   if (!prompt || !String(prompt).trim()) throw new AiImageError('A prompt is required.', 'bad-input');
   const parts = [];
   if (instruction) parts.push({ text: String(instruction) });
   parts.push({ text: String(prompt) });
-  const body = await callGemini({ apiKey, endpoint, model: model || copyModel || describeModel, parts, generationConfig: null, timeoutMs, fetchImpl, maxRetries, backoffBaseMs });
+  const body = await callGemini({ apiKey, endpoint, model: model || copyModel || describeModel, parts, generationConfig: null, timeoutMs, fetchImpl, maxRetries, backoffBaseMs, delay, random });
   const text = (body?.candidates?.[0]?.content?.parts ?? [])
     .map((p) => p?.text)
     .filter(Boolean)
