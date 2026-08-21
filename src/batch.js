@@ -13,6 +13,8 @@ import {
   setStatus,
   setSource,
   setAttempt,
+  appendGenerationAttempt,
+  markGeneratorCeilingHit,
   setFraming,
   getAttempt,
   getManualCrop,
@@ -64,6 +66,7 @@ export function nextAttemptSettings(generator, prev) {
 export async function generatePhoto({ config, photoPath, orderDir, manifest, orderId, driver, qc = assessOutputFiles, onEvent = noop, overrides = null }) {
   const base = photoBase(photoPath);
   const prev = getAttempt(manifest, base);
+  const isRedo = getStatus(manifest, base) != null;
   const reroll = prev != null && getStatus(manifest, base) === STATES.FLAGGED;
 
   const settings = reroll ? nextAttemptSettings(config.generator, prev) : { ...config.generator };
@@ -84,12 +87,15 @@ export async function generatePhoto({ config, photoPath, orderDir, manifest, ord
       `re-rolled up to ${prev.steps} diffusion steps, the ceiling — this generator repeats itself, ` +
       `so running it again returns the same page. Approve it, repair it by hand, or change generator.variant.`;
     setStatus(manifest, base, STATES.FLAGGED, reason);
+    markGeneratorCeilingHit(manifest, base);
     writeManifest(orderDir, manifest);
     onEvent({ type: 'photo-flagged', orderId, base, reason });
     return getStatus(manifest, base);
   }
 
   onEvent({ type: 'photo-start', orderId, base, redo: getStatus(manifest, base) != null, steps: settings.diffusionSteps });
+  const started = Date.now();
+  const startedAt = new Date(started).toISOString();
   try {
     const result = await driver.generate(photoPath, {
       ...settings,
@@ -112,6 +118,23 @@ export async function generatePhoto({ config, photoPath, orderDir, manifest, ord
     // Only a completed generation records an attempt: a lost GPU job left no page to differ from,
     // so its retry must repeat the settings rather than climb the ladder for nothing.
     setAttempt(manifest, base, { steps: settings.diffusionSteps, variant: settings.variant ?? null });
+    appendGenerationAttempt(manifest, base, {
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      durationMs: Date.now() - started,
+      kind: isRedo ? 'redo' : 'initial',
+      variant: settings.variant ?? null,
+      diffusionSteps: settings.diffusionSteps,
+      settings,
+      result: 'success',
+      automaticQc: {
+        verdict: verdict.verdict,
+        reason: verdict.reason ?? null,
+        metrics: Object.fromEntries(['coverage', 'solidFill', 'solidBlob', 'blockPx', 'blocks']
+          .filter((key) => Number.isFinite(verdict[key]))
+          .map((key) => [key, verdict[key]])),
+      },
+    });
     // What the framing pass did, if anything, so the grid can show it and the operator can undo it.
     setFraming(manifest, base, result.framing);
     if (result.framing?.rotate || result.framing?.crop) {
@@ -119,7 +142,19 @@ export async function generatePhoto({ config, photoPath, orderDir, manifest, ord
     }
     onEvent({ type: next === STATES.OK ? 'photo-ok' : 'photo-flagged', orderId, base, reason: verdict.reason });
   } catch (err) {
-    setStatus(manifest, base, STATES.FAILED, describeFailure(err));
+    const failureReason = describeFailure(err);
+    setStatus(manifest, base, STATES.FAILED, failureReason);
+    appendGenerationAttempt(manifest, base, {
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      durationMs: Date.now() - started,
+      kind: isRedo ? 'redo' : 'initial',
+      variant: settings.variant ?? null,
+      diffusionSteps: settings.diffusionSteps,
+      settings,
+      result: 'failure',
+      failureReason,
+    });
     onEvent({ type: 'photo-failed', orderId, base, reason: describeFailure(err) });
   } finally {
     writeManifest(orderDir, manifest);

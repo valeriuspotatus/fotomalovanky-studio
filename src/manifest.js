@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 /** Per-photo status vocabulary. state.json is the single source of truth for
  *  run/review state and drives resumability + the builder gate. */
@@ -160,6 +161,104 @@ export function setAttempt(manifest, base, attempt) {
 
 export function getAttempt(manifest, base) {
   return manifest.photos?.[base]?.attempt ?? null;
+}
+
+// ---- durable generation / human-review telemetry --------------------------
+
+const GENERATOR_SETTING_KEYS = new Set(['diffusionSteps', 'steps', 'variant', 'mode']);
+export const HUMAN_REJECTION_REASONS = Object.freeze([
+  'face_likeness', 'wrong_subject_count', 'anatomy', 'missing_subject_or_object',
+  'composition', 'crop', 'solid_fill', 'too_detailed', 'too_simple', 'other', 'unspecified',
+]);
+const REJECTION_REASONS = new Set(HUMAN_REJECTION_REASONS);
+
+function safeGeneratorSettings(settings = {}) {
+  return Object.fromEntries(Object.entries(settings).filter(([key, value]) =>
+    GENERATOR_SETTING_KEYS.has(key) && (value == null || ['string', 'number', 'boolean'].includes(typeof value))));
+}
+
+/** Old manifests intentionally return an empty history: their overwritten `attempt` field is not
+ * enough evidence to pretend a historical first-pass success. Returned objects are copies so a
+ * caller cannot accidentally mutate completed history without going through a manifest helper. */
+export function getGenerationAttempts(manifest, base) {
+  return (manifest.photos?.[base]?.generationAttempts ?? []).map((attempt) => structuredClone(attempt));
+}
+
+export function getCurrentGenerationAttempt(manifest, base) {
+  const attempts = manifest.photos?.[base]?.generationAttempts ?? [];
+  return attempts.length ? structuredClone(attempts.at(-1)) : null;
+}
+
+/** Append one completed generation invocation. Normal operation never edits or removes an earlier
+ * record; the only later annotation allowed is a decision about that exact output or a ceiling hit. */
+export function appendGenerationAttempt(manifest, base, attempt) {
+  manifest.photos ??= {};
+  const entry = { ...manifest.photos[base] };
+  const history = [...(entry.generationAttempts ?? [])];
+  const record = {
+    attemptId: String(attempt.attemptId ?? randomUUID()),
+    attemptNumber: history.length + 1,
+    startedAt: attempt.startedAt ?? new Date().toISOString(),
+    finishedAt: attempt.finishedAt ?? new Date().toISOString(),
+    durationMs: Math.max(0, Number(attempt.durationMs ?? 0)),
+    kind: attempt.kind === 'redo' ? 'redo' : 'initial',
+    variant: attempt.variant ?? null,
+    diffusionSteps: attempt.diffusionSteps ?? attempt.steps ?? null,
+    settings: safeGeneratorSettings(attempt.settings ?? attempt),
+    result: attempt.result === 'failure' ? 'failure' : 'success',
+  };
+  if (record.result === 'failure') record.failureReason = String(attempt.failureReason ?? 'generation failed');
+  if (attempt.automaticQc) record.automaticQc = structuredClone(attempt.automaticQc);
+  history.push(record);
+  entry.generationAttempts = history;
+  manifest.photos[base] = entry;
+  return structuredClone(record);
+}
+
+function mutateCurrentAttempt(manifest, base, mutate) {
+  const entry = manifest.photos?.[base];
+  const history = entry?.generationAttempts;
+  if (!history?.length) return null; // legacy output: preserve behavior without fabricating evidence
+  const current = { ...history.at(-1) };
+  mutate(current, history.length);
+  entry.generationAttempts = [...history.slice(0, -1), current];
+  return structuredClone(current);
+}
+
+export function markGeneratorCeilingHit(manifest, base, at = new Date().toISOString()) {
+  return mutateCurrentAttempt(manifest, base, (attempt) => {
+    attempt.ceilingHit = true;
+    attempt.ceilingHitAt = at;
+  });
+}
+
+/** Append an operator decision to the output it concerned. Decision annotations never replace a
+ * generation record, and legacy manifests remain legal (there is no reliable attempt to attach). */
+export function recordHumanDecision(manifest, base, decision) {
+  if (decision.decision !== 'accepted' && decision.decision !== 'rejected') {
+    throw new ManifestError(`Unknown human decision: ${decision.decision}`);
+  }
+  const reason = decision.decision === 'rejected' ? (decision.reason ?? 'unspecified') : null;
+  if (reason && !REJECTION_REASONS.has(reason)) throw new ManifestError(`Unknown rejection reason: ${reason}`);
+  return mutateCurrentAttempt(manifest, base, (attempt, count) => {
+    const item = {
+      decision: decision.decision,
+      at: decision.at ?? new Date().toISOString(),
+      source: 'human',
+      action: String(decision.action ?? decision.decision),
+    };
+    if (reason) item.reason = reason;
+    if (decision.note != null && String(decision.note).trim()) item.note = String(decision.note).trim().slice(0, 500);
+    if (decision.manualRepair === true) item.manualRepair = true;
+    attempt.humanDecisions = [...(attempt.humanDecisions ?? []), item];
+    attempt.attemptsBeforeDecision = count;
+    if (decision.decision === 'accepted') {
+      attempt.humanAccepted = true;
+      attempt.acceptedAfterAutomaticQcOk = attempt.automaticQc?.verdict === 'ok';
+      if (decision.manualRepair === true) attempt.manualRepair = true;
+    }
+    else attempt.humanRejected = true;
+  });
 }
 
 /** Remember that the photo was straightened or cut out of a screenshot before it was drawn (see

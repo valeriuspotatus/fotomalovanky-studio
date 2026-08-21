@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { generateOrder, runBatch, nextAttemptSettings } from '../src/batch.js';
-import { getFraming } from '../src/manifest.js';
+import { getFraming, getGenerationAttempts, getCurrentGenerationAttempt } from '../src/manifest.js';
 import { GeneratorError } from '../src/generator/driver.js';
 import { STATES, readManifest, getStatus, setStatus, writeManifest, emptyManifest } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
@@ -295,6 +295,34 @@ test('the attempt that produced the page on disk is recorded in state.json', asy
     const order = seedOrder(inbox, '1510', ['a.jpeg']);
     const { orderDir } = await generateOrder({ config: CONFIG, order, outboxRoot: outbox, driver: new StubDriver(), qc: OK_QC });
     assert.deepEqual(readManifest(orderDir).photos.a.attempt, { steps: 8, variant: '2509_1.5' });
+  });
+});
+
+test('successful, failed, redo, and ceiling outcomes append complete generation telemetry', async () => {
+  await fixture(async ({ inbox, outbox }) => {
+    const order = seedOrder(inbox, '1510', ['a.jpeg']);
+    const config = { ...CONFIG, generator: { ...CONFIG.generator, maxDiffusionSteps: 9, token: 'DO-NOT-STORE' } };
+    const flagged = async () => ({ verdict: 'flagged', reason: 'solid-fill', coverage: 0.99 });
+    await generateOrder({ config, order, outboxRoot: outbox, driver: new StubDriver(), qc: flagged });
+    await generateOrder({ config, order, outboxRoot: outbox, driver: new StubDriver(), qc: flagged });
+    const { orderDir } = await generateOrder({ config, order, outboxRoot: outbox, driver: new StubDriver(), qc: flagged });
+    let attempts = getGenerationAttempts(readManifest(orderDir), 'a');
+    assert.equal(attempts.length, 2, 'ceiling is an outcome, not a generation attempt');
+    assert.deepEqual(attempts.map((a) => a.attemptNumber), [1, 2]);
+    assert.deepEqual(attempts.map((a) => a.kind), ['initial', 'redo']);
+    assert.equal(attempts[0].automaticQc.reason, 'solid-fill');
+    assert.equal(attempts[0].automaticQc.metrics.coverage, 0.99);
+    assert.equal(getCurrentGenerationAttempt(readManifest(orderDir), 'a').ceilingHit, true);
+    assert.doesNotMatch(JSON.stringify(readManifest(orderDir)), /DO-NOT-STORE/);
+
+    const failedOrder = seedOrder(inbox, '1511', ['bad.jpeg']);
+    const failed = await generateOrder({ config: CONFIG, order: failedOrder, outboxRoot: outbox, driver: new StubDriver({ failOn: ['bad'] }), qc: OK_QC });
+    attempts = getGenerationAttempts(readManifest(failed.orderDir), 'bad');
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].result, 'failure');
+    assert.match(attempts[0].failureReason, /worker lost/);
+    assert.ok(attempts[0].startedAt && attempts[0].finishedAt);
+    assert.ok(attempts[0].durationMs >= 0);
   });
 });
 

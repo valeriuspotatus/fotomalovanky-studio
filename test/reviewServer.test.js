@@ -73,6 +73,8 @@ test('home serves the studio dashboard; the review grid moves to /review', async
   assert.match(review.headers.get('content-type'), /text\/html/);
   const reviewHtml = await review.text();
   assert.match(reviewHtml, /id="inbox"|id="run"/, 'the review grid is served at /review');
+  assert.match(reviewHtml, /face_likeness/);
+  assert.match(reviewHtml, /wrong_subject_count/);
   assert.ok(!reviewHtml.includes('id="homeTiles"'), 'the grid is not the dashboard');
 });
 

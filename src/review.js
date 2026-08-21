@@ -36,6 +36,7 @@ import {
   summarizeOrder,
   isBuilderEligible,
   holdsForReview,
+  recordHumanDecision,
 } from './manifest.js';
 
 // The U4 review gate. state.json is the single source of truth: every verdict here is written
@@ -268,19 +269,29 @@ export function approve(orderDir, base) {
     if (status === STATES.FAILED) {
       throw new ReviewError(`"${base}" never generated, so there is nothing to approve. Redo it first.`);
     }
+    recordHumanDecision(manifest, base, {
+      decision: 'accepted', action: 'approve',
+      manualRepair: status === STATES.PENDING_REVIEW,
+    });
     setStatus(manifest, base, STATES.APPROVED, 'operator approved');
   });
 }
 
 /** The operator's eye overrules the QC tripwire: send a photo back to the review queue. */
 export function reject(orderDir, base, reason = 'operator marked bad') {
-  return update(orderDir, base, (manifest) => setStatus(manifest, base, STATES.FLAGGED, reason));
+  return update(orderDir, base, (manifest) => {
+    recordHumanDecision(manifest, base, { decision: 'rejected', reason: 'unspecified', action: 'reject' });
+    setStatus(manifest, base, STATES.FLAGGED, reason);
+  });
 }
 
 /** Hand a photo to the generator/Figma for manual repair. Always passes through flagged, so
  *  "hand off" on a clean-looking photo still records that the operator rejected it. */
 export function handoff(orderDir, base) {
   return update(orderDir, base, (manifest) => {
+    recordHumanDecision(manifest, base, {
+      decision: 'rejected', reason: 'unspecified', action: 'manual_repair',
+    });
     if (getStatus(manifest, base) !== STATES.FLAGGED) {
       setStatus(manifest, base, STATES.FLAGGED, 'operator sent it for manual repair');
     }
@@ -419,14 +430,22 @@ export async function revertPhotoEdit({ orderDir, base, qc = assessOutputFiles }
  *  a request this deterministic generator would answer identically.
  *  Regenerates from the operator's original photo when it still exists; the generator's echoed-back
  *  copy is a second JPEG compression and is only the fallback. */
-export async function redo({ config, orderDir, base, driver, qc, onEvent, overrides = null }) {
+export async function redo({ config, orderDir, base, driver, qc, onEvent, overrides = null, rejection = null }) {
   const manifest = readManifest(orderDir);
   const status = getStatus(manifest, base);
   if (status == null) throw new ReviewError(`No photo "${base}" in ${orderDir}.`);
+  recordHumanDecision(manifest, base, {
+    decision: 'rejected',
+    reason: rejection?.reason ?? 'unspecified',
+    note: rejection?.note,
+    action: 'redo',
+  });
   if (status !== STATES.FLAGGED) {
     setStatus(manifest, base, STATES.FLAGGED, 'operator requested a redo');
-    writeManifest(orderDir, manifest);
   }
+  // Persist the rejection before starting a slow external job. This is the existing output-decision
+  // write (and therefore correctly invalidates an older PDF), not a telemetry-only mtime bump.
+  writeManifest(orderDir, manifest);
 
   const photoPath = generationSource(orderDir, base, manifest);
   if (!photoPath) {

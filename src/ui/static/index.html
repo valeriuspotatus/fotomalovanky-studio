@@ -440,10 +440,14 @@ function toast(msg, isErr) {
   toastTimer = setTimeout(() => (t.className = ''), isErr ? 7000 : 2600);
 }
 
-async function act(orderId, base, action) {
+async function act(orderId, base, action, reason = null) {
   for (const b of document.querySelectorAll(`[data-key="${CSS.escape(orderId + '/' + base)}"] button`)) b.disabled = true;
   try {
-    const res = await fetch(`/api/${enc(orderId)}/${enc(base)}/${action}`, { method: 'POST' });
+    const res = await fetch(`/api/${enc(orderId)}/${enc(base)}/${action}`, {
+      method: 'POST',
+      headers: reason ? { 'Content-Type': 'application/json' } : undefined,
+      body: reason ? JSON.stringify({ reason }) : undefined,
+    });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `akce „${action}“ selhala (HTTP ${res.status})`);
     if (action === 'redo') toast('Přegenerovávám — pár minut.');
@@ -888,6 +892,18 @@ function tile(orderId, orderDir, p, locked) {
       `<button data-a="redo">Přegenerovat</button>`,
       `<button data-edit>Opravit ručně</button>`,
     );
+  }
+
+  // One click labels the rejected output and starts its replacement. Generic redo stays available
+  // for keyboard and old workflows; the server records that path as `unspecified`.
+  if ((status === 'flagged' || status === 'pending_review' || status === 'ok') && !busy) {
+    acts += `<div class="acts rejection-reasons" aria-label="Důvod přegenerování">
+      ${[
+        ['face_likeness','Podoba'], ['wrong_subject_count','Počet osob'], ['anatomy','Anatomie'],
+        ['missing_subject_or_object','Něco chybí'], ['composition','Kompozice'], ['crop','Ořez'],
+        ['solid_fill','Černá plocha'], ['too_detailed','Moc detailů'], ['too_simple','Málo detailů'], ['other','Jiné'],
+      ].map(([reason,label]) => `<button data-a="redo" data-reason="${reason}">${label}</button>`).join('')}
+    </div>`;
   }
 
   // The editor draws on the SVG, because the SVG is what the book prints. A photo that has none
@@ -2000,13 +2016,13 @@ function lbNav(delta) {
 
 // A keyboard verdict only fires when the live tile actually offers that action, so A on a locked or
 // already-generating page is a harmless no-op. Approve/reject auto-advance; redo stays to watch it run.
-async function lbAct(k, action) {
+async function lbAct(k, action, reason = null) {
   if (lbBusy) return;
   const tile = lbTileFor(k);
   if (!tile || !tile.querySelector(`.acts button[data-a="${action}"]`)) return;
   lbBusy = true;
   try {
-    await act(k.order, k.base, action); // awaits its own refresh(true), so the grid is rebuilt after
+    await act(k.order, k.base, action, reason); // awaits its own refresh(true), so the grid is rebuilt after
   } finally {
     lbBusy = false;
   }
@@ -2113,7 +2129,7 @@ document.addEventListener('click', (e) => {
     const k = lbKeys[lbIdx];
     if (!k) return;
     if (lbBtn.dataset.crop !== undefined) return; // handled below, against the tile it came from
-    if (lbBtn.dataset.a !== undefined) lbAct(k, lbBtn.dataset.a);
+    if (lbBtn.dataset.a !== undefined) lbAct(k, lbBtn.dataset.a, lbBtn.dataset.reason || null);
     else if (lbBtn.dataset.open !== undefined) open(lbBtn.dataset.open, k.order);
     else if (lbBtn.dataset.edit !== undefined && !lbBtn.disabled) { $('#lb').close(); openEditor(k.order, k.base, lbTileFor(k)?.dataset.edited === '1'); }
     return;
@@ -2227,7 +2243,7 @@ document.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-a],button[data-open]');
   if (!btn) return;
   const t = btn.closest('.tile');
-  if (btn.dataset.a) act(t.dataset.order, t.dataset.base, btn.dataset.a);
+  if (btn.dataset.a) act(t.dataset.order, t.dataset.base, btn.dataset.a, btn.dataset.reason || null);
   else open(btn.dataset.open, t.dataset.order);
 });
 

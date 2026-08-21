@@ -991,7 +991,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       });
   }
 
-  async function startRedo(orderId, base, overrides = null) {
+  async function startRedo(orderId, base, overrides = null, rejection = null) {
     requireIdle();
     const key = `${orderId}/${base}`;
     if (inFlight.has(key)) throw new ReviewError(`"${base}" is already being regenerated.`);
@@ -1008,6 +1008,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
       driver: generator,
       qc,
       overrides,
+      rejection,
       onEvent: (e) => {
         if (e.type === 'progress') inFlight.set(key, { message: `${e.step}: ${e.message}` });
       },
@@ -2148,7 +2149,8 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
           return json(res, 200, { status });
         }
         if (action === 'redo') {
-          await startRedo(orderId, base);
+          const body = await readJson(req, 2048).catch(() => ({}));
+          await startRedo(orderId, base, null, { reason: body.reason ?? 'unspecified', note: body.note ?? null });
           return json(res, 202, { started: true });
         }
         // Undo an automatic straighten / screenshot crop: regenerate this one photo from the bytes

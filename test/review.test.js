@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { reviewState, approve, reject, handoff, acceptReplacement, redo, setOrderDedication, applyPhotoEdit, revertPhotoEdit, editBackupPath, ReviewError } from '../src/review.js';
-import { STATES, readManifest, getStatus, setStatus, setDedication, writeManifest, emptyManifest, isBuilderEligible } from '../src/manifest.js';
+import { STATES, readManifest, getStatus, setStatus, setDedication, writeManifest, emptyManifest, isBuilderEligible, appendGenerationAttempt, getGenerationAttempts } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
 import { learnDedication, recallDedication } from '../src/dedications.js';
 import { GeneratorError } from '../src/generator/driver.js';
@@ -78,6 +78,12 @@ async function seed(status, { reason = null, base = 'a', withOutputs = true } = 
   }
   writeManifest(orderDir, m);
   return { root, inbox: join(root, 'inbox'), outbox, orderDir, base, sourcePath, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+function seedAttempt(orderDir, { kind = 'initial', result = 'success' } = {}) {
+  const m = readManifest(orderDir);
+  appendGenerationAttempt(m, 'a', { kind, result, diffusionSteps: 8 });
+  writeManifest(orderDir, m);
 }
 
 // ---- the approval policy ---------------------------------------------------
@@ -164,6 +170,39 @@ test('a redo re-generates and a clean result auto-advances to ok', async () => {
   } finally {
     f.cleanup();
   }
+});
+
+test('redo reasons reject the exact prior attempt while later attempts and acceptance remain distinct', async () => {
+  const f = await seed(STATES.FLAGGED, { reason: 'near-blank' });
+  try {
+    seedAttempt(f.orderDir);
+    await redo({ config: CONFIG, orderDir: f.orderDir, base: 'a', driver: new StubDriver(), qc: BAD_QC, rejection: { reason: 'face_likeness', note: 'eyes' } });
+    await redo({ config: CONFIG, orderDir: f.orderDir, base: 'a', driver: new StubDriver(), qc: OK_QC, rejection: { reason: 'crop' } });
+    approve(f.orderDir, 'a');
+    const attempts = getGenerationAttempts(readManifest(f.orderDir), 'a');
+    assert.equal(attempts.length, 3);
+    assert.equal(attempts[0].humanDecisions[0].reason, 'face_likeness');
+    assert.equal(attempts[0].humanDecisions[0].note, 'eyes');
+    assert.equal(attempts[1].humanDecisions[0].reason, 'crop');
+    assert.equal(attempts[2].humanAccepted, true);
+    assert.equal(attempts[2].attemptsBeforeDecision, 3);
+  } finally { f.cleanup(); }
+});
+
+test('generic redo records unspecified and manual repair acceptance is measurable', async () => {
+  const f = await seed(STATES.FLAGGED, { reason: 'near-blank' });
+  try {
+    seedAttempt(f.orderDir);
+    await redo({ config: CONFIG, orderDir: f.orderDir, base: 'a', driver: new StubDriver(), qc: BAD_QC });
+    handoff(f.orderDir, 'a');
+    await acceptReplacement({ orderDir: f.orderDir, base: 'a', qc: OK_QC });
+    approve(f.orderDir, 'a');
+    const attempts = getGenerationAttempts(readManifest(f.orderDir), 'a');
+    assert.equal(attempts[0].humanDecisions[0].reason, 'unspecified');
+    assert.equal(attempts[1].humanAccepted, true);
+    assert.equal(attempts[1].humanDecisions.at(-1).manualRepair, true);
+    assert.equal(attempts[1].manualRepair, true);
+  } finally { f.cleanup(); }
 });
 
 test('a redo that comes back just as bad stays flagged, and stays out of the builder', async () => {

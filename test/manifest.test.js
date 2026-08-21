@@ -20,7 +20,67 @@ import {
   getEmailedAt,
   setEmailedAt,
   ManifestError,
+  appendGenerationAttempt,
+  getGenerationAttempts,
+  getCurrentGenerationAttempt,
+  recordHumanDecision,
 } from '../src/manifest.js';
+
+test('generation history is absent on legacy manifests and appends without changing prior attempts', () => {
+  const m = { orderId: 'legacy', photos: { a: { status: STATES.OK, attempt: { steps: 8, variant: 'old' } } } };
+  assert.deepEqual(getGenerationAttempts(m, 'a'), []);
+  assert.equal(getCurrentGenerationAttempt(m, 'a'), null);
+
+  const first = appendGenerationAttempt(m, 'a', {
+    startedAt: '2026-08-21T10:00:00.000Z', finishedAt: '2026-08-21T10:00:02.000Z',
+    durationMs: 2000, kind: 'initial', variant: 'v1', diffusionSteps: 8,
+    result: 'success', automaticQc: { verdict: 'flagged', reason: 'near-blank', metrics: { inkCoverage: 0.01 } },
+  });
+  const snapshot = structuredClone(first);
+  const second = appendGenerationAttempt(m, 'a', {
+    startedAt: '2026-08-21T10:01:00.000Z', finishedAt: '2026-08-21T10:01:03.000Z',
+    durationMs: 3000, kind: 'redo', variant: 'v1', diffusionSteps: 9, result: 'failure', failureReason: 'worker lost',
+  });
+  assert.equal(first.attemptNumber, 1);
+  assert.equal(second.attemptNumber, 2);
+  assert.notEqual(first.attemptId, second.attemptId);
+  assert.deepEqual(getGenerationAttempts(m, 'a')[0], snapshot, 'later appends never rewrite completed history');
+  assert.equal(getCurrentGenerationAttempt(m, 'a').attemptId, second.attemptId);
+});
+
+test('attempt telemetry allowlists settings and human decisions target the current attempt', () => {
+  const m = emptyManifest('1510');
+  appendGenerationAttempt(m, 'a', {
+    kind: 'initial', variant: 'safe', diffusionSteps: 8, result: 'success',
+    settings: { diffusionSteps: 8, variant: 'safe', mode: 'api', token: 'SECRET', apiKey: 'SECRET', baseUrl: 'https://secret.test/token' },
+  });
+  recordHumanDecision(m, 'a', { decision: 'rejected', reason: 'anatomy', source: 'human', action: 'redo', at: '2026-08-21T10:00:00.000Z' });
+  const attempt = getCurrentGenerationAttempt(m, 'a');
+  assert.deepEqual(attempt.settings, { diffusionSteps: 8, variant: 'safe', mode: 'api' });
+  assert.equal(attempt.humanRejected, true);
+  assert.equal(attempt.humanDecisions[0].reason, 'anatomy');
+  assert.doesNotMatch(JSON.stringify(m), /SECRET|secret\.test/);
+});
+
+test('attempt and decision history survives a manifest write and reload', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fma-history-'));
+  try {
+    const m = emptyManifest('1510');
+    appendGenerationAttempt(m, 'a', {
+      kind: 'initial', result: 'success', diffusionSteps: 8,
+      automaticQc: { verdict: 'ok', reason: 'ok', metrics: { coverage: 0.1 } },
+    });
+    recordHumanDecision(m, 'a', { decision: 'accepted', source: 'human', action: 'approve', manualRepair: true });
+    writeManifest(dir, m);
+    const current = getCurrentGenerationAttempt(readManifest(dir), 'a');
+    assert.equal(current.humanAccepted, true);
+    assert.equal(current.humanDecisions[0].manualRepair, true);
+    assert.equal(current.attemptsBeforeDecision, 1);
+    assert.equal(current.acceptedAfterAutomaticQcOk, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('customer-emailed timestamp round-trips and clears (N4)', () => {
   const m = emptyManifest('1510');
