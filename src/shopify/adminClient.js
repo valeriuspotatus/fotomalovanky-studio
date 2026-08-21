@@ -33,7 +33,7 @@ const ORDER_FIELDS = `
 export function createAdminClient({
   storeDomain, accessToken, apiVersion = '2026-07', fetchImpl = fetch,
   maxRetries = 3, backoffBaseMs = 500,
-  delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), random = Math.random,
+  delay = sleep, random = Math.random,
 }) {
   if (!storeDomain) throw new ShopifyApiError('storeDomain is required (e.g. aqi8it-7n.myshopify.com).');
   if (!accessToken) throw new ShopifyApiError('accessToken is required (the read_orders token).');
@@ -99,3 +99,4 @@ export function createAdminClient({
 
   return { graphql, fetchOrderByName, listOrders, endpoint };
 }
+import { setTimeout as sleep } from 'node:timers/promises';

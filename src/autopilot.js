@@ -81,14 +81,17 @@ export async function runAutopilot({
   // "1234-1" and "1234-2", neither of which is in the handled map. Inside the polling window that
   // would look like new work and regenerate a book already printed and packed — unattended,
   // overnight. For a single-book order the two ids are the same and this is one check.
-  const revisions = new Map(eligible.map((o) => [o.orderId, sourceFingerprint(o)]));
-  const disposition = (o) => {
-    const own = handledDisposition(state, o.orderId, revisions.get(o.orderId));
-    if (own !== 'unhandled') return own;
-    return handledDisposition(state, o.purchase.orderId, revisions.get(o.orderId));
-  };
-  const revisionConflicts = eligible.filter((o) => disposition(o) === 'changed');
-  const toProcess = eligible.filter((o) => disposition(o) === 'unhandled');
+  const classified = eligible.map((order) => {
+    const fingerprint = sourceFingerprint(order);
+    const own = handledDisposition(state, order.orderId, fingerprint);
+    const disposition = own !== 'unhandled'
+      ? own
+      : handledDisposition(state, order.purchase.orderId, fingerprint);
+    return { order, fingerprint, disposition };
+  });
+  const revisions = new Map(classified.map(({ order, fingerprint }) => [order.orderId, fingerprint]));
+  const revisionConflicts = classified.filter((entry) => entry.disposition === 'changed').map((entry) => entry.order);
+  const toProcess = classified.filter((entry) => entry.disposition === 'unhandled').map((entry) => entry.order);
   const skippedResolved = eligible.length - toProcess.length;
   onEvent({ type: 'poll-done', seen: orders.length, paidPhoto: eligible.length, nonPaidPhotoSeen, toProcess: toProcess.length, skippedResolved, requirePaid });
 

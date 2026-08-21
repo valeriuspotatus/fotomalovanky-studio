@@ -41,7 +41,6 @@ export const DESCRIBE_INSTRUCTION = [
 /** Gemini overload (503 "high demand"), rate-limit (429) and transient 500s are the API telling you
  *  to come back in a moment — retryable, unlike a 4xx that will fail identically forever. */
 const RETRYABLE_STATUS = new Set([429, 500, 503]);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The one low-level POST to Gemini generateContent. Injectable fetch; all HTTP/transport error
  *  classification lives here so both operations share it. Retries transient overload/rate-limit with
@@ -186,3 +185,4 @@ export async function generateText({ config, prompt, instruction, model, fetchIm
   }
   return text;
 }
+import { setTimeout as sleep } from 'node:timers/promises';

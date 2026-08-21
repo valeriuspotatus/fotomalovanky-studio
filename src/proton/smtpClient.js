@@ -2,6 +2,7 @@
 // on its own: the dashboard calls it only after an explicit operator action. Nodemailer stays lazy so
 // tests can inject a transport and installations without Bridge can still load the module.
 import { tlsFor } from './bridgeClient.js';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 export class SmtpError extends Error {
   constructor(code, message, cause) {
@@ -16,7 +17,7 @@ export function createSmtpClient({
   host = '127.0.0.1', port = 1025, user, pass, secure = false,
   fromName = 'Fotomalovánky.cz', fromAddress, transportFactory,
   maxRetries = 2, backoffBaseMs = 500,
-  delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), random = Math.random,
+  delay = sleep, random = Math.random,
 } = {}) {
   const sender = (fromAddress && String(fromAddress).trim()) || user;
   const makeTransport = transportFactory ?? (async () => {

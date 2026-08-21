@@ -7,12 +7,10 @@ import { join } from 'node:path';
 
 const WINDOW_DAYS = Object.freeze({ today: 1, '7d': 7, '30d': 30 });
 
-function calendarKey(value, timeZone) {
+function calendarKey(value, formatter) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(date);
+  return formatter.format(date);
 }
 
 function shiftCalendarKey(key, days) {
@@ -92,16 +90,21 @@ function aggregate(photos) {
  * that photo makes first-pass/redo percentages a coherent funnel instead of splitting one photo
  * across windows. Legacy photos have no cohort and therefore contribute no invented success. */
 export function computeGenerationMetrics(rawPhotos, { now = new Date(), timeZone = 'Europe/Prague' } = {}) {
-  const today = calendarKey(now, timeZone);
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  const today = calendarKey(now, formatter);
   const photos = (Array.isArray(rawPhotos) ? rawPhotos : [])
-    .map((photo) => ({ attempts: Array.isArray(photo?.attempts) ? photo.attempts.filter((item) => item && typeof item === 'object') : [] }))
-    .filter((photo) => photo.attempts.length && calendarKey(photo.attempts[0]?.startedAt, timeZone));
+    .map((photo) => {
+      const attempts = Array.isArray(photo?.attempts) ? photo.attempts.filter((item) => item && typeof item === 'object') : [];
+      return { attempts, cohortDay: attempts.length ? calendarKey(attempts[0]?.startedAt, formatter) : null };
+    })
+    .filter((photo) => photo.cohortDay);
   const out = { all: aggregate(photos) };
   for (const [name, days] of Object.entries(WINDOW_DAYS)) {
     const start = shiftCalendarKey(today, 1 - days);
     out[name] = aggregate(photos.filter((photo) => {
-      const cohortDay = calendarKey(photo.attempts[0].startedAt, timeZone);
-      return cohortDay >= start && cohortDay <= today;
+      return photo.cohortDay >= start && photo.cohortDay <= today;
     }));
   }
   return { today: out.today, '7d': out['7d'], '30d': out['30d'], all: out.all };

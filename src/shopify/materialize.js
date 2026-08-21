@@ -89,7 +89,6 @@ export async function materializeOrder(order, {
   const backupDir = join(root, `.${order.orderId}.previous-${nonce}`);
   mkdirSync(stagingDir);
   const fingerprint = sourceFingerprint(order);
-  let promoted = false;
 
   const files = [];
   const errors = [];
@@ -148,11 +147,8 @@ export async function materializeOrder(order, {
       return { orderId: order.orderId, orderDir, files: [], incomplete: true, errors, fingerprint };
     }
     promote(stagingDir, orderDir, backupDir);
-    promoted = true;
   } finally {
     rmSync(stagingDir, { recursive: true, force: true });
-    // A backup left after an exceptional restore failure is recovery data, not disposable temp.
-    if (promoted) rmSync(backupDir, { recursive: true, force: true });
   }
 
   return { orderId: order.orderId, orderDir, files, incomplete: false, errors, fingerprint };
