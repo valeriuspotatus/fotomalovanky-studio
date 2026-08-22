@@ -1,8 +1,10 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { extname } from 'node:path';
 import sharp from 'sharp';
 import { photoBase } from './organize.js';
 import { assessResolution, assessBlur, assessExposure, dHash } from './inputQc.js';
+import { imageExtension } from './shopify/safeFetch.js';
 
 // Runtime adapter: decode one input photo and feed the pure heuristics in inputQc.js — the input
 // mirror of qcFiles.js. The bytes are read once, hashed for exact-duplicate detection, then sharp
@@ -12,6 +14,9 @@ import { assessResolution, assessBlur, assessExposure, dHash } from './inputQc.j
 // sideways is not mistaken for a different image than its corrected twin.
 
 const NORM = 512; // short-side target: scale-normalises blur/exposure/hash and bounds cost
+const MAX_BYTES = 25 * 1024 * 1024;
+const MAX_PIXELS = 40_000_000;
+const MAX_DIMENSION = 12_000;
 
 /** Decode and assess one photo file.
  *  @returns {Promise<{ base:string, path:string, readable:boolean, sha1:?string,
@@ -22,17 +27,21 @@ export async function assessPhotoFile(photoPath, opts = {}) {
 
   let bytes;
   try {
+    const info = await stat(photoPath);
+    if (!info.isFile() || info.size > MAX_BYTES) return unreadable(base, photoPath, null);
     bytes = await readFile(photoPath);
   } catch {
     return unreadable(base, photoPath, null);
   }
   const sha1 = createHash('sha1').update(bytes).digest('hex');
+  if (/^\.hei[cf]$/i.test(extname(photoPath)) || imageExtension(bytes) === 'heic') return unreadable(base, photoPath, sha1);
 
   try {
-    const img = sharp(bytes, { failOn: 'none' }).rotate(); // honour EXIF, like apiDriver's upload
+    const img = sharp(bytes, { failOn: 'error', limitInputPixels: MAX_PIXELS, sequentialRead: true }).rotate();
     const meta = await img.metadata();
     const width = meta.width ?? 0;
     const height = meta.height ?? 0;
+    if (!width || !height || width > MAX_DIMENSION || height > MAX_DIMENSION) return unreadable(base, photoPath, sha1);
 
     const { data, info } = await img
       .greyscale()

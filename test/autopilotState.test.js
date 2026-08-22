@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadState, saveState, isHandled, markHandled, statePath } from '../src/autopilotState.js';
@@ -11,7 +11,7 @@ test('a data dir with no state file loads a clean slate, not an error', () => {
   const dir = tmp();
   try {
     const s = loadState(dir);
-    assert.deepEqual(s, { handled: {}, cursor: null, lastRunAt: null });
+    assert.deepEqual(s, { handled: {}, authorizationHolds: {}, cursor: null, lastRunAt: null });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -20,7 +20,7 @@ test('a data dir with no state file loads a clean slate, not an error', () => {
 test('saveState then loadState round-trips the handled set, cursor and lastRunAt', () => {
   const dir = tmp();
   try {
-    const s = { handled: { 1524: { status: 'ready', at: 'x' } }, cursor: '2026-07-12T01:00:00Z', lastRunAt: '2026-07-12T06:00:00Z' };
+    const s = { handled: { 1524: { status: 'ready', at: 'x' } }, authorizationHolds: { 1600: { purchaseId: '1600', firstSeenAt: '2026-07-12T01:00:00Z', lastSeenAt: '2026-07-12T02:00:00Z' } }, cursor: '2026-07-12T01:00:00Z', lastRunAt: '2026-07-12T06:00:00Z' };
     saveState(dir, s);
     assert.deepEqual(loadState(dir), s);
   } finally {
@@ -38,11 +38,60 @@ test('markHandled records a terminal order and advances the cursor to the latest
   assert.equal(isHandled(s, '9999'), false, 'an unseen order is not handled');
 });
 
-test('a corrupt state file degrades to a clean slate rather than throwing', () => {
+test('a corrupt state file fails closed instead of replaying handled orders', () => {
   const dir = tmp();
   try {
     writeFileSync(statePath(dir), '{ this is not json');
-    assert.deepEqual(loadState(dir), { handled: {}, cursor: null, lastRunAt: null });
+    assert.throws(() => loadState(dir), /autopilot state/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('invalid handled state fails closed and successful saves leave no temporary file', () => {
+  const dir = tmp();
+  try {
+    writeFileSync(statePath(dir), JSON.stringify({ handled: [], cursor: null, lastRunAt: null }));
+    assert.throws(() => loadState(dir), /autopilot state/i);
+    saveState(dir, { handled: { 1524: { status: 'ready' } }, cursor: null, lastRunAt: null });
+    assert.equal(isHandled(loadState(dir), '1524'), true);
+    assert.deepEqual(readdirSync(dir), ['autopilot-state.json']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('invalid handled entries fail closed instead of replaying that order', () => {
+  const dir = tmp();
+  try {
+    for (const entry of [null, false, []]) {
+      writeFileSync(statePath(dir), JSON.stringify({ handled: { 1524: entry }, cursor: null, lastRunAt: null }));
+      assert.throws(() => loadState(dir), /autopilot state/i);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('invalid authorization holds fail closed before they can drive a Shopify lookup', () => {
+  const dir = tmp();
+  try {
+    for (const entry of [{}, { purchaseId: '../x', firstSeenAt: 'x', lastSeenAt: 'x' }]) {
+      writeFileSync(statePath(dir), JSON.stringify({ handled: {}, authorizationHolds: { 1600: entry } }));
+      assert.throws(() => loadState(dir), /autopilot state/i);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a stale temporary artifact cannot replace the last valid canonical state', () => {
+  const dir = tmp();
+  try {
+    const valid = { handled: { 1524: { status: 'ready' } }, authorizationHolds: {}, cursor: null, lastRunAt: null };
+    saveState(dir, valid);
+    writeFileSync(`${statePath(dir)}.tmp-crashed-writer`, '{ partial');
+    assert.deepEqual(loadState(dir), valid);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

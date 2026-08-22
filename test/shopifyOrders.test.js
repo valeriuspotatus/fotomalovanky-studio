@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractJobs, expectedPhotosFrom, attributionFrom, channelOf } from '../src/shopify/orders.js';
+import { DIGITAL_PERFORMANCE_KEYS, DIGITAL_PERFORMANCE_TEXT_HASH, DIGITAL_PERFORMANCE_VERSION, PHOTO_AUTHORIZATION_KEYS as KEYS, PHOTO_AUTHORIZATION_LOCALE, PHOTO_AUTHORIZATION_TEXT_HASH, PHOTO_AUTHORIZATION_VERSION } from '../src/photoAuthorization.js';
 
 // The pure extraction from a real PUBLIC Admin API order node. The public API returns customAttributes
 // as {key,value} with NO `type` field (the admin-internal `type:"URL"` is not present) — so extraction
@@ -12,10 +13,11 @@ function item({ variant = '🖨️ Tištěné omalovánky / 4', quantity = 1, at
 }
 
 /** A raw order node. Defaults to a single line item; pass `items` for a multi-book purchase. */
-function node({ name = '#1524', email = 'a@b.cz', financial = 'PAID', updatedAt = '2026-07-12T01:00:00Z', variant = '🖨️ Tištěné omalovánky / 4', attrs = [], items = null } = {}) {
+function node({ name = '#1524', email = 'a@b.cz', financial = 'PAID', createdAt = '2026-08-22T10:00:00.000Z', updatedAt = '2026-07-12T01:00:00Z', variant = '🖨️ Tištěné omalovánky / 4', attrs = [], items = null } = {}) {
   return {
     name,
     email,
+    createdAt,
     updatedAt,
     displayFinancialStatus: financial,
     lineItems: { edges: items ?? [item({ variant, attrs })] },
@@ -27,6 +29,38 @@ const one = (opts) => extractJobs(node(opts))[0];
 
 const CDN = 'https://cdn.tigren.com/media';
 const photoAttrs = (n, prefix) => Array.from({ length: n }, (_, i) => ({ key: `Fotka (${n})-${i + 1}`, value: `${CDN}/${prefix}${i + 1}.jpg` }));
+const consentAttrs = () => [
+  { key: KEYS.accepted, value: 'true' },
+  { key: KEYS.version, value: PHOTO_AUTHORIZATION_VERSION },
+  { key: KEYS.acceptedAt, value: '2026-08-22T09:58:00.000Z' },
+  { key: KEYS.locale, value: PHOTO_AUTHORIZATION_LOCALE },
+  { key: KEYS.textHash, value: PHOTO_AUTHORIZATION_TEXT_HASH },
+];
+
+test('print and PDF books preserve the same exact authorization evidence per line item', () => {
+  const items = [
+    item({ variant: '🖨️ Tištěné omalovánky / 4', attrs: [...photoAttrs(1, 'print'), ...consentAttrs()] }),
+    item({ variant: '💻 Pouze PDF online / 4', attrs: [...photoAttrs(1, 'pdf'), ...consentAttrs(),
+      { key: DIGITAL_PERFORMANCE_KEYS.accepted, value: 'true' },
+      { key: DIGITAL_PERFORMANCE_KEYS.acceptedAt, value: '2026-08-22T09:59:00.000Z' },
+      { key: DIGITAL_PERFORMANCE_KEYS.version, value: DIGITAL_PERFORMANCE_VERSION },
+      { key: DIGITAL_PERFORMANCE_KEYS.locale, value: PHOTO_AUTHORIZATION_LOCALE },
+      { key: DIGITAL_PERFORMANCE_KEYS.textHash, value: DIGITAL_PERFORMANCE_TEXT_HASH }] }),
+  ];
+  const jobs = extractJobs(node({ items }));
+  assert.equal(jobs.length, 2);
+  assert.ok(jobs.every((job) => job.photoAuthorization.valid));
+  assert.ok(jobs.every((job) => job.photoAuthorization.evidence.textHash === PHOTO_AUTHORIZATION_TEXT_HASH));
+  assert.ok(jobs.every((job) => job.photoAuthorization.evidence.orderTimestamp === '2026-08-22T10:00:00.000Z'));
+  assert.equal(jobs[0].digitalPerformance.evidence, null);
+  assert.equal(jobs[1].digitalPerformance.evidence.accepted, true);
+});
+
+test('a PDF line item without separate immediate-performance evidence fails closed', () => {
+  const job = one({ variant: 'Pouze PDF online / 4', attrs: [...photoAttrs(1, 'pdf'), ...consentAttrs()] });
+  assert.equal(job.photoAuthorization.valid, true);
+  assert.equal(job.digitalPerformance.valid, false);
+});
 
 test('a real 4-photo order extracts the URL photos index-ordered, the dedication, the layout and the recipient', () => {
   const o = one({
@@ -63,6 +97,15 @@ test('photos out of attribute order are still returned in customer upload order'
     { key: 'Fotka (3)-2', value: `${CDN}/b.jpg` },
   ] });
   assert.deepEqual(o.photos, [`${CDN}/a.jpg`, `${CDN}/b.jpg`, `${CDN}/c.jpg`]);
+  assert.deepEqual(o.photoIds, ['1524-photo-0001', '1524-photo-0002', '1524-photo-0003'], 'identity follows Shopify slot keys, not filenames or signed URLs');
+});
+
+test('duplicate photo slot identities are preserved as an integrity error', () => {
+  const o = one({ attrs: [
+    { key: 'Fotka (2)-1', value: `${CDN}/a.jpg` },
+    { key: 'Fotka (2)-1', value: `${CDN}/b.jpg` },
+  ] });
+  assert.equal(new Set(o.photoIds).size, 1, 'the duplicate is visible to the downstream identity gate');
 });
 
 test('attributes carry NO `type` field and photos are still extracted by key match (internal-vs-public regression guard)', () => {

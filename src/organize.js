@@ -1,7 +1,7 @@
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 
-const PHOTO_EXT = /\.(jpe?g)$/i;
+const PHOTO_EXT = /\.(jpe?g|png|webp|heic|heif)$/i;
 
 /** Windows refuses to overwrite a file another handle still holds. The review grid reads these
  *  very files to draw its tiles while the run rewrites them, and a virus scanner or an open
@@ -24,9 +24,9 @@ export async function copyWithRetry(src, dest, { attempts = COPY_ATTEMPTS, backo
   }
 }
 
-/** True for .jpg / .jpeg input photos (case-insensitive). */
+/** True for advertised or explicitly-held input formats (case-insensitive). */
 export function isPhoto(filename) {
-  return PHOTO_EXT.test(filename);
+  return PHOTO_EXT.test(filename) && !/_bw\.png$/i.test(filename);
 }
 
 /** Base name without directory or extension: "abc.jpg" -> "abc". */

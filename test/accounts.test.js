@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, statSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { platform, tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 import {
   readAccounts,
@@ -148,7 +148,9 @@ test('nothing resembling a password or a hash is persisted, even when a caller h
   }
 });
 
-test('the account file is written 0600, because the disk it lives on is shared', () => {
+test('the account file is written 0600, because the disk it lives on is shared', {
+  skip: platform() === 'win32' ? 'Windows reports 666 for chmod 0600' : false,
+}, () => {
   const f = fixture();
   try {
     writeAccounts(f.dir, defaultAccounts());

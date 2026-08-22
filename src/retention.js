@@ -49,6 +49,7 @@ import { readManifest, writeManifest, manifestPath } from './manifest.js';
 import { outputPaths } from './organize.js';
 import { reportPath } from './autopilotReport.js';
 import { statePath } from './autopilotState.js';
+import { acquireOrderLock, assertSafeOrderId, isOrderLockHeld, OrderLockedError } from './orderLock.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -67,6 +68,52 @@ export const STALLED_WINDOW_MULTIPLE = 3;
 export const purgeWarning =
   'The photographs are also inside each "<order> Final.pdf", and in whatever folder you archived ' +
   'the finished books to. This only clears the working outbox.';
+
+function treeSize(path) {
+  let bytes = 0, files = 0;
+  for (const entry of readdirSync(path, { withFileTypes: true })) {
+    const child = join(path, entry.name);
+    if (entry.isDirectory()) { const nested = treeSize(child); bytes += nested.bytes; files += nested.files; }
+    else if (entry.isFile()) { bytes += statSync(child).size; files++; }
+  }
+  return { bytes, files };
+}
+
+export function inspectQuarantine({ inboxRoot, days, now = Date.now() }) {
+  if (!Number.isInteger(days) || days <= 0) throw new TypeError('days must be a positive integer');
+  const root = join(inboxRoot, '.fotomalovanky-staging');
+  if (!existsSync(root)) return [];
+  return readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory()).flatMap((entry) => {
+    try { assertSafeOrderId(entry.name); } catch { return []; }
+    const path = join(root, entry.name);
+    const ageDays = Math.floor((now - statSync(path).mtimeMs) / DAY_MS);
+    return [{ orderId: entry.name, path, ageDays, locked: isOrderLockHeld({ inboxRoot, orderId: entry.name }), ...treeSize(path) }];
+  }).sort((a, b) => a.orderId.localeCompare(b.orderId, 'en', { numeric: true }));
+}
+
+export function purgeQuarantine({ inboxRoot, days, now = Date.now(), dryRun = true, acquireLock = acquireOrderLock }) {
+  const inspected = inspectQuarantine({ inboxRoot, days, now });
+  const eligible = inspected.filter((item) => !item.locked && item.ageDays >= days);
+  if (dryRun) return { dryRun, days, removed: eligible, kept: inspected.filter((item) => !eligible.includes(item)) };
+  const removed = [], kept = inspected.filter((item) => !eligible.includes(item));
+  for (const item of eligible) {
+    let release;
+    try { release = acquireLock({ inboxRoot, orderId: item.orderId, operation: 'retention purge' }); }
+    catch (err) {
+      if (err instanceof OrderLockedError) { kept.push({ ...item, locked: true }); continue; }
+      throw err;
+    }
+    try {
+      if (!existsSync(item.path)) continue;
+      const ageDays = Math.floor((now - statSync(item.path).mtimeMs) / DAY_MS);
+      if (ageDays < days) { kept.push({ ...item, ageDays }); continue; }
+      const current = { ...item, ageDays, ...treeSize(item.path) };
+      rmSync(item.path, { recursive: true, force: true });
+      removed.push(current);
+    } finally { release(); }
+  }
+  return { dryRun, days, removed, kept };
+}
 
 const pdfPathFor = (orderDir, orderId) => join(orderDir, `${orderId} Final.pdf`);
 // The two lifecycle markers studio.js writes (kept as local literals, like pdfPathFor, so retention
@@ -188,7 +235,7 @@ export function inspectOutbox({ outboxRoot, days, now = Date.now(), stalledMulti
  *  `cap` bounds ONE run (PURGE_BATCH_CAP; pass null for no cap). It is applied on the dry run too,
  *  so what the operator reads is exactly what a confirmation would do — a report listing forty
  *  orders and a run deleting twenty-five would be a worse lie than no report at all. */
-export function purgeOriginals({ outboxRoot, days, now = Date.now(), dryRun = true, cap = PURGE_BATCH_CAP, stalledMultiple = STALLED_WINDOW_MULTIPLE }) {
+export function purgeOriginals({ outboxRoot, inboxRoot = null, days, now = Date.now(), dryRun = true, cap = PURGE_BATCH_CAP, stalledMultiple = STALLED_WINDOW_MULTIPLE }) {
   if (cap != null && (!Number.isInteger(cap) || cap <= 0)) throw new TypeError('cap must be a positive integer or null');
   const inspected = inspectOutbox({ outboxRoot, days, now, stalledMultiple });
   const eligible = inspected.filter((o) => !o.skip);
@@ -238,6 +285,7 @@ export function purgeOriginals({ outboxRoot, days, now = Date.now(), dryRun = tr
       backfilled: eligible.filter((o) => o.backfilled === true).length,
       dispatched: eligible.filter((o) => o.backfilled === false).length,
     },
+    quarantine: inboxRoot ? purgeQuarantine({ inboxRoot, days, now, dryRun }) : { dryRun, days, removed: [], kept: [] },
   };
 }
 

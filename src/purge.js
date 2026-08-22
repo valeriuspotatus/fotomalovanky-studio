@@ -37,7 +37,7 @@ export function report(result) {
     }
     lines.push('');
     lines.push(`  ${result.photos} photograph(s), ${mb(result.bytes)}.`);
-  } else {
+  } else if (!result.quarantine?.removed.length) {
     lines.push(`Nothing to delete: no dispatched book is older than ${result.days} days.`);
   }
 
@@ -79,6 +79,11 @@ export function report(result) {
     lines.push('');
     lines.push('Nothing has been deleted. Run it again with --yes to go ahead.');
   }
+  if (result.quarantine?.removed.length) {
+    const files = result.quarantine.removed.reduce((total, item) => total + item.files, 0);
+    lines.push('');
+    lines.push(`${result.dryRun ? 'Would clear' : 'Cleared'} ${files} quarantined customer file(s) from ${result.quarantine.removed.length} order(s).`);
+  }
   return lines.join('\n');
 }
 
@@ -86,7 +91,7 @@ async function main(argv) {
   const { yes, days } = parseArgs(argv);
   const config = loadConfig();
   const keepDays = days ?? config.retentionDays;
-  const result = purgeOriginals({ outboxRoot: config.paths.outbox, days: keepDays, dryRun: !yes });
+  const result = purgeOriginals({ outboxRoot: config.paths.outbox, inboxRoot: config.paths.inbox, days: keepDays, dryRun: !yes });
   console.log(`\n${report(result)}\n`);
 
   // The overnight report + state hold order data on the same clock; clear them once autopilot has

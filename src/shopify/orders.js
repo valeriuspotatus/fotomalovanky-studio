@@ -14,6 +14,9 @@
 //   format     — "Rozvržení"     (the ONLY galerie-vs-full-page signal; not the variant — KTD9)
 //   internal   — "_tpo_add_by"   (and any "_"-prefixed key) — skipped
 
+import { validateDigitalPerformance, validatePhotoAuthorization } from '../photoAuthorization.js';
+import { createHash } from 'node:crypto';
+
 const DEFAULTS = Object.freeze({
   photoKeyMatch: 'fotka',
   dedicationKeyMatch: 'věnování',
@@ -22,6 +25,21 @@ const DEFAULTS = Object.freeze({
 
 const isUrl = (v) => typeof v === 'string' && /^https?:\/\//i.test(v);
 const keyIncludes = (key, needle) => key.toLowerCase().includes(needle.toLowerCase());
+const normalizedText = (value) => typeof value === 'string' ? value.normalize('NFKC').trim().replace(/\s+/g, ' ') : '';
+
+export function sourceFingerprint(order) {
+  const meaningful = {
+    orderId: normalizedText(order?.orderId),
+    photos: order?.photos ?? [],
+    photoIds: order?.photoIds ?? [],
+    products: order?.products ?? [],
+    layout: normalizedText(order?.layout),
+    dedication: normalizedText(order?.dedication),
+    authorization: order?.photoAuthorization?.evidence ?? null,
+    digitalPerformance: order?.digitalPerformance?.evidence ?? null,
+  };
+  return `sha256:${createHash('sha256').update(JSON.stringify(meaningful)).digest('hex')}`;
+}
 
 /** The trailing "-M" index in a photo key ("Fotka (4)-2" -> 2), or null when there is none.
  *  Photos are ordered by it so the book pages follow the customer's upload order, not the
@@ -49,13 +67,14 @@ function lineItemAttributes(item) {
  *  customer's upload order. Only meaningful within a single line item: sorting a merged set
  *  interleaves the two books (Array.sort is stable, so equal indices keep insertion order) rather
  *  than concatenating them. */
-function photosFrom(attrs, photoKeyMatch) {
+function photoRefsFrom(attrs, photoKeyMatch) {
   return attrs
     .filter((a) => keyIncludes(a.key, photoKeyMatch) && isUrl(a.value))
     .map((a) => ({ url: a.value, idx: photoIndex(a.key) }))
-    .sort((x, y) => (x.idx ?? 1e9) - (y.idx ?? 1e9))
-    .map((p) => p.url);
+    .sort((x, y) => (x.idx ?? 1e9) - (y.idx ?? 1e9));
 }
+
+const photosFrom = (attrs, photoKeyMatch) => photoRefsFrom(attrs, photoKeyMatch).map((photo) => photo.url);
 
 /** The one line item, shaped for the sidecar. Kept as a single-entry array because that is what
  *  `expectedPhotosFrom` and the sidecar's `products` field already consume. */
@@ -100,16 +119,20 @@ export function extractJobs(node, opts = {}) {
     const item = le?.node;
     if (!item) continue;
     const attrs = lineItemAttributes(item);
-    const photos = photosFrom(attrs, photoKeyMatch);
+    const photoRefs = photoRefsFrom(attrs, photoKeyMatch);
+    const photos = photoRefs.map((photo) => photo.url);
     const product = productFrom(item);
     // Not a book: no photos and no advertised count. Postage, an add-on, a gift note.
     if (!photos.length && expectedPhotosFrom([product]) == null) continue;
     books.push({
       photos,
+      photoSlots: photoRefs.map((photo) => photo.idx),
       product,
       dedication: attrs.find((a) => keyIncludes(a.key, dedicationKeyMatch) && a.value)?.value?.trim() ?? '',
       layout: attrs.find((a) => keyIncludes(a.key, layoutKeyMatch) && a.value)?.value?.trim() ?? '',
       copies: product.qty ?? 1,
+      photoAuthorization: validatePhotoAuthorization(item.customAttributes, { orderCreatedAt: node.createdAt }),
+      digitalPerformance: validateDigitalPerformance(item.customAttributes, { required: isDigitalProduct(product), orderCreatedAt: node.createdAt }),
     });
   }
   if (!books.length) return [];
@@ -118,8 +141,10 @@ export function extractJobs(node, opts = {}) {
   const attribution = attributionFrom(node);
 
   const of = books.length;
-  return books.map((b, i) => ({
-    orderId: of === 1 ? purchaseId : `${purchaseId}-${i + 1}`,
+  return books.map((b, i) => {
+    const orderId = of === 1 ? purchaseId : `${purchaseId}-${i + 1}`;
+    return {
+    orderId,
     purchase: { orderId: purchaseId, position: i + 1, of },
     copies: b.copies,
     attribution,
@@ -129,9 +154,14 @@ export function extractJobs(node, opts = {}) {
     dedication: b.dedication,
     layout: b.layout,
     photos: b.photos,
+    photoIds: b.photoSlots.map((slot) => Number.isInteger(slot) && slot > 0 ? `${orderId}-photo-${String(slot).padStart(4, '0')}` : null),
     products: [b.product],
-  }));
+    photoAuthorization: b.photoAuthorization,
+    digitalPerformance: b.digitalPerformance,
+  }; });
 }
+
+const isDigitalProduct = (product) => /\bPDF\b/i.test(`${product.title} ${product.variant}`);
 
 // ---- where the order came from --------------------------------------------------------------
 //

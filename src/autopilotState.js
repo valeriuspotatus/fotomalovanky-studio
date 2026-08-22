@@ -4,42 +4,68 @@
 //
 // Only TERMINAL orders (their PDF is built — status `ready`) land in the handled set. Held and failed
 // orders are deliberately left OUT so the next poll re-pulls them: that is what lets a customer's
-// re-upload lift an intake hold overnight, unattended (KTD8). A lost or corrupt state file degrades to
-// "start clean" — the pipeline's own force:false caching means already-built PDFs are not re-generated,
-// so the blast radius of a state loss is a re-download, never a re-spend.
+// re-upload lift an intake hold overnight, unattended (KTD8). Missing state starts clean, but corrupt
+// durable state fails closed: forgetting a handled order could replay completed work.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 const STATE_FILE = 'autopilot-state.json';
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+const validHold = (entry) => entry && typeof entry === 'object' && !Array.isArray(entry)
+  && typeof entry.purchaseId === 'string' && /^[A-Za-z0-9-]+$/.test(entry.purchaseId)
+  && ISO.test(entry.firstSeenAt) && ISO.test(entry.lastSeenAt);
 
 /** The single fixed state path under the data dir. */
 export const statePath = (dataDir) => join(dataDir, STATE_FILE);
 
-const empty = () => ({ handled: {}, cursor: null, lastRunAt: null });
+const empty = () => ({ handled: {}, authorizationHolds: {}, cursor: null, lastRunAt: null });
 
-/** Read the persisted state, or a clean slate when there is none / it is unreadable. Never throws —
- *  a half-written file must not abort the night. */
+/** Read persisted state. Missing is a legitimate first run; malformed durable truth is not. */
 export function loadState(dataDir) {
   const path = statePath(dataDir);
   if (!existsSync(path)) return empty();
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8'));
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return empty();
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+      || (parsed.handled !== undefined && (typeof parsed.handled !== 'object' || parsed.handled === null || Array.isArray(parsed.handled)))
+      || Object.values(parsed.handled ?? {}).some((entry) => !entry || typeof entry !== 'object' || Array.isArray(entry))
+      || (parsed.authorizationHolds !== undefined && (typeof parsed.authorizationHolds !== 'object' || parsed.authorizationHolds === null || Array.isArray(parsed.authorizationHolds)))
+      || Object.values(parsed.authorizationHolds ?? {}).some((entry) => !validHold(entry))
+      || (parsed.cursor != null && typeof parsed.cursor !== 'string')
+      || (parsed.lastRunAt != null && typeof parsed.lastRunAt !== 'string')) {
+      throw new Error('invalid structure');
+    }
     return {
-      handled: parsed.handled && typeof parsed.handled === 'object' && !Array.isArray(parsed.handled) ? parsed.handled : {},
-      cursor: typeof parsed.cursor === 'string' ? parsed.cursor : null,
-      lastRunAt: typeof parsed.lastRunAt === 'string' ? parsed.lastRunAt : null,
+      handled: parsed.handled ?? {},
+      authorizationHolds: parsed.authorizationHolds ?? {},
+      cursor: parsed.cursor ?? null,
+      lastRunAt: parsed.lastRunAt ?? null,
     };
-  } catch {
-    return empty();
+  } catch (error) {
+    throw new Error(`Autopilot state at ${path} is corrupt; reconcile it before restarting`, { cause: error });
   }
 }
 
 /** Persist the state, creating the (outside-repo) data dir if needed. */
 export function saveState(dataDir, state) {
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(statePath(dataDir), JSON.stringify(state, null, 2));
+  const path = statePath(dataDir);
+  const tmp = `${path}.tmp-${process.pid}-${randomUUID()}`;
+  let fd;
+  try {
+    fd = openSync(tmp, 'wx', 0o600);
+    writeFileSync(fd, JSON.stringify(state, null, 2));
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = undefined;
+    renameSync(tmp, path);
+  } catch (error) {
+    if (fd !== undefined) try { closeSync(fd); } catch {}
+    try { rmSync(tmp, { force: true }); } catch {}
+    throw error;
+  }
 }
 
 /** True once an order has been carried to a built book and should never re-run. Held/failed orders

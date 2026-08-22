@@ -3,15 +3,56 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, utimesSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { inspectOutbox, purgeOriginals, inspectAutopilotData, purgeAutopilotData, PURGE_BATCH_CAP, STALLED_WINDOW_MULTIPLE } from '../src/retention.js';
+import { inspectOutbox, purgeOriginals, inspectAutopilotData, purgeAutopilotData, purgeQuarantine, PURGE_BATCH_CAP, STALLED_WINDOW_MULTIPLE } from '../src/retention.js';
 import { markSent, unmarkPrinted, unmarkSent, readSentMarker } from '../src/studio.js';
 import { parseArgs, report } from '../src/purge.js';
 import { createReviewServer } from '../src/ui/server.js';
 import { hashPassword, ROLE_ENV_VARS } from '../src/auth/credentials.js';
 import { SIGN_IN_PATH } from '../src/auth/sessions.js';
 import { STATES, emptyManifest, setStatus, writeManifest, readManifest, manifestPath } from '../src/manifest.js';
+import { OrderLockedError } from '../src/orderLock.js';
 
 const DAY = 24 * 60 * 60 * 1000;
+
+test('quarantined originals age out with dry-run parity while live locked work is kept', () => {
+  const inbox = mkdtempSync(join(tmpdir(), 'fma-quarantine-purge-'));
+  try {
+    for (const id of ['9001', '9002']) {
+      const dir = join(inbox, '.fotomalovanky-staging', id, 'previous');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'photo.jpeg'), 'synthetic customer bytes');
+      utimesSync(join(inbox, '.fotomalovanky-staging', id), new Date(NOW - 31 * DAY), new Date(NOW - 31 * DAY));
+    }
+    mkdirSync(join(inbox, '.fotomalovanky-order-locks', '9002'), { recursive: true });
+    const dry = purgeQuarantine({ inboxRoot: inbox, days: 30, now: NOW });
+    assert.deepEqual(dry.removed.map((item) => item.orderId), ['9001']);
+    assert.equal(existsSync(join(inbox, '.fotomalovanky-staging', '9001')), true);
+    const wet = purgeQuarantine({ inboxRoot: inbox, days: 30, now: NOW, dryRun: false });
+    assert.deepEqual(wet.removed.map((item) => item.orderId), dry.removed.map((item) => item.orderId));
+    assert.equal(existsSync(join(inbox, '.fotomalovanky-staging', '9001')), false);
+    assert.equal(existsSync(join(inbox, '.fotomalovanky-staging', '9002')), true);
+  } finally { rmSync(inbox, { recursive: true, force: true }); }
+});
+
+test('quarantine purge loses a lock race safely and recovers a dead-process lock', () => {
+  const inbox = mkdtempSync(join(tmpdir(), 'fma-quarantine-lock-'));
+  try {
+    const staged = join(inbox, '.fotomalovanky-staging', '9001');
+    mkdirSync(join(staged, 'previous'), { recursive: true });
+    writeFileSync(join(staged, 'previous', 'photo.jpeg'), 'synthetic customer bytes');
+    utimesSync(staged, new Date(NOW - 31 * DAY), new Date(NOW - 31 * DAY));
+    const raced = purgeQuarantine({ inboxRoot: inbox, days: 30, now: NOW, dryRun: false, acquireLock: () => { throw new OrderLockedError('9001', 'test'); } });
+    assert.equal(raced.removed.length, 0);
+    assert.equal(existsSync(staged), true);
+
+    const lock = join(inbox, '.fotomalovanky-order-locks', '9001');
+    mkdirSync(lock, { recursive: true });
+    writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: 2147483647 }));
+    const recovered = purgeQuarantine({ inboxRoot: inbox, days: 30, now: NOW, dryRun: false });
+    assert.deepEqual(recovered.removed.map((item) => item.orderId), ['9001']);
+    assert.equal(existsSync(staged), false);
+  } finally { rmSync(inbox, { recursive: true, force: true }); }
+});
 
 // A frozen "today" for every test that can hand the code under test its own clock — retention.js
 // takes `now` on all four entry points, so those tests are genuinely time-independent.

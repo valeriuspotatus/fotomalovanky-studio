@@ -10,6 +10,7 @@
 // half-written file is not an error, it is simply no answer.
 
 import { existsSync, readFileSync } from 'node:fs';
+import { validateStoredDigitalPerformance, validateStoredPhotoAuthorization } from './photoAuthorization.js';
 
 /** The channel names the sidecar may carry. Anything else in the file reads as unknown — the value
  *  is rebuilt from this set rather than trusted, because a sidecar is a file on disk that a person
@@ -42,6 +43,8 @@ export function readOrderInfo(orderDir) {
   // older download has neither, and that is not an error — the count check goes advisory and the
   // email greeting stays neutral. Only positive integers and non-empty strings are trusted.
   const expectedPhotos = Number.isInteger(parsed.expectedPhotos) && parsed.expectedPhotos > 0 ? parsed.expectedPhotos : null;
+  const products = parseProducts(parsed.products);
+  const digitalRequired = products.some((product) => /\bPDF\b/i.test(`${product.title} ${product.variant}`));
   return {
     dedication,
     order,
@@ -49,8 +52,10 @@ export function readOrderInfo(orderDir) {
     purchase: parsePurchase(parsed.purchase, order),
     copies: Number.isInteger(parsed.copies) && parsed.copies > 0 ? parsed.copies : 1,
     customer: parseCustomer(parsed.customer),
-    products: parseProducts(parsed.products),
+    products,
     attribution: parseAttribution(parsed.attribution),
+    photoAuthorization: validateStoredPhotoAuthorization(parsed.photoAuthorization),
+    digitalPerformance: validateStoredDigitalPerformance(parsed.digitalPerformance, { required: digitalRequired }),
   };
 }
 

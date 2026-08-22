@@ -7,6 +7,7 @@ import sharp from 'sharp';
 import { createReviewServer } from '../src/ui/server.js';
 import { STATES, readManifest, getStatus, emptyManifest, setDedication, writeManifest } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
+import { PHOTO_AUTHORIZATION_LOCALE, PHOTO_AUTHORIZATION_TEXT_HASH, PHOTO_AUTHORIZATION_VERSION } from '../src/photoAuthorization.js';
 
 const CONFIG = {
   generator: { baseUrl: 'https://example.test/tok', mode: 'api', variant: '2509_1.5', diffusionSteps: 8 },
@@ -14,6 +15,8 @@ const CONFIG = {
   paths: { inbox: './inbox', outbox: './outbox' },
 };
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0 L10 10"/></svg>';
+const PHOTO_AUTHORIZATION = { accepted: true, version: PHOTO_AUTHORIZATION_VERSION, acceptedAt: '2026-08-22T09:58:00.000Z', locale: PHOTO_AUTHORIZATION_LOCALE, textHash: PHOTO_AUTHORIZATION_TEXT_HASH, orderTimestamp: '2026-08-22T10:00:00.000Z' };
+const writeAuthorization = (dir, order) => writeFileSync(join(dir, 'objednavka.json'), JSON.stringify({ order, photoAuthorization: PHOTO_AUTHORIZATION }));
 
 /** A stand-in coloring raster: 1px lines with white paper between them. Half ink, but nothing
  *  filled — a solid black block would trip qc's solid-fill tripwire, and rightly so. */
@@ -65,6 +68,7 @@ before(async () => {
   mkdirSync(join(inbox, '1510'), { recursive: true });
   mkdirSync(orderDir, { recursive: true });
   await sharp({ create: { width: 20, height: 20, channels: 3, background: '#ccc' } }).jpeg().toFile(join(inbox, '1510', 'a.jpeg'));
+  writeAuthorization(join(inbox, '1510'), '1510');
   // The run holds an order with no title text, so give this one a dedication up front.
   writeManifest(orderDir, setDedication(emptyManifest('1510'), 'Pro Barču'));
 
@@ -204,6 +208,7 @@ async function runOnce(opts) {
   mkdirSync(join(inb, '1510'), { recursive: true });
   mkdirSync(dir, { recursive: true });
   await sharp({ create: { width: 20, height: 20, channels: 3, background: '#ccc' } }).jpeg().toFile(join(inb, '1510', 'a.jpeg'));
+  writeAuthorization(join(inb, '1510'), '1510');
   writeManifest(dir, setDedication(emptyManifest('1510'), 'Pro Barču'));
 
   const gen = new GatedGenerator();
@@ -265,6 +270,7 @@ test('Stop ends a run in flight, and the tool comes back to rest', async () => {
     mkdirSync(join(inb, id), { recursive: true });
     mkdirSync(join(outb, id), { recursive: true });
     await sharp({ create: { width: 20, height: 20, channels: 3, background: '#ccc' } }).jpeg().toFile(join(inb, id, 'a.jpeg'));
+    writeAuthorization(join(inb, id), id);
     writeManifest(join(outb, id), setDedication(emptyManifest(id), 'Pro Barču'));
   }
 

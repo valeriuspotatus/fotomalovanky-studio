@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ApiGeneratorDriver } from '../src/generator/apiDriver.js';
 import { GeneratorError } from '../src/generator/driver.js';
+import sharp from 'sharp';
 
 // RunPod loses jobs: ~8% of them in the operator's recorded session. A dropped job used to lose
 // the photo outright. These tests pin the recovery: resubmit a *new* job, bounded, and when the
@@ -71,10 +72,10 @@ function makeConfig(overrides = {}) {
 
 let tmp, photoPath, realFetch;
 
-beforeEach(() => {
+beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), 'fma-retry-'));
   photoPath = join(tmp, 'photo.jpg');
-  writeFileSync(photoPath, 'not-a-real-image'); // sharp fails to parse -> driver uploads raw bytes
+  writeFileSync(photoPath, await sharp({ create: { width: 4, height: 4, channels: 3, background: '#fff' } }).jpeg().toBuffer());
   realFetch = globalThis.fetch;
 });
 afterEach(() => {
