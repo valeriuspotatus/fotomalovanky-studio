@@ -7,6 +7,10 @@ import { safeFetch, PhotoFetchError } from '../src/shopify/safeFetch.js';
 // or leak a credential. Everything here drives it with an injected fetch + DNS so no packet ever leaves.
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]);
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const WEBP = Buffer.from('RIFF\0\0\0\0WEBP', 'binary');
+// 32x32 HEVC-backed HEIF corpus image from libheif (LGPL-3.0 test corpus).
+const HEIC = Buffer.from('AAAAHGZ0eXBoZWljAAAAAG1pZjFoZWljbWlhZgAAAXttZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAABnwABAAAAAAAAAGwAAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABodmMxAAAAAA5waXRtAAAAAAABAAAA+2lwcnAAAADbaXBjbwAAAHZodmNDAQNwAAAAAAAAAAAAHvAA/P34+AAADwNgAAEAGEABDAH//wNwAAADAJAAAAMAAAMAHroCQGEAAQAqQgEBA3AAAAMAkAAAAwAAAwAeoCCBBZbq5Ka5uAhoMCAAAAMDIAAAAwAhYgABAAZEAcFzwIkAAAATY29scm5jbHgAAQANAAaAAAAAFGlzcGUAAAAAAAAAQAAAAEAAAAAoY2xhcAAAACAAAAABAAAAIAAAAAH////gAAAAAv///+AAAAACAAAADnBpeGkAAAAAAQgAAAAYaXBtYQAAAAAAAAABAAEFgQIDBYQAAAB0bWRhdAAAAGgoAa8TgPUrAhGDczL1mz4HCRRzxqbGjnnUrr1cLTO799zRz6nw0QjRMp+4I2Da10D3ghQEMvB53CWoI0S3qXIb99YsvLFaQ9ZLHxsJsZ9SxlvNJ5EgD4Y4miuaKu3bxPGXDHirp/9TzA==', 'base64');
 const ALLOW = ['cdn.tigren.com'];
 
 /** A fetch stub that records the options it was called with and returns a canned image response. */
@@ -68,11 +72,54 @@ test('a non-image content-type is refused', async () => {
   await assert.rejects(() => safeFetch('https://cdn.tigren.com/a.jpg', { allowlist: ALLOW, fetchImpl, lookup: publicLookup }), /non-image content-type/);
 });
 
+test('image bytes, not a misleading MIME type or filename, determine the format', async () => {
+  const heic = await safeFetch('https://cdn.tigren.com/photo.jpg?name=photo.jpg', {
+    allowlist: ALLOW,
+    fetchImpl: fakeFetch({ contentType: 'image/jpeg', body: HEIC }),
+    lookup: publicLookup,
+  });
+  assert.equal(heic.ext, 'heic', 'HEIC bytes must never be passed downstream as JPEG');
+
+  const jpeg = await safeFetch('https://cdn.tigren.com/photo.HEIC', {
+    allowlist: ALLOW,
+    fetchImpl: fakeFetch({ contentType: 'image/heic', body: JPEG }),
+    lookup: publicLookup,
+  });
+  assert.equal(jpeg.ext, 'jpg', 'a misleading extension must not override JPEG bytes');
+});
+
+test('HTML mislabeled as an image is rejected at the download boundary', async () => {
+  await assert.rejects(
+    () => safeFetch('https://cdn.tigren.com/expired.jpg', {
+      allowlist: ALLOW,
+      fetchImpl: fakeFetch({ contentType: 'image/jpeg', body: Buffer.from('<!doctype html><title>expired</title>') }),
+      lookup: publicLookup,
+    }),
+    /image bytes/,
+  );
+});
+
 test('a body over the size cap is refused', async () => {
   const big = Buffer.alloc(200, 0xff);
   await assert.rejects(
     () => safeFetch('https://cdn.tigren.com/a.jpg', { allowlist: ALLOW, maxBytes: 100, fetchImpl: fakeFetch({ body: big }), lookup: publicLookup }),
     /exceeds/,
+  );
+});
+
+test('the timeout remains active while a response body stalls', async () => {
+  const fetchImpl = async (_url, { signal }) => ({
+    ok: true,
+    status: 200,
+    headers: { get: (name) => name.toLowerCase() === 'content-type' ? 'image/jpeg' : null },
+    body: { getReader: () => ({
+      read: () => new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })),
+      cancel: async () => {},
+    }) },
+  });
+  await assert.rejects(
+    () => safeFetch('https://cdn.tigren.com/stalled.jpg', { allowlist: ALLOW, fetchImpl, lookup: publicLookup, timeoutMs: 10 }),
+    /timeout|timed out/i,
   );
 });
 
@@ -115,8 +162,8 @@ test('a 404 is NOT retried — the photo is genuinely gone', async () => {
 });
 
 test('the happy path returns bytes + an extension from the content-type, and sends NO auth header', async () => {
-  for (const [ct, ext] of [['image/jpeg', 'jpg'], ['image/png', 'png'], ['image/webp', 'webp']]) {
-    const fetchImpl = fakeFetch({ contentType: ct });
+  for (const [ct, ext, body] of [['image/jpeg', 'jpg', JPEG], ['image/png', 'png', PNG], ['image/webp', 'webp', WEBP]]) {
+    const fetchImpl = fakeFetch({ contentType: ct, body });
     const res = await safeFetch('https://cdn.tigren.com/a', { allowlist: ALLOW, fetchImpl, lookup: publicLookup });
     assert.equal(res.ext, ext);
     assert.equal(res.contentType, ct);

@@ -41,10 +41,14 @@ test('an unlocked copy happens once, with no waiting', async () => {
   assert.deepEqual(sleeps, []);
 });
 
-test('isPhoto matches jpg/jpeg case-insensitively and rejects others', () => {
+test('isPhoto matches supported and explicitly-held inputs case-insensitively', () => {
   assert.ok(isPhoto('a.jpg'));
   assert.ok(isPhoto('a.JPEG'));
-  assert.ok(!isPhoto('a.png'));
+  assert.ok(isPhoto('a.png'));
+  assert.ok(isPhoto('a.webp'));
+  assert.ok(isPhoto('a.HEIC'));
+  assert.ok(isPhoto('a.heif'));
+  assert.ok(!isPhoto('a_bw.png'));
   assert.ok(!isPhoto('a_bw.svg'));
 });
 

@@ -21,6 +21,9 @@ import { analyzeFraming, cropToPixels, trimFlatBorders, NO_CORRECTION } from '..
 
 const MAX_DIMENSION = 2500; // web UI downscales anything larger before upload
 const JPEG_QUALITY = 92; //    (matches resizeImageFile's 0.92)
+const MAX_INPUT_BYTES = 25 * 1024 * 1024;
+const MAX_INPUT_PIXELS = 40_000_000;
+const MAX_INPUT_DIMENSION = 12_000;
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -48,12 +51,15 @@ const enc = encodeURIComponent;
  *  box of a real photo inside a screenshot. It is applied AFTER the EXIF rotate, because that is the
  *  frame the model was shown and the frame its crop coordinates refer to. */
 export async function prepareImageForUpload(input, { maxDimension = MAX_DIMENSION, quality = JPEG_QUALITY, correction = null } = {}) {
-  const meta = await sharp(input).metadata();
+  if (input.length > MAX_INPUT_BYTES) throw new Error('image exceeds the safe byte limit');
+  const meta = await sharp(input, { failOn: 'error', limitInputPixels: MAX_INPUT_PIXELS, sequentialRead: true }).metadata();
+  if (!meta.width || !meta.height || meta.width > MAX_INPUT_DIMENSION || meta.height > MAX_INPUT_DIMENSION) throw new Error('image exceeds the safe dimension limit');
   const tooBig = Math.max(meta.width ?? 0, meta.height ?? 0) > maxDimension;
+  const nonJpeg = meta.format !== 'jpeg';
   const sideways = (meta.orientation ?? 1) > 1; // 1 = upright; 2..8 = the camera flipped or turned it
   const turn = correction?.rotate ?? 0;
   const cropBox = correction?.crop ?? null;
-  if (!tooBig && !sideways && !turn && !cropBox) return { buffer: input, changed: false, tooBig, sideways, meta };
+  if (!tooBig && !sideways && !turn && !cropBox && !nonJpeg) return { buffer: input, changed: false, tooBig, sideways, meta };
 
   // Bake the camera's orientation into real bytes FIRST, on its own.
   //
@@ -81,7 +87,7 @@ export async function prepareImageForUpload(input, { maxDimension = MAX_DIMENSIO
     }
   }
 
-  let pipeline = sharp(working);
+  let pipeline = sharp(working).flatten({ background: '#ffffff' });
   if (turn) pipeline = pipeline.rotate(turn); // the content rotation EXIF never recorded
   if (tooBig) pipeline = pipeline.resize({ width: maxDimension, height: maxDimension, fit: 'inside', withoutEnlargement: true });
   const buffer = await pipeline.jpeg({ quality }).toBuffer();
@@ -192,10 +198,9 @@ export class ApiGeneratorDriver extends GeneratorDriver {
         this.#emit('resize', parts.join(', '));
       }
       return { buffer, filename, correction };
-    } catch {
-      // Not a sharp-readable image (or metadata failed) — let the server validate the raw bytes.
+    } catch (err) {
+      throw new GeneratorError(`Input image failed local validation: ${err?.message ?? 'unreadable image'}`, { step: 'input', cause: err });
     }
-    return { buffer: input, filename, correction: NO_CORRECTION };
   }
 
   /** The framing question, on an EXIF-corrected copy. Off unless `ai.enabled` and a key are set, and

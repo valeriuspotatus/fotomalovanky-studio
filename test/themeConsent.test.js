@@ -19,6 +19,10 @@ test('theme blocks progression, survives upload rerenders, and preserves accepta
 
   await consent.check();
   assert.equal(await upload.isEnabled(), true);
+  assert.doesNotMatch(await upload.getAttribute('accept'), /\.heic/);
+  await upload.setInputFiles({ name: 'iPhone.HEIC', mimeType: 'image/heic', buffer: Buffer.from('synthetic-heic') });
+  assert.equal(await upload.evaluate((input) => input.files.length), 0);
+  assert.match(await form.locator('[role=alert]').textContent(), /Tento formát fotografie zatím neumíme bezpečně zpracovat/);
   const timestamp = await form.locator('[name="properties[_Photo authorization accepted at]"]').inputValue();
   await page.evaluate(() => {
     const old = document.querySelector('.tpo_option-container');

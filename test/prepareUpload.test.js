@@ -54,6 +54,13 @@ test('an upright photo within size is passed through untouched — not recompres
   assert.equal(buffer, input, 'the very same bytes, so a good original keeps its quality');
 });
 
+test('PNG is canonicalized to JPEG before generator upload', async () => {
+  const input = await sharp({ create: { width: 20, height: 20, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+  const { buffer, changed } = await prepareImageForUpload(input);
+  assert.equal(changed, true);
+  assert.equal((await sharp(buffer).metadata()).format, 'jpeg');
+});
+
 test('a photo larger than the cap is downscaled, keeping its shape', async () => {
   const input = await upright(6000, 4500); // 4:3, far past the 2500px cap
   const { buffer, changed, tooBig } = await prepareImageForUpload(input, { maxDimension: 2500 });

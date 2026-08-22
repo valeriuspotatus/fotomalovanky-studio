@@ -52,6 +52,26 @@ test('a subfolder with no photos is not an order', () => {
   });
 });
 
+test('HEIC and HEIF files remain visible to intake instead of silently disappearing', () => {
+  fixture((root) => {
+    const dir = join(root, '1900');
+    mkdirSync(dir);
+    writeFileSync(join(dir, '1900_img0001_-_iphone.HEIC'), 'synthetic');
+    writeFileSync(join(dir, '1900_img0002_-_iphone.heif'), 'synthetic');
+    const [order] = ingestOrders(root);
+    assert.equal(order.photos.length, 2);
+  });
+});
+
+test('hidden materialization staging directories are never ingested', () => {
+  fixture((root) => {
+    const dir = join(root, '.fotomalovanky-staging', '1900-crash');
+    mkdirSync(dir, { recursive: true });
+    touch(dir, '1900_img0001_-_partial.jpeg');
+    assert.deepEqual(ingestOrders(root), []);
+  });
+});
+
 test('generated outputs in an order folder are never mistaken for input photos', () => {
   fixture((root) => {
     mkdirSync(join(root, '1510'));

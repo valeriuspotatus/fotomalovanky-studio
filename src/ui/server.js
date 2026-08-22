@@ -665,6 +665,10 @@ export function purgeReportForClient(result, autopilot = null) {
     deferred: result.deferred.map(row),
     stalled: result.stalled.map(row),
     skipped: result.skipped.filter((o) => o.stalledDays == null).map(row),
+    quarantine: {
+      removed: result.quarantine.removed.map((item) => ({ orderId: item.orderId, files: item.files, bytes: item.bytes, ageDays: item.ageDays })),
+      kept: result.quarantine.kept.map((item) => ({ orderId: item.orderId, files: item.files, bytes: item.bytes, ageDays: item.ageDays, locked: item.locked })),
+    },
     // The overnight report and handled-set, which age out on the same clock and are cleared by the
     // same confirmation. Names only, no paths — and present on BOTH routes: the report is supposed
     // to be exactly what confirming does, and a confirmation that also deleted two files the report
@@ -2024,7 +2028,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         // confirm cleared the night report and handled-set as well, and the report said nothing
         // about them. Same call, same clock, `dryRun` the only difference between the two routes.
         const autopilot = purgeAutopilotData({ dataDir: config.shopify?.dataDir ?? null, days });
-        return json(res, 200, purgeReportForClient(purgeOriginals({ outboxRoot: outbox, days }), autopilot));
+        return json(res, 200, purgeReportForClient(purgeOriginals({ outboxRoot: outbox, inboxRoot: inbox, days }), autopilot));
       }
       if (req.method === 'POST' && url.pathname === '/api/purge/confirm') {
         const days = config.retentionDays;
@@ -2037,7 +2041,7 @@ export function createReviewServer({ config, inboxRoot, outboxRoot, driver, buil
         if (confirm !== true) {
           return json(res, 409, { error: 'Smazání je potřeba potvrdit.', code: 'confirm-required' });
         }
-        const result = purgeOriginals({ outboxRoot: outbox, days, dryRun: false });
+        const result = purgeOriginals({ outboxRoot: outbox, inboxRoot: inbox, days, dryRun: false });
         log(`purge: deleted ${result.photos} photograph(s) across ${result.orders.length} order(s); ${result.deferred.length} left for the next run`);
         // The night report and handled-set age out on the same clock (they carry order numbers), so
         // the confirmed run clears them too — the CLI has always done both in one pass, and the

@@ -35,3 +35,33 @@ test('a missing file is unreadable, not a throw', async () => {
   assert.equal(r.resolution.reason, 'unreadable');
   assert.equal(r.hash.length, 64);
 });
+
+test('HEIC remains countable but is held before generation in an unverified codec runtime', async () => {
+  const path = join(tmpdir(), `fma-intake-${process.pid}.HEIC`);
+  await writeFile(path, Buffer.from('synthetic-heic'));
+  try {
+    const r = await assessPhotoFile(path);
+    assert.equal(r.readable, false);
+    assert.equal(r.resolution.reason, 'unreadable');
+  } finally { await rm(path, { force: true }); }
+});
+
+test('HEIC bytes mislabeled as JPEG are still held before generation', async () => {
+  const path = join(tmpdir(), `fma-intake-${process.pid}-mislabeled.jpg`);
+  const bytes = Buffer.concat([Buffer.alloc(4), Buffer.from('ftypheicmif1')]);
+  await writeFile(path, bytes);
+  try {
+    const r = await assessPhotoFile(path);
+    assert.equal(r.readable, false);
+  } finally { await rm(path, { force: true }); }
+});
+
+test('extreme manual-image dimensions are held before expensive processing', async () => {
+  const path = join(tmpdir(), `fma-intake-${process.pid}-tall.png`);
+  const bytes = await sharp({ create: { width: 1, height: 12001, channels: 3, background: '#fff' } }).png().toBuffer();
+  await writeFile(path, bytes);
+  try {
+    const r = await assessPhotoFile(path);
+    assert.equal(r.readable, false);
+  } finally { await rm(path, { force: true }); }
+});

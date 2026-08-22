@@ -45,6 +45,17 @@ const DEFAULT_ATTEMPTS = 5;
 const IMMEDIATE_RETRIES = 2; // then 2s, 4s
 const DEFAULT_BACKOFF_MS = 2_000;
 
+export function imageExtension(buffer) {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'jpg';
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'png';
+  if (buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return 'webp';
+  if (buffer.length >= 12 && buffer.toString('ascii', 4, 8) === 'ftyp') {
+    const brands = buffer.toString('ascii', 8, Math.min(buffer.length, 64)).match(/.{4}/g) ?? [];
+    if (brands.some((brand) => /^(hei[cfmsx]|hev[csx]|mif1|msf1)$/.test(brand))) return 'heic';
+  }
+  return null;
+}
+
 /** host is allowed when it equals an allowlist entry or is a subdomain of one. Exact-suffix match:
  *  "cdn.tigren.com" allows "cdn.tigren.com" and "x.cdn.tigren.com", not "evilcdn.tigren.com.bad". */
 function hostAllowed(host, allowlist) {
@@ -59,6 +70,7 @@ function hostAllowed(host, allowlist) {
 function isPrivateAddress(addr) {
   if (addr.includes(':')) {
     const a = addr.toLowerCase();
+    if (a.startsWith('::ffff:')) return isPrivateAddress(a.slice(7));
     return a === '::1' || a.startsWith('fe80') || a.startsWith('fc') || a.startsWith('fd') || a === '::';
   }
   const p = addr.split('.').map(Number);
@@ -84,6 +96,7 @@ export async function safeFetch(url, {
   lookup = dns.lookup,
   attempts = DEFAULT_ATTEMPTS,
   backoffMs = DEFAULT_BACKOFF_MS,
+  timeoutMs = 30_000,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
   let parsed;
@@ -110,7 +123,12 @@ export async function safeFetch(url, {
 
   let res;
   for (let attempt = 0; ; attempt++) {
-    res = await fetchImpl(url, { redirect: 'error', headers: { 'User-Agent': BROWSER_UA } });
+    try {
+      res = await fetchImpl(url, { redirect: 'error', headers: { 'User-Agent': BROWSER_UA }, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (err) {
+      if (err?.name === 'AbortError' || err?.name === 'TimeoutError') throw new PhotoFetchError(`photo fetch timed out after ${timeoutMs}ms`);
+      throw new PhotoFetchError(`photo fetch failed (${err?.name ?? 'Error'})`);
+    }
     if (res.ok || !RETRY_STATUS.has(res.status) || attempt >= attempts - 1) break;
     if (attempt >= IMMEDIATE_RETRIES) await sleep(backoffMs * 2 ** (attempt - IMMEDIATE_RETRIES));
   }
@@ -118,11 +136,32 @@ export async function safeFetch(url, {
 
   const contentType = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
   if (!contentType.startsWith('image/')) throw new PhotoFetchError(`refused non-image content-type "${contentType || 'unknown'}"`);
+  const advertisedLength = Number(res.headers.get('content-length'));
+  if (Number.isFinite(advertisedLength) && advertisedLength > maxBytes) throw new PhotoFetchError(`photo exceeds ${maxBytes} bytes (${advertisedLength})`);
 
-  const buffer = Buffer.from(await res.arrayBuffer());
-  if (buffer.length > maxBytes) throw new PhotoFetchError(`photo exceeds ${maxBytes} bytes (${buffer.length})`);
+  let buffer;
+  if (res.body?.getReader) {
+    const chunks = [];
+    let bytes = 0;
+    const reader = res.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel();
+        throw new PhotoFetchError(`photo exceeds ${maxBytes} bytes while downloading`);
+      }
+      chunks.push(Buffer.from(value));
+    }
+    buffer = Buffer.concat(chunks, bytes);
+  } else {
+    buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length > maxBytes) throw new PhotoFetchError(`photo exceeds ${maxBytes} bytes (${buffer.length})`);
+  }
   if (buffer.length === 0) throw new PhotoFetchError('photo body was empty');
 
-  const ext = contentType === 'image/png' ? 'png' : contentType === 'image/webp' ? 'webp' : 'jpg';
+  const ext = imageExtension(buffer);
+  if (!ext) throw new PhotoFetchError('response did not contain supported image bytes');
   return { buffer, contentType, ext };
 }

@@ -58,7 +58,7 @@ export function ingestOrders(inboxRoot) {
 
   const orders = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
     const dir = join(root, entry.name);
     const photos = photosIn(dir);
     if (photos.length > 0) orders.push(toOrder(dir, photos));

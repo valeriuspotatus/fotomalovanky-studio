@@ -97,6 +97,15 @@ test('photos out of attribute order are still returned in customer upload order'
     { key: 'Fotka (3)-2', value: `${CDN}/b.jpg` },
   ] });
   assert.deepEqual(o.photos, [`${CDN}/a.jpg`, `${CDN}/b.jpg`, `${CDN}/c.jpg`]);
+  assert.deepEqual(o.photoIds, ['1524-photo-0001', '1524-photo-0002', '1524-photo-0003'], 'identity follows Shopify slot keys, not filenames or signed URLs');
+});
+
+test('duplicate photo slot identities are preserved as an integrity error', () => {
+  const o = one({ attrs: [
+    { key: 'Fotka (2)-1', value: `${CDN}/a.jpg` },
+    { key: 'Fotka (2)-1', value: `${CDN}/b.jpg` },
+  ] });
+  assert.equal(new Set(o.photoIds).size, 1, 'the duplicate is visible to the downstream identity gate');
 });
 
 test('attributes carry NO `type` field and photos are still extracted by key match (internal-vs-public regression guard)', () => {

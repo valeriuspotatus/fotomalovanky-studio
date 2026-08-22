@@ -28,6 +28,7 @@ import { deriveDedication, deriveSlug } from './dedication.js';
 import { shopDedication, readOrderInfo, resolveFormat, resolveLanguage } from './orderInfo.js';
 import { recallDedication, migrateDedications, MEMORY_DIR } from './dedications.js';
 import { PHOTO_AUTHORIZATION_ERROR_CS } from './photoAuthorization.js';
+import { acquireOrderLock, OrderLockedError } from './orderLock.js';
 
 // U6: the single "Go" run. ingest -> generate -> QC -> [review gate] -> builder -> PDF.
 //
@@ -197,13 +198,29 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
 
   const report = [];
   let stopped = false;
-  for (const order of orders) {
+  for (let order of orders) {
     // The operator pressed Stop. Do not begin another order — the ones already done are the run.
     if (signal?.aborted) {
       stopped = true;
       break;
     }
     const { orderId } = order;
+    let releaseLock;
+    try { releaseLock = acquireOrderLock({ inboxRoot: inbox, orderId, operation: 'generation/review/PDF pipeline' }); }
+    catch (err) {
+      const reason = err instanceof OrderLockedError ? err.message : `Could not lock order ${orderId}: ${err.message}`;
+      report.push({ orderId, orderDir: join(outbox, orderId), summary: null, held: [], failed: [], pdfPath: null, reason, status: ORDER_STATUS.FAILED, titled: false });
+      onEvent({ type: 'order-done', orderId, status: ORDER_STATUS.FAILED, pdfPath: null, reason });
+      continue;
+    }
+    try {
+    order = ingestOrders(inbox).find((candidate) => candidate.orderId === orderId);
+    if (!order) {
+      const reason = `Order ${orderId} disappeared before processing began.`;
+      report.push({ orderId, orderDir: join(outbox, orderId), summary: null, held: [], failed: [], pdfPath: null, reason, status: ORDER_STATUS.FAILED, titled: false });
+      onEvent({ type: 'order-done', orderId, status: ORDER_STATUS.FAILED, pdfPath: null, reason });
+      continue;
+    }
     onEvent({ type: 'order-start', orderId, dirName: order.dirName, photos: order.photos.length });
 
     const orderInfo = readOrderInfo(order.dir);
@@ -337,6 +354,9 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
 
     onEvent({ type: 'order-done', orderId, status: entry.status, pdfPath: entry.pdfPath, reason: entry.reason });
     report.push(entry);
+    } finally {
+      releaseLock();
+    }
   }
 
   // The signal can trip during the last order too, where the top-of-loop check never runs again.

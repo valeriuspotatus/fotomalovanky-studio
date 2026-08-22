@@ -4,6 +4,7 @@
   const TEXT_HASH = '7a8317129ba7b3934d67672661b2cca636422208dcbe875da9667e00c9ee3642';
   const DIGITAL_VERSION = '2026-08-22-draft-v1';
   const DIGITAL_TEXT_HASH = 'b5e8c4ade8f253852bf54eed31985a8bde98c9b9db23ff282c5ede77fb783e8b';
+  const PHOTO_ACCEPT = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp';
   const template = document.getElementById('fma-photo-authorization-template');
   if (!template) return;
 
@@ -47,7 +48,10 @@
       digital.hidden = !pdf;
       digitalCheckbox.required = pdf;
       if (!pdf) digitalCheckbox.checked = false;
-      form.querySelectorAll('input[type="file"]').forEach((input) => { input.disabled = !accepted; });
+      form.querySelectorAll('input[type="file"]').forEach((input) => {
+        input.disabled = !accepted;
+        input.accept = PHOTO_ACCEPT;
+      });
       const blocked = !accepted || (pdf && !digitalCheckbox.checked);
       form.querySelectorAll('[type="submit"][name="add"],button[type="submit"],.shopify-payment-button button').forEach((button) => {
         button.setAttribute('aria-disabled', String(blocked));
@@ -68,6 +72,17 @@
     checkbox.addEventListener('change', sync);
     digitalCheckbox.addEventListener('change', sync);
     form.addEventListener('change', (event) => { if (event.target.matches('input[type="radio"],select')) sync(); });
+    form.addEventListener('change', (event) => {
+      if (!event.target.matches('input[type="file"]')) return;
+      const unsupported = [...event.target.files].find((file) => !/\.(jpe?g|png|webp)$/i.test(file.name));
+      if (!unsupported) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      event.target.value = '';
+      error.textContent = 'Tento formát fotografie zatím neumíme bezpečně zpracovat. Použijte prosím JPG, PNG nebo WebP.';
+      error.hidden = false;
+      event.target.focus();
+    }, true);
     form.addEventListener('submit', (event) => {
       if (checkbox.checked && (!isPdf(form) || digitalCheckbox.checked)) return;
       event.preventDefault();
