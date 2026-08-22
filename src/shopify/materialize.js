@@ -13,6 +13,7 @@ import sharp from 'sharp';
 import { ORDER_INFO } from '../orderInfo.js';
 import { expectedPhotosFrom, channelOf } from './orders.js';
 import { safeFetch as defaultSafeFetch } from './safeFetch.js';
+import { PHOTO_AUTHORIZATION_ERROR_CS } from '../photoAuthorization.js';
 
 /** organize.js only ingests .jpg/.jpeg (isPhoto), but the upload host serves some photos as PNG/WebP.
  *  Re-encode anything that isn't already JPEG so every downloaded photo reaches the pipeline instead
@@ -47,6 +48,12 @@ export async function materializeOrder(order, {
   sharpImpl = sharp,
   now = () => new Date().toISOString(),
 } = {}) {
+  if (!order.photoAuthorization?.valid || !order.photoAuthorization.evidence) {
+    return { orderId: order.orderId, orderDir: null, files: [], incomplete: true, held: true, errors: [PHOTO_AUTHORIZATION_ERROR_CS] };
+  }
+  if (order.digitalPerformance?.valid !== true) {
+    return { orderId: order.orderId, orderDir: null, files: [], incomplete: true, held: true, errors: ['Digitální PDF nemá platné samostatné potvrzení okamžitého plnění; fotografie nebudou staženy ani zpracovány.'] };
+  }
   const orderDir = join(inboxRoot, order.orderId);
   mkdirSync(orderDir, { recursive: true });
 
@@ -61,7 +68,7 @@ export async function materializeOrder(order, {
       writeFileSync(join(orderDir, name), buffer);
       files.push(name);
     } catch (err) {
-      errors.push(`photo ${i + 1}: ${err.message}`);
+      errors.push(`photo ${i + 1}: download rejected (${err?.name ?? 'Error'})`);
     }
   }
 
@@ -86,7 +93,7 @@ export async function materializeOrder(order, {
     expectedPhotos: expectedPhotosFrom(order.products),
     customer: { surname: '', email: order.email },
     products,
-    photos: order.photos,
+    photoCount: files.length,
     layout: order.layout,
     // Where the order came from, recorded once at download. The board reads it from here rather
     // than asking Shopify again: the aggregate on the homepage answers "how is the shop doing" for
@@ -95,6 +102,8 @@ export async function materializeOrder(order, {
     //
     // An order object built by hand — a manual pull, a test — carries none, and reads as unknown.
     attribution: order.attribution ? { ...order.attribution, channel: channelOf(order.attribution) } : null,
+    photoAuthorization: order.photoAuthorization.evidence,
+    digitalPerformance: order.digitalPerformance?.evidence ?? null,
     source: 'shopify-admin-api',
     downloadedAt: now(),
   };

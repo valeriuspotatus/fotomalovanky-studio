@@ -26,6 +26,8 @@ test('the shop\'s own spelling reaches the title page with its accents', () => {
       // field existed has no RECORD of a source, which is a different fact from a shop that was
       // asked and had nothing to say — and the only one of the two that can still be filled in.
       attribution: null,
+      photoAuthorization: { valid: false, errors: ['missing'], evidence: null },
+      digitalPerformance: { valid: true, errors: [], evidence: null },
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -91,7 +93,7 @@ test('a customer who wrote nothing said nothing', () => {
   try {
     write(dir, { order: '1479', dedication: '' });
     assert.equal(shopDedication(dir), '');
-    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '', expectedPhotos: null, purchase: { orderId: '1479', position: 1, of: 1 }, copies: 1, customer: null, products: [], attribution: null });
+    assert.deepEqual(readOrderInfo(dir), { order: '1479', dedication: '', expectedPhotos: null, purchase: { orderId: '1479', position: 1, of: 1 }, copies: 1, customer: null, products: [], attribution: null, photoAuthorization: { valid: false, errors: ['missing'], evidence: null }, digitalPerformance: { valid: true, errors: [], evidence: null } });
 
     write(dir, { order: '1479', dedication: '   ' });
     assert.equal(shopDedication(dir), '', 'whitespace is not a dedication');

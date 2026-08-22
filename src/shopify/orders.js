@@ -14,6 +14,8 @@
 //   format     — "Rozvržení"     (the ONLY galerie-vs-full-page signal; not the variant — KTD9)
 //   internal   — "_tpo_add_by"   (and any "_"-prefixed key) — skipped
 
+import { validateDigitalPerformance, validatePhotoAuthorization } from '../photoAuthorization.js';
+
 const DEFAULTS = Object.freeze({
   photoKeyMatch: 'fotka',
   dedicationKeyMatch: 'věnování',
@@ -110,6 +112,8 @@ export function extractJobs(node, opts = {}) {
       dedication: attrs.find((a) => keyIncludes(a.key, dedicationKeyMatch) && a.value)?.value?.trim() ?? '',
       layout: attrs.find((a) => keyIncludes(a.key, layoutKeyMatch) && a.value)?.value?.trim() ?? '',
       copies: product.qty ?? 1,
+      photoAuthorization: validatePhotoAuthorization(item.customAttributes, { orderCreatedAt: node.createdAt }),
+      digitalPerformance: validateDigitalPerformance(item.customAttributes, { required: isDigitalProduct(product), orderCreatedAt: node.createdAt }),
     });
   }
   if (!books.length) return [];
@@ -130,8 +134,12 @@ export function extractJobs(node, opts = {}) {
     layout: b.layout,
     photos: b.photos,
     products: [b.product],
+    photoAuthorization: b.photoAuthorization,
+    digitalPerformance: b.digitalPerformance,
   }));
 }
+
+const isDigitalProduct = (product) => /\bPDF\b/i.test(`${product.title} ${product.variant}`);
 
 // ---- where the order came from --------------------------------------------------------------
 //

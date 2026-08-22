@@ -10,6 +10,7 @@ import { GeneratorError } from '../src/generator/driver.js';
 import { BuilderError } from '../src/builder/builderDriver.js';
 import { STATES, readManifest, getStatus, getDedication, getIntake, emptyManifest, setDedication, writeManifest, manifestPath } from '../src/manifest.js';
 import { photoBase } from '../src/organize.js';
+import { DIGITAL_PERFORMANCE_TEXT_HASH, DIGITAL_PERFORMANCE_VERSION, PHOTO_AUTHORIZATION_LOCALE, PHOTO_AUTHORIZATION_TEXT_HASH, PHOTO_AUTHORIZATION_VERSION } from '../src/photoAuthorization.js';
 
 /** A stand-in coloring raster: 1px lines with white paper between them. Half ink, but nothing
  *  filled — a solid black block would trip qc's solid-fill tripwire, and rightly so. */
@@ -77,6 +78,15 @@ class StubBuilder {
 }
 
 const DEDICATION = 'Pro Barču, s láskou';
+const PHOTO_AUTHORIZATION = {
+  accepted: true,
+  version: PHOTO_AUTHORIZATION_VERSION,
+  acceptedAt: '2026-08-22T09:58:00.000Z',
+  locale: PHOTO_AUTHORIZATION_LOCALE,
+  textHash: PHOTO_AUTHORIZATION_TEXT_HASH,
+  orderTimestamp: '2026-08-22T10:00:00.000Z',
+};
+const DIGITAL_PERFORMANCE = { accepted: true, acceptedAt: '2026-08-22T09:59:00.000Z', version: DIGITAL_PERFORMANCE_VERSION, locale: PHOTO_AUTHORIZATION_LOCALE, textHash: DIGITAL_PERFORMANCE_TEXT_HASH, orderTimestamp: '2026-08-22T10:00:00.000Z' };
 
 /** Seeds each order with a dedication, because most real ones have one. Pass `{ dedication: null }`
  *  for a customer who wrote nothing — their book prints too, with an empty title line. */
@@ -89,6 +99,7 @@ function fixture(orders, { dedication = DEDICATION } = {}) {
   for (const [orderId, names] of Object.entries(orders)) {
     mkdirSync(join(inbox, orderId), { recursive: true });
     for (const n of names) writeFileSync(join(inbox, orderId, `${n}.jpeg`), 'photo');
+    writeFileSync(join(inbox, orderId, 'objednavka.json'), JSON.stringify({ order: orderId, photoAuthorization: PHOTO_AUTHORIZATION }));
     if (dedication) {
       mkdirSync(join(outbox, orderId), { recursive: true });
       writeManifest(join(outbox, orderId), setDedication(emptyManifest(orderId), dedication));
@@ -122,6 +133,57 @@ const markStateChanged = (orderDir) => {
   const t = new Date(Date.now() + 5000);
   utimesSync(manifestPath(orderDir), t, t);
 };
+
+test('missing photo authorization holds an order before intake, generation, or PDF work', async () => {
+  const f = fixture({ 1510: ['a'] });
+  const generator = new StubGenerator();
+  let intakeCalled = false;
+  try {
+    writeFileSync(join(f.inbox, '1510', 'objednavka.json'), JSON.stringify({ order: '1510' }));
+    const result = await run(f, { generator, intake: async () => { intakeCalled = true; return OK_INTAKE(); } });
+    assert.equal(result.orders[0].status, ORDER_STATUS.HELD);
+    assert.match(result.orders[0].reason, /platné potvrzení/i);
+    assert.equal(intakeCalled, false);
+    assert.deepEqual(generator.calls, []);
+  } finally {
+    f.cleanup();
+    rmSync(generator.workDir, { recursive: true, force: true });
+  }
+});
+
+test('tampered stored authorization holds the order before sensitive processing', async () => {
+  const f = fixture({ 1510: ['a'] });
+  try {
+    writeFileSync(join(f.inbox, '1510', 'objednavka.json'), JSON.stringify({
+      order: '1510',
+      photoAuthorization: { ...PHOTO_AUTHORIZATION, textHash: 'tampered' },
+    }));
+    const result = await run(f);
+    assert.equal(result.orders[0].status, ORDER_STATUS.HELD);
+    assert.equal(existsSync(join(f.outbox, '1510', '1510 Final.pdf')), false);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('missing or tampered stored digital evidence holds a PDF before sensitive processing', async () => {
+  for (const digitalPerformance of [null, { ...DIGITAL_PERFORMANCE, textHash: 'tampered' }]) {
+    const f = fixture({ 1511: ['a'] });
+    const generator = new StubGenerator();
+    try {
+      writeFileSync(join(f.inbox, '1511', 'objednavka.json'), JSON.stringify({
+        order: '1511', products: [{ title: 'Fotomalovánky', variant: 'Pouze PDF online / 4', qty: 1 }],
+        photoAuthorization: PHOTO_AUTHORIZATION, digitalPerformance,
+      }));
+      const result = await run(f, { generator });
+      assert.equal(result.orders[0].status, ORDER_STATUS.HELD);
+      assert.deepEqual(generator.calls, []);
+    } finally {
+      f.cleanup();
+      rmSync(generator.workDir, { recursive: true, force: true });
+    }
+  }
+});
 
 /** A generator that trips the Stop button the moment it finishes a given photo, so a test can
  *  make cancellation land at an exact boundary without real timing. */
@@ -347,8 +409,8 @@ test('U9: each order builds in the format its product maps to, with no config ch
   try {
     // The shop's own record: 1601 sold full-page, 1602 galerie — the extension drops it beside
     // the photos, and the format is derived from it, never re-read from Shopify.
-    writeFileSync(join(f.inbox, '1601', 'objednavka.json'), JSON.stringify({ order: '1601', products: [{ variant: 'celo', qty: 1 }] }));
-    writeFileSync(join(f.inbox, '1602', 'objednavka.json'), JSON.stringify({ order: '1602', products: [{ variant: 'gal', qty: 1 }] }));
+    writeFileSync(join(f.inbox, '1601', 'objednavka.json'), JSON.stringify({ order: '1601', products: [{ variant: 'celo', qty: 1 }], photoAuthorization: PHOTO_AUTHORIZATION }));
+    writeFileSync(join(f.inbox, '1602', 'objednavka.json'), JSON.stringify({ order: '1602', products: [{ variant: 'gal', qty: 1 }], photoAuthorization: PHOTO_AUTHORIZATION }));
     const config = { ...CONFIG, delivery: { format: 'gallery', formatMap: { celo: 'fullpage', gal: 'gallery' } } };
     const builder = new StubBuilder();
     const formats = [];
@@ -858,7 +920,7 @@ test('each book is gated on its own expected count, and a short one is held befo
   try {
     // Sidecars exactly as materializeOrder writes them: one per book, each with its own count.
     const sidecar = (id, position, expectedPhotos) =>
-      writeFileSync(join(f.inbox, id, 'objednavka.json'), JSON.stringify({ order: id, expectedPhotos, purchase: { orderId: '1234', position, of: 2 }, copies: 1 }));
+      writeFileSync(join(f.inbox, id, 'objednavka.json'), JSON.stringify({ order: id, expectedPhotos, purchase: { orderId: '1234', position, of: 2 }, copies: 1, photoAuthorization: PHOTO_AUTHORIZATION }));
     sidecar('1234-1', 1, 2); // two photos, two expected — complete
     sidecar('1234-2', 2, 4); // one photo, four expected — short
 
@@ -900,7 +962,7 @@ test('an operator override on one book does not lift the hold on its sibling', a
   const f = fixture({ '1234-1': ['a'], '1234-2': ['b'] });
   try {
     for (const [id, position] of [['1234-1', 1], ['1234-2', 2]]) {
-      writeFileSync(join(f.inbox, id, 'objednavka.json'), JSON.stringify({ order: id, expectedPhotos: 5, purchase: { orderId: '1234', position, of: 2 }, copies: 1 }));
+      writeFileSync(join(f.inbox, id, 'objednavka.json'), JSON.stringify({ order: id, expectedPhotos: 5, purchase: { orderId: '1234', position, of: 2 }, copies: 1, photoAuthorization: PHOTO_AUTHORIZATION }));
     }
     // Override only the first book, the way the operator would from its own card.
     mkdirSync(join(f.outbox, '1234-1'), { recursive: true });
@@ -920,7 +982,7 @@ test("a held book's email quotes the customer's order number, never our internal
   try {
     writeFileSync(
       join(f.inbox, '1234-2', 'objednavka.json'),
-      JSON.stringify({ order: '1234-2', expectedPhotos: 8, purchase: { orderId: '1234', position: 2, of: 2 }, copies: 1, customer: { surname: 'Nováková', email: 'n@example.cz' } }),
+      JSON.stringify({ order: '1234-2', expectedPhotos: 8, purchase: { orderId: '1234', position: 2, of: 2 }, copies: 1, customer: { surname: 'Nováková', email: 'n@example.cz' }, photoAuthorization: PHOTO_AUTHORIZATION }),
     );
     await run(f, { intake: holdIntake() });
     const draft = readFileSync(join(f.outbox, '1234-2', 'draft-email.txt'), 'utf8');
@@ -934,7 +996,7 @@ test("a held book's email quotes the customer's order number, never our internal
 test('a single-book order still quotes its own number, unchanged', async () => {
   const f = fixture({ '1510': ['a'] });
   try {
-    writeFileSync(join(f.inbox, '1510', 'objednavka.json'), JSON.stringify({ order: '1510', expectedPhotos: 8, customer: { surname: 'Nováková', email: 'n@example.cz' } }));
+    writeFileSync(join(f.inbox, '1510', 'objednavka.json'), JSON.stringify({ order: '1510', expectedPhotos: 8, customer: { surname: 'Nováková', email: 'n@example.cz' }, photoAuthorization: PHOTO_AUTHORIZATION }));
     await run(f, { intake: holdIntake() });
     assert.match(readFileSync(join(f.outbox, '1510', 'draft-email.txt'), 'utf8'), /objednávku 1510\b/);
   } finally {

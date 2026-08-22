@@ -27,6 +27,7 @@ import {
 import { deriveDedication, deriveSlug } from './dedication.js';
 import { shopDedication, readOrderInfo, resolveFormat, resolveLanguage } from './orderInfo.js';
 import { recallDedication, migrateDedications, MEMORY_DIR } from './dedications.js';
+import { PHOTO_AUTHORIZATION_ERROR_CS } from './photoAuthorization.js';
 
 // U6: the single "Go" run. ingest -> generate -> QC -> [review gate] -> builder -> PDF.
 //
@@ -204,6 +205,22 @@ export async function runPipeline({ config, inboxRoot, outboxRoot, generator, bu
     }
     const { orderId } = order;
     onEvent({ type: 'order-start', orderId, dirName: order.dirName, photos: order.photos.length });
+
+    const orderInfo = readOrderInfo(order.dir);
+    const authorization = orderInfo?.photoAuthorization;
+    if (!authorization?.valid) {
+      const orderDir = join(outbox, orderId);
+      report.push({ orderId, orderDir, summary: null, held: [], failed: [], pdfPath: null, reason: PHOTO_AUTHORIZATION_ERROR_CS, status: ORDER_STATUS.HELD, titled: false });
+      onEvent({ type: 'order-done', orderId, status: ORDER_STATUS.HELD, pdfPath: null, reason: PHOTO_AUTHORIZATION_ERROR_CS });
+      continue;
+    }
+    if (!orderInfo.digitalPerformance?.valid) {
+      const orderDir = join(outbox, orderId);
+      const reason = 'Digitální PDF nemá platné samostatné potvrzení okamžitého plnění; fotografie nebudou zpracovány.';
+      report.push({ orderId, orderDir, summary: null, held: [], failed: [], pdfPath: null, reason, status: ORDER_STATUS.HELD, titled: false });
+      onEvent({ type: 'order-done', orderId, status: ORDER_STATUS.HELD, pdfPath: null, reason });
+      continue;
+    }
 
     // Input QC before any GPU spend. A blocking problem — too few photos, a duplicate upload, a
     // file that will not open — holds the whole order and drafts a copy-paste email; nothing is

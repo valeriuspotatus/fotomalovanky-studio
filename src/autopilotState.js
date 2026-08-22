@@ -12,11 +12,15 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 const STATE_FILE = 'autopilot-state.json';
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+const validHold = (entry) => entry && typeof entry === 'object' && !Array.isArray(entry)
+  && typeof entry.purchaseId === 'string' && /^[A-Za-z0-9-]+$/.test(entry.purchaseId)
+  && ISO.test(entry.firstSeenAt) && ISO.test(entry.lastSeenAt);
 
 /** The single fixed state path under the data dir. */
 export const statePath = (dataDir) => join(dataDir, STATE_FILE);
 
-const empty = () => ({ handled: {}, cursor: null, lastRunAt: null });
+const empty = () => ({ handled: {}, authorizationHolds: {}, cursor: null, lastRunAt: null });
 
 /** Read persisted state. Missing is a legitimate first run; malformed durable truth is not. */
 export function loadState(dataDir) {
@@ -27,12 +31,15 @@ export function loadState(dataDir) {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
       || (parsed.handled !== undefined && (typeof parsed.handled !== 'object' || parsed.handled === null || Array.isArray(parsed.handled)))
       || Object.values(parsed.handled ?? {}).some((entry) => !entry || typeof entry !== 'object' || Array.isArray(entry))
+      || (parsed.authorizationHolds !== undefined && (typeof parsed.authorizationHolds !== 'object' || parsed.authorizationHolds === null || Array.isArray(parsed.authorizationHolds)))
+      || Object.values(parsed.authorizationHolds ?? {}).some((entry) => !validHold(entry))
       || (parsed.cursor != null && typeof parsed.cursor !== 'string')
       || (parsed.lastRunAt != null && typeof parsed.lastRunAt !== 'string')) {
       throw new Error('invalid structure');
     }
     return {
       handled: parsed.handled ?? {},
+      authorizationHolds: parsed.authorizationHolds ?? {},
       cursor: parsed.cursor ?? null,
       lastRunAt: parsed.lastRunAt ?? null,
     };

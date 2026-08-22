@@ -64,9 +64,25 @@ export async function runAutopilot({
   // One paged poll of the whole window (every payment state), so non-paid photo orders are visible in
   // the report rather than vanishing. Extraction is by key substring — no `type` field on the public API.
   const nodes = await client.listOrders({ query: `updated_at:>=${windowFrom}` });
+  const seenPurchases = new Set(nodes.map((node) => String(node.name ?? '').replace(/^#/, '').trim()));
+  if (client.fetchOrderByName) {
+    for (const hold of Object.values(state.authorizationHolds)) {
+      if (!seenPurchases.has(hold.purchaseId)) {
+        seenPurchases.add(hold.purchaseId);
+        const node = await client.fetchOrderByName(hold.purchaseId);
+        if (node) nodes.push(node);
+      }
+    }
+  }
+  const terminalPurchases = new Set(nodes
+    .filter((node) => ['REFUNDED', 'VOIDED'].includes(String(node.displayFinancialStatus ?? '').toUpperCase()))
+    .map((node) => String(node.name ?? '').replace(/^#/, '').trim()));
+  for (const [orderId, hold] of Object.entries(state.authorizationHolds)) {
+    if (terminalPurchases.has(hold.purchaseId)) delete state.authorizationHolds[orderId];
+  }
   // flatMap, not map: one order node can hold more than one book, and each becomes its own job with
   // its own id, folder and PDF. Everything downstream of here still works one job at a time.
-  const orders = nodes
+  const orders = nodes.filter((node) => !terminalPurchases.has(String(node.name ?? '').replace(/^#/, '').trim()))
     .flatMap((n) => extractJobs(n, { photoKeyMatch: sh.photoKeyMatch, dedicationKeyMatch: sh.dedicationKeyMatch, layoutKeyMatch: sh.layoutKeyMatch }));
 
   const photoOrders = orders.filter((o) => o.photos.length > 0);
@@ -91,10 +107,14 @@ export async function runAutopilot({
   const newIds = [];
   const byId = new Map();
   const failedMaterialize = [];
+  const heldMaterialize = [];
   for (const order of toProcess) {
     byId.set(order.orderId, order);
     const result = await materialize(order, { inboxRoot: config.paths.inbox, allowlist: sh.photoHostAllowlist, now });
-    if (result.incomplete) {
+    if (result.held) {
+      heldMaterialize.push({ orderId: order.orderId, purchaseId: order.purchase.orderId, reason: result.errors?.[0] ?? 'chybí platné potvrzení k fotografiím' });
+      onEvent({ type: 'materialize', orderId: order.orderId, incomplete: true, held: true, errors: result.errors });
+    } else if (result.incomplete) {
       failedMaterialize.push({ orderId: order.orderId, reason: `photos could not be downloaded — needs manual pull${result.errors?.length ? ` (${result.errors.join('; ')})` : ''}` });
       onEvent({ type: 'materialize', orderId: order.orderId, incomplete: true, errors: result.errors });
     } else {
@@ -117,8 +137,22 @@ export async function runAutopilot({
     const status = reportStatus(entry.status);
     reportOrders.push({ orderId: entry.orderId, status, reason: entry.reason ?? null });
     if (status === 'ready') markHandled(state, entry.orderId, { status, updatedAt: byId.get(entry.orderId)?.updatedAt ?? null, at: ranAt });
+    delete state.authorizationHolds[entry.orderId];
   }
-  for (const f of failedMaterialize) reportOrders.push({ orderId: f.orderId, status: 'failed', reason: f.reason });
+  for (const f of failedMaterialize) {
+    delete state.authorizationHolds[f.orderId];
+    reportOrders.push({ orderId: f.orderId, status: 'failed', reason: f.reason });
+  }
+  for (const h of heldMaterialize) {
+    const prior = state.authorizationHolds[h.orderId];
+    state.authorizationHolds[h.orderId] = { purchaseId: h.purchaseId, firstSeenAt: prior?.firstSeenAt ?? ranAt, lastSeenAt: ranAt };
+    reportOrders.push({ orderId: h.orderId, status: 'held', reason: h.reason });
+  }
+  for (const [orderId] of Object.entries(state.authorizationHolds)) {
+    if (!reportOrders.some((entry) => entry.orderId === orderId)) {
+      reportOrders.push({ orderId, status: 'held', reason: 'objednávka nadále čeká na platné potvrzení k fotografiím' });
+    }
+  }
 
   const counts = {
     ready: reportOrders.filter((o) => o.status === 'ready').length,
@@ -169,7 +203,7 @@ function cliOnEvent(e) {
     case 'materialize':
       return console.log(
         e.incomplete
-          ? `${stamp()}   ${e.orderId}: could not download photos — needs manual pull`
+          ? `${stamp()}   ${e.orderId}: ${e.held ? 'held before download — missing valid photo authorization' : 'could not download photos — needs manual pull'}`
           : `${stamp()}   ${e.orderId}: materialized ${e.files} photo(s)`,
       );
     case 'autopilot-done':

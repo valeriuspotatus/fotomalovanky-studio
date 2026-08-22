@@ -240,6 +240,94 @@ test('a photo that cannot be downloaded marks the order failed / needs-manual-pu
   }
 });
 
+test('missing authorization is reported held and remains retryable without reaching the pipeline', async () => {
+  const { dataDir, inbox, cleanup } = dirs();
+  try {
+    const materialize = spyMaterialize({ 1606: { orderId: '1606', incomplete: true, held: true, files: [], errors: ['chybí platné potvrzení'] } });
+    const runPipelineFn = spyPipeline({});
+    const r = await runAutopilot({
+      config: makeConfig(dataDir, inbox),
+      now: NOW,
+      createClient: clientWith([node({ name: '#1606', photos: [PHOTO] })]),
+      materialize,
+      runPipelineFn,
+    });
+    assert.equal(runPipelineFn.calls.length, 0);
+    assert.equal(r.report.counts.held, 1);
+    assert.equal(r.report.counts.failed, 0);
+    assert.equal(isHandled(loadState(dataDir), '1606'), false);
+    assert.equal(loadState(dataDir).authorizationHolds['1606'].purchaseId, '1606');
+  } finally {
+    cleanup();
+  }
+});
+
+test('an authorization hold is fetched explicitly after it leaves the poll window', async () => {
+  const { dataDir, inbox, cleanup } = dirs();
+  try {
+    const heldNode = node({ name: '#1607', photos: [PHOTO] });
+    const heldResult = { orderId: '1607', incomplete: true, held: true, files: [], errors: ['missing authorization'] };
+    await runAutopilot({
+      config: makeConfig(dataDir, inbox), now: NOW,
+      createClient: clientWith([heldNode]),
+      materialize: spyMaterialize({ 1607: heldResult }), runPipelineFn: spyPipeline({}),
+    });
+
+    let fetched = null;
+    const materialize = spyMaterialize();
+    await runAutopilot({
+      config: makeConfig(dataDir, inbox), now: NOW,
+      createClient: () => ({ listOrders: async () => [], fetchOrderByName: async (name) => { fetched = name; return heldNode; } }),
+      materialize, runPipelineFn: spyPipeline({ 1607: ORDER_STATUS.DONE }),
+    });
+    assert.equal(fetched, '1607');
+    assert.deepEqual(materialize.calls, ['1607']);
+    assert.equal(loadState(dataDir).authorizationHolds['1607'], undefined);
+  } finally {
+    cleanup();
+  }
+});
+
+test('stale sibling holds fetch their purchase once and process each book once', async () => {
+  const { dataDir, inbox, cleanup } = dirs();
+  try {
+    const purchase = node({ name: '#1617', photos: [PHOTO] });
+    purchase.lineItems.edges.push(purchase.lineItems.edges[0]);
+    saveState(dataDir, { handled: {}, authorizationHolds: {
+      '1617-1': { purchaseId: '1617', firstSeenAt: NOW(), lastSeenAt: NOW() },
+      '1617-2': { purchaseId: '1617', firstSeenAt: NOW(), lastSeenAt: NOW() },
+    }, cursor: null, lastRunAt: NOW() });
+    let fetches = 0;
+    const materialize = spyMaterialize();
+    await runAutopilot({
+      config: makeConfig(dataDir, inbox), now: NOW,
+      createClient: () => ({ listOrders: async () => [], fetchOrderByName: async () => { fetches++; return purchase; } }),
+      materialize, runPipelineFn: spyPipeline({}),
+    });
+    assert.equal(fetches, 1);
+    assert.deepEqual(materialize.calls, ['1617-1', '1617-2']);
+  } finally { cleanup(); }
+});
+
+test('a refunded held purchase clears every sibling without downloading photos', async () => {
+  const { dataDir, inbox, cleanup } = dirs();
+  try {
+    saveState(dataDir, { handled: {}, authorizationHolds: {
+      '1618-1': { purchaseId: '1618', firstSeenAt: NOW(), lastSeenAt: NOW() },
+      '1618-2': { purchaseId: '1618', firstSeenAt: NOW(), lastSeenAt: NOW() },
+    }, cursor: null, lastRunAt: NOW() });
+    const refunded = node({ name: '#1618', financial: 'REFUNDED', photos: [PHOTO] });
+    const materialize = spyMaterialize();
+    await runAutopilot({
+      config: makeConfig(dataDir, inbox), now: NOW,
+      createClient: () => ({ listOrders: async () => [], fetchOrderByName: async () => refunded }),
+      materialize, runPipelineFn: spyPipeline({}),
+    });
+    assert.deepEqual(materialize.calls, []);
+    assert.deepEqual(loadState(dataDir).authorizationHolds, {});
+  } finally { cleanup(); }
+});
+
 test('shopify disabled → the runner is inert: no report, no client, nothing touched (R9 fallback intact)', async () => {
   const { dataDir, inbox, cleanup } = dirs();
   try {

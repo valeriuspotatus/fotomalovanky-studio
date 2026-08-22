@@ -1,19 +1,69 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { materializeOrder } from '../src/shopify/materialize.js';
 import { isPhoto } from '../src/organize.js';
 import { readOrderInfo } from '../src/orderInfo.js';
+import { PHOTO_AUTHORIZATION_KEYS as KEYS, PHOTO_AUTHORIZATION_LOCALE, PHOTO_AUTHORIZATION_TEXT_HASH, PHOTO_AUTHORIZATION_VERSION, validatePhotoAuthorization } from '../src/photoAuthorization.js';
 
 // The upload host serves some photos as PNG/WebP, but organize.js only ingests .jpg/.jpeg — so an
 // order like #1525 downloaded as PNG would land in the folder yet be silently skipped by the
 // pipeline. materializeOrder must re-encode non-JPEG photos so every one reaches ingest.
 
-const ORDER = { orderId: '9001', dedication: 'Pro Aničku', email: 'x@y.cz', layout: null, products: [], photos: [] };
+const authorization = validatePhotoAuthorization([
+  { key: KEYS.accepted, value: 'true' },
+  { key: KEYS.version, value: PHOTO_AUTHORIZATION_VERSION },
+  { key: KEYS.acceptedAt, value: '2026-08-22T09:58:00.000Z' },
+  { key: KEYS.locale, value: PHOTO_AUTHORIZATION_LOCALE },
+  { key: KEYS.textHash, value: PHOTO_AUTHORIZATION_TEXT_HASH },
+], { orderCreatedAt: '2026-08-22T10:00:00.000Z' });
+const ORDER = { orderId: '9001', dedication: 'Pro Aničku', email: 'x@y.cz', layout: null, products: [], photos: [], photoAuthorization: authorization, digitalPerformance: { valid: true, evidence: null } };
 const swatch = (bg) => sharp({ create: { width: 4, height: 4, channels: 3, background: bg } });
+
+test('materialization holds invalid authorization before downloading or creating customer files', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-mat-consent-'));
+  let fetched = false;
+  try {
+    const result = await materializeOrder({ ...ORDER, photos: ['https://cdn.example/photo.jpg'], photoAuthorization: { valid: false } }, {
+      inboxRoot: root,
+      safeFetch: async () => { fetched = true; throw new Error('must not fetch'); },
+    });
+    assert.equal(result.held, true);
+    assert.equal(result.incomplete, true);
+    assert.equal(fetched, false);
+    assert.equal(existsSync(join(root, ORDER.orderId)), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('materialization holds a PDF with missing immediate-performance evidence before download', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-mat-digital-'));
+  let fetched = false;
+  try {
+    const result = await materializeOrder({ ...ORDER, photos: ['https://cdn.example/photo.jpg'], digitalPerformance: { valid: false } }, {
+      inboxRoot: root,
+      safeFetch: async () => { fetched = true; throw new Error('must not fetch'); },
+    });
+    assert.equal(result.held, true);
+    assert.equal(fetched, false);
+    assert.equal(existsSync(join(root, ORDER.orderId)), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('materialization fails closed when digital validation was omitted', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fma-mat-digital-missing-'));
+  let fetched = false;
+  try {
+    const { digitalPerformance, ...missing } = { ...ORDER, photos: ['https://cdn.example/photo.jpg'], products: [{ title: 'Fotomalovánky', variant: 'PDF online' }] };
+    const result = await materializeOrder(missing, { inboxRoot: root, safeFetch: async () => { fetched = true; throw new Error('must not fetch'); } });
+    assert.equal(result.held, true);
+    assert.equal(fetched, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test('materializeOrder re-encodes a non-JPEG photo to JPEG so the pipeline ingests it', async () => {
   const root = mkdtempSync(join(tmpdir(), 'fma-mat-'));
@@ -32,6 +82,9 @@ test('materializeOrder re-encodes a non-JPEG photo to JPEG so the pipeline inges
     assert.ok(converted, 'the PNG was written as a .jpeg');
     const meta = await sharp(readFileSync(join(root, order.orderId, converted))).metadata();
     assert.equal(meta.format, 'jpeg', 'the re-encoded bytes are really JPEG');
+    const sidecar = readFileSync(join(root, order.orderId, 'objednavka.json'), 'utf8');
+    assert.ok(!sidecar.includes('cdn.example'), 'customer upload URLs are not retained in local metadata');
+    assert.equal(JSON.parse(sidecar).photoAuthorization.textHash, PHOTO_AUTHORIZATION_TEXT_HASH);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -67,6 +120,8 @@ const book = (position, { photos, dedication, variant }) => ({
   layout: null,
   products: [{ title: 'Fotomalovánky', variant, qty: 1 }],
   photos,
+  photoAuthorization: authorization,
+  digitalPerformance: { valid: true, evidence: null },
 });
 
 test('the two books of one purchase land in sibling folders, each holding only its own photos', async () => {
